@@ -14,6 +14,7 @@ typedef struct header {
 
 template<typename HashDigest>
 struct region_header {
+  int id;
   size_t region_size;
   size_t hash_size;
   size_t chunk_size;

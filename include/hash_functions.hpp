@@ -32,9 +32,9 @@ public:
 
   class Digest {
   public:
-    uint8_t digest[160];
+    uint8_t digest[20];
     friend bool operator<(const Digest& l, const Digest& r) {
-      int result = memcmp(l.digest, r.digest, 160);
+      int result = memcmp(l.digest, r.digest, 20);
       if(result < 0) {
         return true;
       } else {
@@ -43,7 +43,7 @@ public:
     }
   };
 
-  constexpr static size_t size = 160;
+  constexpr static size_t size = 20;
 
   std::string hash_name() {
     return std::string("SHA1");

@@ -5,25 +5,27 @@
 #include <fstream>
 #include <iostream>
 
+// Collect unique hashes from prior incremental checkpoints
 template <typename HashDigest>
 void collect_unique_hashes(std::vector<std::pair<header_t, std::map<int, region_header_t<HashDigest>>>> &prev_chkpt_headers, std::map<int, std::map<HashDigest, size_t>>& unique_hashes) {
-std::cout << "Number of prior checkpoints: " << prev_chkpt_headers.size() << std::endl;
+//std::cout << "Number of prior checkpoints: " << prev_chkpt_headers.size() << std::endl;
+  // Go through prior checkpoint headers
   for(size_t i=0; i<prev_chkpt_headers.size(); i++) {
     header_t main_header = prev_chkpt_headers[i].first;
     std::map<int, region_header_t<HashDigest>>& region_headers = prev_chkpt_headers[i].second;
-std::cout << "Number of regions: " << region_headers.size() << std::endl;
+//std::cout << "Number of regions: " << region_headers.size() << std::endl;
     for(auto it=region_headers.begin(); it!=region_headers.end(); it++) {
-      auto hash_it = unique_hashes.find(it->first);
+//printf("Reading region %d\n", it->first);
       std::map<HashDigest,size_t> hashes;
-      if(hash_it != unique_hashes.end()) {
-        hashes = hash_it->second;
-      }
+      auto pos = unique_hashes.find(it->first);
+      auto ret = unique_hashes.insert(pos, std::make_pair(it->first, hashes));
+      auto hash_it = ret->second;
       for(size_t k=0; k<it->second.num_unique; k++) {
         int id = it->first;
         size_t idx = it->second.unique_hashes[k];
-        hashes.insert(std::make_pair(it->second.hashes[idx], idx));
+        ret->second.insert(std::make_pair(it->second.hashes[idx], idx));
       }
-      unique_hashes.insert(std::make_pair(it->first, hashes));
+//      std::cout << "Region has " << ret->second.size() << " unique hashes\n";
     }
   }
 }
@@ -63,11 +65,6 @@ bool read_incremental_headers(std::string& chkpt, header_t& header, std::map<int
   try {
     std::ifstream f;
     f.open(chkpt, std::ifstream::in | std::ifstream::binary);
-//    f.open(chkpt, std::ifstream::in);
-//    f.read((char*)&header, 3*sizeof(size_t));
-//    f >> header.chkpt_size;
-//    f >> header.header_size;
-//    f >> header.num_regions;
     f.read((char*)(&header.chkpt_size), sizeof(size_t));
     f.read((char*)(&header.header_size), sizeof(size_t));
     f.read((char*)(&header.num_regions), sizeof(size_t));
@@ -75,43 +72,25 @@ std::cout << "Header: " << header.chkpt_size << std::endl;
 std::cout << "Header: " << header.header_size << std::endl;
 std::cout << "Header: " << header.num_regions << std::endl;
     for(size_t i=0; i<header.num_regions; i++) {
-      int id = i;
+      int id;
       region_header_t<HashDigest> region;
-//      f.read((char*)&id, sizeof(int));
+      f.read((char*)&id, sizeof(int));
       f.read((char*)&(region.region_size), sizeof(size_t));
       f.read((char*)&(region.hash_size), sizeof(size_t));
       f.read((char*)&(region.chunk_size), sizeof(size_t));
       f.read((char*)&(region.num_hashes), sizeof(size_t));
       f.read((char*)&(region.num_unique), sizeof(size_t));
-//f >> region.region_size;
-//f >> region.hash_size;
-//f >> region.chunk_size;
-//f >> region.num_hashes;
-//f >> region.num_unique;
-//std::cout << "Incremental header id: " << id << std::endl;
-//std::cout << "Incremental header region size: " << region.region_size << std::endl;
-//std::cout << "Incremental header hash size: " << region.hash_size << std::endl;
-//std::cout << "Incremental header chunk size: " << region.chunk_size << std::endl;
-//std::cout << "Incremental header num hashes: " << region.num_hashes << std::endl;
-//std::cout << "Incremental header num unique: " << region.num_unique << std::endl;
+std::cout << "Number of unique hashes: " << region.num_unique << std::endl;
       for(size_t j=0; j<region.num_hashes; j++) {
         HashDigest hash;
-//        f.read((char*)&hash, sizeof(region.hash_size));
-        f.read((char*)&hash, 160);
-//        for(size_t k=0; k<160; k++) {
-//          f >> hash.digest[k];
-//        }
+        f.read((char*)hash.digest, sizeof(HashDigest));
         region.hashes.push_back(hash);
       }
-//std::cout << "Incremental header unique hashes: ";
       for(size_t j=0; j<region.num_unique; j++) {
         size_t index;
         f.read((char*)&index, sizeof(size_t));
-//        f >> index;
-//std::cout << index << " ";
         region.unique_hashes.push_back(index);
       }
-//std::cout << std::endl;
       region_headers.insert(std::make_pair(id, region));
     }
     return true;
@@ -123,44 +102,16 @@ std::cout << "Header: " << header.num_regions << std::endl;
 
 template<typename HashDigest>
 void write_header(std::ofstream& f, region_header_t<HashDigest>& header) {
-//  std::cout << "Region size: " << header.region_size << std::endl;
-//  std::cout << "Hash size  : " << header.hash_size << std::endl;
-//  std::cout << "Chunk size : " << header.chunk_size << std::endl;
-//  std::cout << "Num hashes : " << header.num_hashes << std::endl;
-//  std::cout << "Num unique : " << header.num_unique << std::endl;
-//  std::cout << "Hashes: ";
-//  for(size_t i=0; i<header.num_hashes; i++) {
-//    HashDigest digest;
-//    SHA1 sha;
-//    sha.digest_to_hex(header.hashes[i].digest, (char*)(digest.digest));
-//    std::cout << std::string((char*)digest.digest) << " ";
-//  }
-//  std::cout << std::endl;
-//  std::cout << "Unique hashes: ";
-//  for(size_t i=0; i<header.num_hashes; i++) {
-//    std::cout << header.unique_hashes[i] << " ";
-//  }
-//  std::cout << std::endl;
-
-//  f << header.region_size;
-//  f << header.hash_size;
-//  f << header.chunk_size;
-//  f << header.num_hashes;
-//  f << header.num_unique;
+  f.write((char*)&header.id, sizeof(int));
   f.write((char*)&header.region_size, sizeof(size_t));
   f.write((char*)&header.hash_size, sizeof(size_t));
   f.write((char*)&header.chunk_size, sizeof(size_t));
   f.write((char*)&header.num_hashes, sizeof(size_t));
   f.write((char*)&header.num_unique, sizeof(size_t));
   for(size_t i=0; i<header.num_hashes; i++) {
-    HashDigest digest;
-    SHA1 sha;
-    sha.digest_to_hex(header.hashes[i].digest, (char*)(digest.digest));
-//    f.write((char*)(header.hashes[i].digest), sizeof(HashDigest));
-    f.write((char*)(header.hashes[i].digest), 160);
+    f.write((char*)(header.hashes[i].digest), sizeof(HashDigest));
   }
   for(size_t i=0; i<header.num_unique; i++) {
-//    f << header.unique_hashes[i];
     f.write((char*)&header.unique_hashes[i], sizeof(size_t));
   }
 }
@@ -207,6 +158,8 @@ void compare_hashes(std::vector<HashDigest>& curr_hashes,
                     std::map<HashDigest, size_t>& changed_regions,
                     size_t& num_changes, 
                     const int hash_len) {
+std::cout << "Comparing hashes\n";
+std::cout << "Region has " << prev_hashes.size() << " prior existing hashes\n";
   if(changed_regions.size() == 0) {
     for(size_t i=0; i<curr_hashes.size(); i++) {
       bool unique = true;
@@ -226,17 +179,20 @@ void compare_hashes(std::vector<HashDigest>& curr_hashes,
     }
   }
 
+size_t duplicates = 0;
   for(size_t i=0; i<curr_hashes.size(); i++) {
     HashDigest curr_digest = curr_hashes[i];
     auto iter = changed_regions.find(curr_digest);
     if(iter != changed_regions.end()) {
       auto unique_iter = prev_hashes.find(curr_digest);
       if(unique_iter != prev_hashes.end()) {
-//std::cout << "Found prior hash\n";
+duplicates += 1;
         changed_regions.erase(iter);
       }
     }
   }
+printf("Found %zd duplicates from prior hashes\n", duplicates);
+std::cout << "Region has " << changed_regions.size() << " unique hashes\n";
 
   num_changes = changed_regions.size();
 }
@@ -303,7 +259,13 @@ printf("Checkpoint size: %zd\n", chkpt_header.chkpt_size);
 printf("Header size: %zd\n", chkpt_header.header_size);
 printf("Num regions: %zd\n", chkpt_header.num_regions);
 
+printf("Region map:\n");
+for(auto &e: region_map) {
+  printf("(%d,%zd)\n", e.first, e.second);
+}
+
   using HashDigest = DefaultHash::Digest;
+printf("Size of HashDigest: %d\n", sizeof(HashDigest));
 
   // Read headers from prior checkpoints
   std::vector<std::pair<header_t, std::map<int, region_header_t<HashDigest>>>> prev_chkpt_headers;
@@ -321,11 +283,17 @@ printf("Collecting unique hashes\n");
   std::map<int, std::map<HashDigest,size_t>> unique_hashes;
   collect_unique_hashes(prev_chkpt_headers, unique_hashes);
 
-printf("Found unique hashes\n");
-std::cout << unique_hashes.size() << std::endl;
-for(auto &e: unique_hashes) {
-  printf("Region %d has %zd unique hashes\n", e.first, e.second.size());
-}
+//printf("Found unique hashes\n");
+//std::cout << unique_hashes.size() << std::endl;
+//for(auto &e: unique_hashes) {
+//  printf("Region %d has %zd unique hashes\n", e.first, e.second.size());
+//  char hex[80];
+//  SHA1 sha1;
+//  for(auto &hash: e.second) {
+//    sha1.digest_to_hex(hash.first.digest, hex);
+//    printf("%s\n", hex);
+//  }
+//}
 
   // Read checkpoint data and deduplicate
   std::map<int, std::vector<uint8_t>> region_data;
@@ -335,18 +303,14 @@ for(auto &e: unique_hashes) {
   f.open(full, std::ifstream::in | std::ifstream::binary);
   f.seekg(chkpt_header.header_size);
   for(auto &e : region_map) {
+printf("Region: %d\n", e.first);
     std::vector<uint8_t> data(e.second, 0);
     f.read((char*)data.data(), e.second);
     std::vector<uint8_t> incr_data;
     std::map<HashDigest, size_t> updates;
     region_header_t<HashDigest> region_header;
+    region_header.id = e.first;
     cpu_dedup(data, unique_hashes[e.first], region_header, incr_data);
-//printf("Deduplicated region %d\n", e.first);
-//  std::cout << "Region size: " << region_header.region_size << std::endl;
-//  std::cout << "Hash size  : " << region_header.hash_size << std::endl;
-//  std::cout << "Chunk size : " << region_header.chunk_size << std::endl;
-//  std::cout << "Num hashes : " << region_header.num_hashes << std::endl;
-//  std::cout << "Num unique : " << region_header.num_unique << std::endl;
     region_data.insert(std::make_pair(e.first, incr_data));
     region_headers.insert(std::make_pair(e.first, region_header));
   }
@@ -364,7 +328,6 @@ printf("Deduplicated checkpoints\n");
     header_size += sizeof(size_t)*5;
     header_size += sizeof(HashDigest)*e.second.hashes.size();
     header_size += sizeof(size_t)*e.second.unique_hashes.size();
-printf("Size of header %d is %zd\n", e.first, header_size);
   }
   chkpt_header.header_size = header_size;
   chkpt_header.num_regions = region_data.size();
@@ -378,14 +341,18 @@ printf("Num regions: %zd\n", chkpt_header.num_regions);
 std::cout << incr << std::endl;
   std::ofstream os;
   os.exceptions(std::ofstream::failbit | std::ofstream::badbit);
-  os.open(incr, std::ifstream::out | std::ifstream::binary);
+  os.open(incr, std::ofstream::out | std::ofstream::binary);
   os.write((char*)&(chkpt_header), sizeof(size_t)*3);
+printf("Wrote main header \n");
 
   for(auto &e: region_headers) {
     write_header<HashDigest>(os, e.second);
   }
+printf("Wrote region headers\n");
 
   for(auto &e: region_data) {
     os.write((char*)e.second.data(), e.second.size());
   }
+
+printf("Wrote region data\n");
 }
