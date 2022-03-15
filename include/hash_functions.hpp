@@ -284,6 +284,18 @@ class Murmur3 : Hasher {
 public:
   using DIGEST_TYPE = uint32_t;
 
+  class Digest {
+  public:
+    uint32_t digest[1];
+    friend bool operator<(const Digest& l, const Digest& r) {
+      if(*l.digest < *r.digest) {
+        return true;
+      } else {
+        return false;
+      }
+    }
+  };
+
   std::string hash_name() {
     return std::string("Murmur3");
   }
