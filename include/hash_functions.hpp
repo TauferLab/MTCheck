@@ -2,15 +2,24 @@
 #define __HASH_FUNCTIONS_HPP
 
 #include <cstring>
+#include <cuda.h>
+#include <string>
+
+enum HashFunc {
+  SHA1Hash=0,
+  Murmur3Hash
+};
 
 class Hasher {
   public:
+  
+  Hasher() {}
 
-  std::string hash_name();
+  virtual std::string hash_name() = 0;
 
-  void hash(const void* data, int len, uint8_t* digest);
+  virtual void hash(const void* data, int len, uint8_t* digest) = 0;
 
-  constexpr uint32_t digest_size();
+  virtual uint32_t digest_size() = 0;
 
   void digest_to_hex(const uint8_t* digest, char* output, uint32_t digest_size) {
     char* c = output;
@@ -26,9 +35,11 @@ class Hasher {
   }
 };
 
-class SHA1: Hasher {
+class SHA1: public Hasher {
 public:
   using DIGEST_TYPE = uint8_t;
+
+  SHA1() {}
 
   class Digest {
   public:
@@ -42,8 +53,6 @@ public:
       }
     }
   };
-
-  constexpr static size_t size = 20;
 
   std::string hash_name() {
     return std::string("SHA1");
@@ -268,7 +277,7 @@ public:
     *(c-1) = '\0';
   }
 
-  constexpr uint32_t digest_size() {
+  uint32_t digest_size() {
     return SHA1_DIGEST_SIZE;
   }
 
@@ -434,7 +443,7 @@ public:
   }
 
   /* Size of hash digest in bytes */
-  constexpr uint32_t digest_size() {
+  uint32_t digest_size() {
     return 4;
   }
 };

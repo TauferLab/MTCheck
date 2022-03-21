@@ -1,14 +1,21 @@
 #include <iostream>
 #include <fstream>
 #include "dedup.hpp"
+#include "hash_functions.hpp"
 #include <string>
 #include <vector>
+#include <cuda.h>
 
 int main(int argc, char**argv) {
   std::string full_chkpt(argv[1]);
   std::string incr_chkpt = full_chkpt + ".incr_chkpt";
 
+  SHA1 hasher;
   std::vector<std::string> prev_chkpt;
+  config_t config;
+  config.dedup_on_gpu = false;
+  config.chunk_size = 1024;
+  config.hash_func = &hasher;
 
   for(int i=2; i<argc; i++) {
     prev_chkpt.push_back(std::string(argv[i]));
@@ -56,18 +63,31 @@ int main(int argc, char**argv) {
     region_t region;
     region.size = e.second;
     region.ptr = (void*) malloc(e.second);
+    region.ptr_type = Host;
     f.read((char*)region.ptr, e.second);
     regions.insert(std::make_pair(e.first, region));
   }
 
   std::string incr_chkpt_mem = full_chkpt + ".in_mem.incr_chkpt";
 std::cout << "Starting data mode deduplication\n";
-  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt);
+  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt, config);
 std::cout << "Done with data mode\n";
 
 std::cout << "Deduplicating file\n";
-  module.deduplicate_file(full_chkpt, incr_chkpt, prev_chkpt);
+  module.deduplicate_file(full_chkpt, incr_chkpt, prev_chkpt, config);
 std::cout << "Done deduplicating file\n";
-  
+
+  for(auto &e : regions) {
+    void* gpu_ptr;
+    cudaMalloc(&gpu_ptr, e.second.size);
+    cudaMemcpy(gpu_ptr, e.second.ptr, e.second.size, cudaMemcpyHostToDevice);
+    e.second.ptr = gpu_ptr;
+    e.second.ptr_type = Cuda;
+  }
+  config.dedup_on_gpu = true;
+  std::string incr_chkpt_gpu = full_chkpt + ".gpu.incr_chkpt";
+  std::cout << "Starting gpu deduplication\n";
+  module.deduplicate_data(regions, incr_chkpt_gpu, prev_chkpt, config);
+  std::cout << "Done with gpu deduplication\n";
 }
 
