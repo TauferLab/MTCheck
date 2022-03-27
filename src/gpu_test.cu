@@ -8,7 +8,7 @@
 
 int main(int argc, char**argv) {
   std::string full_chkpt(argv[1]);
-  std::string incr_chkpt = full_chkpt + ".incr_chkpt";
+  std::string incr_chkpt = full_chkpt + ".gpu_test.incr_chkpt";
 
   SHA1 hasher;
   std::vector<std::string> prev_chkpt;
@@ -68,14 +68,14 @@ int main(int argc, char**argv) {
     regions.insert(std::make_pair(e.first, region));
   }
 
-  std::string incr_chkpt_mem = full_chkpt + ".in_mem.incr_chkpt";
-std::cout << "Starting data mode deduplication\n";
-  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt, config);
-std::cout << "Done with data mode\n";
+//  std::string incr_chkpt_mem = full_chkpt + ".gpu_test.in_mem.incr_chkpt";
+//std::cout << "Starting data mode deduplication\n";
+//  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt, config);
+//std::cout << "Done with data mode\n";
 
-std::cout << "Deduplicating file\n";
-  module.deduplicate_file(full_chkpt, incr_chkpt, prev_chkpt, config);
-std::cout << "Done deduplicating file\n";
+//std::cout << "Deduplicating file\n";
+//  module.deduplicate_file(full_chkpt, incr_chkpt, prev_chkpt, config);
+//printf("Done deduplicating file\n");
 
   for(auto &e : regions) {
     void* gpu_ptr;
@@ -84,10 +84,18 @@ std::cout << "Done deduplicating file\n";
     e.second.ptr = gpu_ptr;
     e.second.ptr_type = Cuda;
   }
+  printf("Dedup on GPU\n");
   config.dedup_on_gpu = true;
-  std::string incr_chkpt_gpu = full_chkpt + ".gpu.incr_chkpt";
+  std::string incr_chkpt_gpu = full_chkpt + ".gpu_test.gpu.incr_chkpt";
   std::cout << "Starting gpu deduplication\n";
   module.deduplicate_data(regions, incr_chkpt_gpu, prev_chkpt, config);
+  std::cout << "Done with gpu deduplication\n";
+
+  printf("Dedup on CPU\n");
+  config.dedup_on_gpu = false;
+  std::string incr_chkpt_cpu = full_chkpt + ".gpu_test.cpu.incr_chkpt";
+  std::cout << "Starting gpu deduplication\n";
+  module.deduplicate_data(regions, incr_chkpt_cpu, prev_chkpt, config);
   std::cout << "Done with gpu deduplication\n";
 }
 

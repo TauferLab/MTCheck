@@ -13,7 +13,6 @@ typedef struct header {
   size_t num_regions;
 } header_t;
 
-//template<typename HashDigest>
 struct region_header {
   int id;
   size_t region_size;
