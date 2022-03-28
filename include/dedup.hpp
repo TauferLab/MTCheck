@@ -20,6 +20,7 @@ struct region_header {
   size_t chunk_size;
   size_t num_hashes;
   size_t num_unique;
+//  uint8_t* merkle_tree;
   std::vector<std::vector<uint32_t>> hashes;
   std::vector<size_t> unique_hashes;
 };
@@ -41,6 +42,7 @@ typedef std::map<int, region_t> regions_t;
 
 typedef struct config {
   bool dedup_on_gpu;
+//  bool use_merkle_trees;
   int chunk_size;
   Hasher* hash_func;
 } config_t;
@@ -50,6 +52,7 @@ private:
   void cpu_dedup(uint8_t* data, 
                 size_t data_len,
                 std::map<std::vector<uint32_t>, size_t>& prev_hashes,
+//		std::map<int, std::pair<size_t,uint8_t*>>& prev_trees,
                 region_header_t& header,
                 uint8_t** incr_data,
                 size_t& incr_len,

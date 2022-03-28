@@ -1,5 +1,6 @@
 #include "dedup.hpp"
 #include "hash_functions.hpp"
+//#include "merkle_tree.hpp"
 #include <vector>
 #include <map>
 #include <fstream>
@@ -141,6 +142,7 @@ void gather_changes(T* data,
 void deduplicate_module_t::cpu_dedup(uint8_t* data, 
                                      size_t data_len,
                                      std::map<std::vector<uint32_t>, size_t>& prev_hashes,
+//				     std::map<int, std::pair<uint8_t*,size_t>>& prev_trees,
                                      region_header_t& header,
                                      uint8_t** incr_data,
                                      size_t& incr_len,
@@ -151,20 +153,38 @@ void deduplicate_module_t::cpu_dedup(uint8_t* data,
   std::vector<uint8_t> buffer;
   size_t hash_len = config.hash_func->digest_size();
   std::map<std::vector<uint32_t>, size_t> unique_hashes;
+  size_t num_hashes = data_len/hash_len;
+  if(num_hashes*hash_len < data_len)
+    num_hashes += 1;
 
-  high_resolution_clock::time_point calc_start = high_resolution_clock::now();
-  calculate_hashes(data, data_len, header.hashes, config.chunk_size, config.hash_func);
-  high_resolution_clock::time_point calc_end = high_resolution_clock::now();
-  high_resolution_clock::time_point find_start = high_resolution_clock::now();
-  find_unique(header.hashes, prev_hashes, unique_hashes, num_changes, hash_len);
-  high_resolution_clock::time_point find_end = high_resolution_clock::now();
-  high_resolution_clock::time_point comp_start = high_resolution_clock::now();
-  compare_hashes(header.hashes, prev_hashes, unique_hashes, num_changes, hash_len);
-  high_resolution_clock::time_point comp_end = high_resolution_clock::now();
+  high_resolution_clock::time_point calc_start, calc_end, find_start, find_end, comp_start, comp_end, gather_start, gather_end;
+
+//  if(config.use_merkle_trees) {
+//    calc_start = high_resolution_clock::now();
+//    header.merkle_tree = create_merkle_tree(data, data_len, hash_len, chunk_size);
+//    calc_end = high_resolution_clock::now();
+//    find_start = high_resolution_clock::now();
+//    find_end = high_resolution_clock::now();
+//    comp_start = high_resolution_clock::now();
+//    for(auto it=prev_tress.begin(); it!=prev_trees.end(); it++) {
+//      compare_merkle_trees(header.merkle_tree, it->second.first, num_hashes, it->second.second, hash_len, num_hashes, unique_hashes, num_changes);
+//    }
+//    comp_end = high_resolution_clock::now();
+//  } else {
+    calc_start = high_resolution_clock::now();
+    calculate_hashes(data, data_len, header.hashes, config.chunk_size, config.hash_func);
+    calc_end = high_resolution_clock::now();
+    find_start = high_resolution_clock::now();
+    find_unique(header.hashes, prev_hashes, unique_hashes, num_changes, hash_len);
+    find_end = high_resolution_clock::now();
+    comp_start = high_resolution_clock::now();
+    compare_hashes(header.hashes, prev_hashes, unique_hashes, num_changes, hash_len);
+    comp_end = high_resolution_clock::now();
+//  }
   printf("Number of changes: %zd\n", num_changes);
-  high_resolution_clock::time_point gather_start = high_resolution_clock::now();
+  gather_start = high_resolution_clock::now();
   gather_changes(data, data_len, unique_hashes, config.chunk_size, incr_data, incr_len);
-  high_resolution_clock::time_point gather_end = high_resolution_clock::now();
+  gather_end = high_resolution_clock::now();
   printf("Checkpoint size: %zd\n", incr_len);
 
   std::cout << "\tTime spent calculating hashes: " << std::chrono::duration_cast<std::chrono::duration<double>>(calc_end-calc_start).count() << std::endl;
@@ -172,10 +192,10 @@ void deduplicate_module_t::cpu_dedup(uint8_t* data,
   std::cout << "\tTime spent comparing hashes: " << std::chrono::duration_cast<std::chrono::duration<double>>(comp_end-comp_start).count() << std::endl;
   std::cout << "\tTime spent gathering changes: " << std::chrono::duration_cast<std::chrono::duration<double>>(gather_end-gather_start).count() << std::endl;
 
-  for(int i=0; i<5; i++) {
-    printf("%d ", header.hashes[0][i]);
-  }
-  printf("\n");
+//  for(int i=0; i<5; i++) {
+//    printf("%d ", header.hashes[0][i]);
+//  }
+//  printf("\n");
 
   // Update region header
   header.hash_size = hash_len;
