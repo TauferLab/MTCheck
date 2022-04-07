@@ -1,5 +1,5 @@
 #include "dedup.hpp"
-#include "hash_functions.hpp"
+//#include "hash_functions.hpp"
 //#include "gpu_sha1.hpp"
 #include <vector>
 #include <map>
@@ -7,19 +7,19 @@
 #include <iostream>
 #include <chrono>
 
-// Collect unique hashes from prior incremental checkpoints
+// collect unique hashes from prior incremental checkpoints
 void collect_unique_hashes(std::vector<std::pair<header_t, std::map<int, region_header_t>>> &prev_chkpt_headers, std::map<int, std::map<std::vector<uint32_t>, size_t>>& unique_hashes) {
-  // Go through prior checkpoint headers
+  // go through prior checkpoint headers
   for(size_t i=0; i<prev_chkpt_headers.size(); i++) {
     std::map<int, region_header_t>& region_headers = prev_chkpt_headers[i].second;
-    // Iterate through region headers
+    // iterate through region headers
     for(auto it=region_headers.begin(); it!=region_headers.end(); it++) {
-      // Get iterator to unique hashes
+      // get iterator to unique hashes
       std::map<std::vector<uint32_t>,size_t> hashes;
       auto pos = unique_hashes.find(it->first);
       auto ret = unique_hashes.insert(pos, std::make_pair(it->first, hashes));
       auto hash_it = ret->second;
-      // Add unique hashes to map
+      // add unique hashes to map
       for(size_t k=0; k<it->second.num_unique; k++) {
         int id = it->first;
         size_t idx = it->second.unique_hashes[k];
@@ -29,7 +29,26 @@ void collect_unique_hashes(std::vector<std::pair<header_t, std::map<int, region_
   }
 }
 
-// Read header and region map from VeloC checkpoint
+void read_merkle_trees(std::vector<std::pair<header_t, std::map<int, region_header_t>>> &prev_chkpt_headers, std::map<int, std::map<int, uint8_t*>>& prev_trees) {
+  if(prev_chkpt_headers.size() > 0) {
+    // go through prior checkpoint headers
+    for(size_t i=0; i<prev_chkpt_headers.size(); i++) {
+      // Region map <region_id, region_header>
+      std::map<int, region_header_t>& region_headers = prev_chkpt_headers[i].second;
+      // iterate through region headers
+      for(auto it=region_headers.begin(); it!=region_headers.end(); it++) {
+        // get iterator to unique hashes
+        std::map<int, uint8_t*> trees;
+        auto pos = prev_trees.find(it->first);
+        auto ret = prev_trees.insert(pos, std::make_pair(it->first, trees));
+        auto tree_it = ret->second;
+        ret->second.insert(std::make_pair(i, it->second.merkle_tree));
+      }
+    }
+  }
+}
+
+// read header and region map from veloc checkpoint
 bool read_full_header(const std::string& chkpt, header_t& header, std::map<int, size_t>& region_map) {
   try {
     std::ifstream f;
@@ -60,10 +79,10 @@ bool read_full_header(const std::string& chkpt, header_t& header, std::map<int, 
   }
 }
 
-// Read incremental checkpoint header
-bool read_incremental_headers(std::string& chkpt, header_t& header, std::map<int, region_header_t>& region_headers) {
+// read incremental checkpoint header
+bool read_incremental_headers(std::string& chkpt, header_t& header, std::map<int, region_header_t>& region_headers, config_t& config) {
   try {
-    // Read main header
+    // read main header
     std::ifstream f;
     f.open(chkpt, std::ifstream::in | std::ifstream::binary);
     f.read((char*)(&header.chkpt_size), sizeof(size_t));
@@ -72,54 +91,89 @@ bool read_incremental_headers(std::string& chkpt, header_t& header, std::map<int
     for(size_t i=0; i<header.num_regions; i++) {
       int id;
       region_header_t region;
-      // Read region headers
+      // read region headers
       f.read((char*)&id, sizeof(int));
       f.read((char*)&(region.region_size), sizeof(size_t));
       f.read((char*)&(region.hash_size), sizeof(size_t));
       f.read((char*)&(region.chunk_size), sizeof(size_t));
       f.read((char*)&(region.num_hashes), sizeof(size_t));
-      f.read((char*)&(region.num_unique), sizeof(size_t));
-      for(size_t j=0; j<region.num_hashes; j++) {
-        std::vector<uint32_t> hash(region.hash_size, 0);
-        f.read((char*)hash.data(), region.hash_size);
-        region.hashes.push_back(hash);
-      }
-      for(size_t j=0; j<region.num_unique; j++) {
-        size_t index;
-        f.read((char*)&index, sizeof(size_t));
-        region.unique_hashes.push_back(index);
+      if(config.use_merkle_trees) {
+        region.merkle_tree = new uint8_t[(2*region.num_hashes-1)*region.hash_size];
+        f.read((char*)(region.merkle_tree), (2*region.num_hashes-1)*region.hash_size);
+        f.read((char*)&(region.num_unique_subtrees), sizeof(size_t));
+	region.unique_subtree_indices = new size_t[region.num_unique_subtrees];
+	region.unique_subtree_ids = new int[region.num_unique_subtrees];
+	f.read((char*)(region.unique_subtree_indices), sizeof(size_t)*region.num_unique_subtrees);
+	f.read((char*)(region.unique_subtree_ids), sizeof(int)*region.num_unique_subtrees);
+        f.read((char*)&(region.num_shared_subtrees), sizeof(size_t));
+	region.shared_subtree_indices = new size_t[region.num_shared_subtrees];
+	region.shared_subtree_ids = new int[region.num_shared_subtrees];
+	f.read((char*)(region.shared_subtree_indices), sizeof(size_t)*region.num_shared_subtrees);
+	f.read((char*)(region.shared_subtree_ids), sizeof(int)*region.num_shared_subtrees);
+      } else {
+        f.read((char*)&(region.num_unique), sizeof(size_t));
+        for(size_t j=0; j<region.num_hashes; j++) {
+          std::vector<uint32_t> hash(region.hash_size, 0);
+          f.read((char*)hash.data(), region.hash_size);
+          region.hashes.push_back(hash);
+        }
+        for(size_t j=0; j<region.num_unique; j++) {
+          size_t index;
+          f.read((char*)&index, sizeof(size_t));
+          region.unique_hashes.push_back(index);
+        }
       }
       region_headers.insert(std::make_pair(id, region));
     }
     return true;
   } catch(std::ifstream::failure &e) {
-    std::cout << "Error reading header for checkpoint " << chkpt << std::endl;
+    std::cout << "error reading header for checkpoint " << chkpt << std::endl;
     return false;
   }
 }
 
-// Write region header to file
-void write_header(std::ofstream& f, region_header_t& header) {
+// write region header to file
+void write_header(std::ofstream& f, region_header_t& header, config_t& config) {
   f.write((char*)&header.id, sizeof(int));
   f.write((char*)&header.region_size, sizeof(size_t));
   f.write((char*)&header.hash_size, sizeof(size_t));
   f.write((char*)&header.chunk_size, sizeof(size_t));
   f.write((char*)&header.num_hashes, sizeof(size_t));
-  f.write((char*)&header.num_unique, sizeof(size_t));
-  for(size_t i=0; i<header.num_hashes; i++) {
-    f.write((char*)(header.hashes[i].data()), header.hash_size);
-  }
-  for(size_t i=0; i<header.num_unique; i++) {
-    f.write((char*)&header.unique_hashes[i], sizeof(size_t));
+//  printf("num hashes: %zd\n", header.num_hashes);
+//  printf("wrote subheader sections (apply to both hash list and hash trees\n");
+  if(config.use_merkle_trees) {
+//printf("using merkle tree\n");
+//if(header.merkle_tree == NULL)
+//  printf("merkle tree null!\n");
+//printf("writing merkle tree of length %zd\n", (2*header.num_hashes-1)*header.hash_size);
+    f.write((char*)(header.merkle_tree), (2*header.num_hashes-1)*header.hash_size);
+//    printf("wrote merkle tree\n");
+    f.write((char*)&(header.num_unique_subtrees), sizeof(size_t));
+    f.write((char*)(header.unique_subtree_indices), sizeof(size_t)*header.num_unique_subtrees);
+    f.write((char*)(header.unique_subtree_ids), sizeof(int)*header.num_unique_subtrees);
+//    printf("wrote unique sub trees\n");
+    f.write((char*)&(header.num_shared_subtrees), sizeof(size_t));
+    f.write((char*)(header.shared_subtree_indices), sizeof(size_t)*header.num_shared_subtrees);
+    f.write((char*)(header.shared_subtree_ids), sizeof(int)*header.num_shared_subtrees);
+//    printf("wrote shared sub trees\n");
+//    printf("wrote merkle tree header\n");
+  } else {
+    f.write((char*)&header.num_unique, sizeof(size_t));
+    for(size_t i=0; i<header.num_hashes; i++) {
+      f.write((char*)(header.hashes[i].data()), header.hash_size);
+    }
+    for(size_t i=0; i<header.num_unique; i++) {
+      f.write((char*)&header.unique_hashes[i], sizeof(size_t));
+    }
   }
 }
 
-// Check if hashes are the same
+// check if hashes are the same
 //bool identical_hashes(const uint32_t* a, const uint32_t* b, size_t len) {
 //  return memcmp(a, b, len*sizeof(uint32_t)) == 0;
 //}
 
-//// Check if hashes are the same
+//// check if hashes are the same
 //bool identical_hashes(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b, size_t len) {
 //  for(size_t i=0; i<a.size(); i++) {
 //    if(a[i] != b[i]) {
@@ -129,17 +183,17 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  return true;
 //}
 
-//// Calculate hashes
+//// calculate hashes
 //void calculate_hashes(const uint8_t* data, 
 //                      size_t data_len,
 //                      std::vector<std::vector<uint32_t>>& hashes, 
 //                      size_t chunk_size,
-//                      Hasher* hasher) {
-//  // Calculate the number of hashes
+//                      hasher* hasher) {
+//  // calculate the number of hashes
 //  size_t num_hashes = data_len / chunk_size;
 //  if(chunk_size*num_hashes < data_len)
 //    num_hashes += 1;
-//  // Split data into chunks and compute hashes
+//  // split data into chunks and compute hashes
 //  for(size_t idx=0; idx<num_hashes; idx++) {
 //    int block_size = chunk_size;
 //    if(chunk_size*(idx+1) > data_len)
@@ -150,45 +204,45 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  }
 //}
 //
-//// Compare set of hashes with the previous set
+//// compare set of hashes with the previous set
 //void compare_hashes(std::vector<std::vector<uint32_t>>& curr_hashes, 
 //                    std::map<std::vector<uint32_t>, size_t>& prev_hashes,
 //                    std::map<std::vector<uint32_t>, size_t>& changed_regions,
 //                    size_t& num_changes, 
 //                    const int hash_len) {
-//  // Prune current hashes to only those that are unique
+//  // prune current hashes to only those that are unique
 //  if(changed_regions.size() == 0) {
 //    for(size_t i=0; i<curr_hashes.size(); i++) {
 //      bool unique = true;
 //      std::vector<uint32_t> curr_digest = curr_hashes[i];
 //      for(size_t j=0; j<curr_hashes.size(); j++) {
-//        // Check if the hashes i and j are identical
+//        // check if the hashes i and j are identical
 //        if(i != j && identical_hashes(curr_hashes[j], curr_hashes[i], hash_len)) {
 //          unique = false;
-//          // Ensure that only one of the duplicate hashes are in the map of changed hashes
+//          // ensure that only one of the duplicate hashes are in the map of changed hashes
 //          if(i < j) {
 //            changed_regions.insert(std::make_pair(curr_digest, i));
 //          }
 //          break;
 //        }
 //      }
-//      // Insert unique hash into the map
+//      // insert unique hash into the map
 //      if(unique) {
 //        changed_regions.insert(std::make_pair(curr_digest, i));
 //      }
 //    }
 //  }
 //
-//  // Compare unique hashes with prior unique hashes
+//  // compare unique hashes with prior unique hashes
 //  for(size_t i=0; i<curr_hashes.size(); i++) {
 //    std::vector<uint32_t> curr_digest = curr_hashes[i];
-//    // Search for hash in map
+//    // search for hash in map
 //    auto iter = changed_regions.find(curr_digest);
 //    if(iter != changed_regions.end()) {
-//      // Check if hash exists in prior checkpoints
+//      // check if hash exists in prior checkpoints
 //      auto unique_iter = prev_hashes.find(curr_digest);
 //      if(unique_iter != prev_hashes.end()) {
-//        // Remove hash if it exists in prior checkpoints
+//        // remove hash if it exists in prior checkpoints
 //        changed_regions.erase(iter);
 //      }
 //    }
@@ -196,46 +250,46 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  num_changes = changed_regions.size();
 //}
 //
-//// Gather changes into a contiguous buffer
-//template<typename T>
-//void gather_changes(T* data,
+//// gather changes into a contiguous buffer
+//template<typename t>
+//void gather_changes(t* data,
 //                    size_t data_len,
 //                    std::map<std::vector<uint32_t>, size_t>& changed_regions,
 //                    int chunk_size,
 //                    uint8_t** buffer,
 //                    size_t& diff_size) {
-//  // Ensure that the buffer has enough space
+//  // ensure that the buffer has enough space
 //  *buffer = (uint8_t*) malloc(changed_regions.size()*chunk_size);
 //  diff_size = 0;
 //  size_t counter=0;
-//  // Iterate through all changed regions
+//  // iterate through all changed regions
 //  for(auto it=changed_regions.begin(); it!=changed_regions.end(); ++it) {
-//    // Calculate how much to copy to buffer
+//    // calculate how much to copy to buffer
 //    size_t num_write = chunk_size;
-//    if(chunk_size*(it->second+1) > data_len*sizeof(T)) 
-//      num_write = (data_len*sizeof(T)) - it->second*chunk_size;
+//    if(chunk_size*(it->second+1) > data_len*sizeof(t)) 
+//      num_write = (data_len*sizeof(t)) - it->second*chunk_size;
 //    diff_size += num_write;
 //    size_t pos = counter++;
-//    // Copy data into contiguous buffer
+//    // copy data into contiguous buffer
 //    memcpy((uint8_t*)(*buffer)+chunk_size*pos, (uint8_t*)(data)+chunk_size*it->second, num_write);
 //  }
 //}
 
-//// Calculate hash for each chunk
+//// calculate hash for each chunk
 //__global__
 //void calculate_hashes(const uint8_t* data,
 //                      const size_t data_len,
 //                      uint32_t* hashes,
 //                      size_t chunk_size,
 //                      const size_t num_hashes) {
-//  // Get index for chunk
-//  int idx = blockIdx.x*blockDim.x + threadIdx.x;
+//  // get index for chunk
+//  int idx = blockidx.x*blockdim.x + threadidx.x;
 //  if(idx < num_hashes) {
-//    // Calculate size of chunk, last chunk may be smaller than chunk_size
+//    // calculate size of chunk, last chunk may be smaller than chunk_size
 //    size_t block_size = chunk_size;
 //    if(chunk_size*(idx+1) > data_len)
 //      block_size = data_len - idx*chunk_size;
-//    // Calculate hash
+//    // calculate hash
 //    sha1_hash(data + (idx*chunk_size), block_size, (uint8_t*)(hashes)+digest_size()*idx);
 //  }
 //}
@@ -248,7 +302,7 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  printf("\n");
 //}
 //
-//// Test if 2 hashes are identical
+//// test if 2 hashes are identical
 //__device__
 //bool identical_hashes(const uint32_t* a, const uint32_t* b, size_t len) {
 //  for(size_t i=0; i<len; i++) {
@@ -259,35 +313,35 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  return true;
 //}
 //
-//// Find which hashes are unique
-//// Total # of threads should be greater than the # of hashes
+//// find which hashes are unique
+//// total # of threads should be greater than the # of hashes
 //__global__
 //void find_unique_hashes(const uint32_t* hashes, 
 //                        const int hash_len, 
 //                        const size_t num_hashes,
 //                        size_t* unique_chunks,
 //                        int* num_unique) {
-//  // Index of hash
-//  size_t hash_idx = blockDim.x*blockIdx.x + threadIdx.x;
+//  // index of hash
+//  size_t hash_idx = blockdim.x*blockidx.x + threadidx.x;
 //  if(hash_idx < num_hashes) {
 //    bool unique = true;
-//    // Compare with each hash and test if duplicate
+//    // compare with each hash and test if duplicate
 //    for(size_t i=0; i<num_hashes; i++) {
 //      if(hash_idx != i && identical_hashes(hashes+(hash_len/sizeof(uint32_t))*i, 
 //                                           hashes+(hash_len/sizeof(uint32_t))*hash_idx, 
 //					   hash_len/sizeof(uint32_t))) {
 //	unique = false;
-//        // Save only the first instance of a non unique hash
+//        // save only the first instance of a non unique hash
 //        if(hash_idx < i) {
-//          int offset = atomicAdd(num_unique, 1);
+//          int offset = atomicadd(num_unique, 1);
 //          unique_chunks[offset] = hash_idx;
 //        }
 //        break;
 //      }
 //    }
-//    // Save unique hash
+//    // save unique hash
 //    if(unique) {
-//      int offset = atomicAdd(num_unique, 1);
+//      int offset = atomicadd(num_unique, 1);
 //      unique_chunks[offset] = hash_idx;
 //    }
 //  }
@@ -295,12 +349,12 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //
 //__global__
 //void print_changes(const size_t* unique_chunks, const int* num_unique, const size_t* diff_size) {
-//  printf("\tNum unique chunks: %d\n", *num_unique);
-//  printf("\tCheckpoint size: %d\n", *diff_size);
+//  printf("\tnum unique chunks: %d\n", *num_unique);
+//  printf("\tcheckpoint size: %d\n", *diff_size);
 //}
 //
-//// Compare unique hashes with prior unique hashes
-//// Total # of threads should be greater than the # of unique hashes
+//// compare unique hashes with prior unique hashes
+//// total # of threads should be greater than the # of unique hashes
 //__global__
 //void compare_prior_hashes(const uint32_t* hashes,
 //                          const size_t num_hashes,
@@ -310,21 +364,21 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //			  const int num_unique_hashes,
 //                          size_t* changed_regions,
 //                          int* num_changes) {
-//  // Index of unique hash
-//  size_t idx = blockDim.x*blockIdx.x+threadIdx.x;
+//  // index of unique hash
+//  size_t idx = blockdim.x*blockidx.x+threadidx.x;
 //  if(idx < num_unique_hashes) {
 //    size_t region_idx = changed_regions[idx];
-//    // Compare with prior hashes
+//    // compare with prior hashes
 //    for(size_t i=0; i<num_prior_hashes; i++) {
 //      if(identical_hashes(hashes+(hash_len/sizeof(uint32_t))*region_idx, prior_hashes+(hash_len/sizeof(uint32_t))*i, hash_len/sizeof(uint32_t))) {
 //        changed_regions[idx] = num_hashes;
-//	atomicSub(num_changes, 1);
+//	atomicsub(num_changes, 1);
 //      }
 //    }
 //  }
 //}
 //
-//// Gather updated chunks into a contiguous buffer
+//// gather updated chunks into a contiguous buffer
 //// # of thread blocks should be the # of changed chunks
 //__global__
 //void gather_changes(const uint8_t* data,
@@ -337,34 +391,34 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //                    uint8_t* buffer,
 //                    size_t* diff_size) {
 //
-//  size_t idx = blockDim.x*blockIdx.x+threadIdx.x;
+//  size_t idx = blockdim.x*blockidx.x+threadidx.x;
 //  if(idx < num_changes) {
 //    size_t chunk_idx = changed_regions[idx];
 //    if(chunk_idx < num_hashes) {
 //      size_t num_write = chunk_size;
 //      if((chunk_idx+1)*chunk_size >= data_len)
 //        num_write = data_len - chunk_size*chunk_idx;
-//      // Copy data chunk by Iterating in a strided fashion for better memory access pattern
+//      // copy data chunk by iterating in a strided fashion for better memory access pattern
 //      for(int byte=0; byte<num_write; byte++) {
 //        buffer[chunk_size*idx+byte] = data[chunk_idx*chunk_size+byte];
 //      }
-//      atomicAdd((unsigned long long*)(diff_size), num_write);
+//      atomicadd((unsigned long long*)(diff_size), num_write);
 //    } 
 //  }
 //
-////  // Index of changed region
-////  size_t chunk_idx = changed_regions[blockIdx.x];
-////  // Number of byte to write
+////  // index of changed region
+////  size_t chunk_idx = changed_regions[blockidx.x];
+////  // number of byte to write
 ////  size_t num_write = chunk_size;
 ////  if(chunk_size*(chunk_idx+1) > data_len)
 ////    num_write = data_len - chunk_size*chunk_idx;
-////  // Copy data chunk by Iterating in a strided fashion for better memory access pattern
-////  for(int byte=threadIdx.x; byte<num_write; byte+=blockDim.x) {
-////    buffer[chunk_size*blockIdx.x+byte] = data[chunk_idx*chunk_size+byte];
+////  // copy data chunk by iterating in a strided fashion for better memory access pattern
+////  for(int byte=threadidx.x; byte<num_write; byte+=blockdim.x) {
+////    buffer[chunk_size*blockidx.x+byte] = data[chunk_idx*chunk_size+byte];
 ////  }
-////  if(threadIdx.x == 0) {
-////    atomicAdd((unsigned long long*)(diff_size), num_write);
-////    printf("Wrote %llu bytes\n", num_write);
+////  if(threadidx.x == 0) {
+////    atomicadd((unsigned long long*)(diff_size), num_write);
+////    printf("wrote %llu bytes\n", num_write);
 ////  }
 //}
 
@@ -383,16 +437,16 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //
 //  calculate_hashes(data, data_len, header.hashes, config.chunk_size, config.hash_func);
 //  compare_hashes(header.hashes, prev_hashes, unique_hashes, num_changes, hash_len);
-//  printf("Number of changes: %zd\n", num_changes);
+//  printf("number of changes: %zd\n", num_changes);
 //  gather_changes(data, data_len, unique_hashes, config.chunk_size, incr_data, incr_len);
-//  printf("Checkpoint size: %zd\n", incr_len);
+//  printf("checkpoint size: %zd\n", incr_len);
 //
 //  for(int i=0; i<5; i++) {
 //    printf("%d ", header.hashes[0][i]);
 //  }
 //  printf("\n");
 //
-//  // Update region header
+//  // update region header
 //  header.hash_size = hash_len;
 //  header.chunk_size = config.chunk_size;
 //  header.num_hashes = header.hashes.size();
@@ -426,14 +480,14 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //    num_hashes += 1;
 //
 //  hashes = (uint32_t*) malloc(num_hashes*hash_len);
-//  cudaMalloc(&hashes_d, num_hashes*hash_len);
-//  cudaMalloc(&changed_regions_d, num_hashes*sizeof(size_t));
-//  cudaMalloc(&num_changes_d, sizeof(int));
-//  cudaMalloc(&num_unique_d, sizeof(size_t));
-//  cudaMalloc(&incr_len_d, sizeof(size_t));
-//  cudaMemcpy(num_changes_d, &num_changes, sizeof(int), cudaMemcpyHostToDevice);
-//  cudaMemcpy(num_unique_d, &num_unique, sizeof(size_t), cudaMemcpyHostToDevice);
-//  cudaMemcpy(incr_len_d, &incr_len, sizeof(size_t), cudaMemcpyHostToDevice);
+//  cudamalloc(&hashes_d, num_hashes*hash_len);
+//  cudamalloc(&changed_regions_d, num_hashes*sizeof(size_t));
+//  cudamalloc(&num_changes_d, sizeof(int));
+//  cudamalloc(&num_unique_d, sizeof(size_t));
+//  cudamalloc(&incr_len_d, sizeof(size_t));
+//  cudamemcpy(num_changes_d, &num_changes, sizeof(int), cudamemcpyhosttodevice);
+//  cudamemcpy(num_unique_d, &num_unique, sizeof(size_t), cudamemcpyhosttodevice);
+//  cudamemcpy(incr_len_d, &incr_len, sizeof(size_t), cudamemcpyhosttodevice);
 //
 //  uint32_t* prior_hashes = (uint32_t*) malloc(hash_len*prev_hashes.size());
 //  size_t num_prior_hashes = prev_hashes.size();
@@ -445,34 +499,34 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //    offset += 1;
 //  }
 //  uint32_t* prior_hashes_d;
-//  cudaMalloc(&prior_hashes_d, num_prior_hashes*hash_len);
-//  cudaMemcpy(prior_hashes_d, prior_hashes, num_prior_hashes*hash_len, cudaMemcpyHostToDevice);
+//  cudamalloc(&prior_hashes_d, num_prior_hashes*hash_len);
+//  cudamemcpy(prior_hashes_d, prior_hashes, num_prior_hashes*hash_len, cudamemcpyhosttodevice);
 //
 //  int num_blocks = num_hashes/32;
 //  if(num_blocks*32 < num_hashes)
 //    num_blocks += 1;
-//  // Calculate hashes
+//  // calculate hashes
 //  calculate_hashes<<<num_blocks,32>>>(data, data_len, hashes_d, chunk_size, num_hashes);
-//  cudaMemcpy(hashes, hashes_d, num_hashes*hash_len, cudaMemcpyDeviceToHost);
-//  // Find the unique hashes
+//  cudamemcpy(hashes, hashes_d, num_hashes*hash_len, cudamemcpydevicetohost);
+//  // find the unique hashes
 //  find_unique_hashes<<<num_blocks,32>>>(hashes_d, hash_len, num_hashes, changed_regions_d, num_changes_d);
-//  cudaMemcpy(&num_changes, num_changes_d, sizeof(int), cudaMemcpyDeviceToHost);
-//  // Compare hashes with prior hashes
+//  cudamemcpy(&num_changes, num_changes_d, sizeof(int), cudamemcpydevicetohost);
+//  // compare hashes with prior hashes
 //  compare_prior_hashes<<<num_blocks,32>>>(hashes_d, num_hashes, prior_hashes_d, num_prior_hashes, hash_len, num_changes, changed_regions_d, num_changes_d);
-//  // Gather updated chunks into a contiguous buffer
-//  cudaMalloc(&incr_data_d, num_changes*chunk_size);
+//  // gather updated chunks into a contiguous buffer
+//  cudamalloc(&incr_data_d, num_changes*chunk_size);
 //  gather_changes<<<num_blocks,32>>>(data, data_len, changed_regions_d, num_changes_d, num_changes, num_hashes, chunk_size, incr_data_d, incr_len_d);
-//  cudaMemcpy(&num_changes, num_changes_d, sizeof(int), cudaMemcpyDeviceToHost);
+//  cudamemcpy(&num_changes, num_changes_d, sizeof(int), cudamemcpydevicetohost);
 //
-//  // Copy buffer to host for checkpointing
+//  // copy buffer to host for checkpointing
 //  *incr_data = (uint8_t*) malloc(num_changes*chunk_size);
 //  changed_regions = (size_t*) malloc(sizeof(size_t)*num_changes);
-//  cudaMemcpy(*incr_data, incr_data_d, num_changes*chunk_size, cudaMemcpyDeviceToHost);
-//  cudaMemcpy(changed_regions, changed_regions_d, num_changes*sizeof(size_t), cudaMemcpyDeviceToHost);
-//  cudaMemcpy(&incr_len, incr_len_d, sizeof(size_t), cudaMemcpyDeviceToHost);
-//  cudaDeviceSynchronize();
+//  cudamemcpy(*incr_data, incr_data_d, num_changes*chunk_size, cudamemcpydevicetohost);
+//  cudamemcpy(changed_regions, changed_regions_d, num_changes*sizeof(size_t), cudamemcpydevicetohost);
+//  cudamemcpy(&incr_len, incr_len_d, sizeof(size_t), cudamemcpydevicetohost);
+//  cudadevicesynchronize();
 //
-//  // Update region header
+//  // update region header
 //  header.hash_size = hash_len;
 //  header.chunk_size = config.chunk_size;
 //  header.num_hashes = num_hashes;
@@ -489,13 +543,13 @@ void write_header(std::ofstream& f, region_header_t& header) {
 //  }
 //  header.region_size = sizeof(size_t)*5 + hash_len*header.hashes.size() + sizeof(size_t)*header.unique_hashes.size();
 //
-//  cudaFree(num_changes_d);
-//  cudaFree(num_unique_d);
-//  cudaFree(incr_len_d);
-//  cudaFree(hashes_d);
-//  cudaFree(prior_hashes_d);
-//  cudaFree(changed_regions_d);
-//  cudaFree(incr_data_d);
+//  cudafree(num_changes_d);
+//  cudafree(num_unique_d);
+//  cudafree(incr_len_d);
+//  cudafree(hashes_d);
+//  cudafree(prior_hashes_d);
+//  cudafree(changed_regions_d);
+//  cudafree(incr_data_d);
 //  free(hashes);
 //  free(prior_hashes);
 //  free(changed_regions);
@@ -503,7 +557,7 @@ void write_header(std::ofstream& f, region_header_t& header) {
 
 
 void deduplicate_module_t::deduplicate_file(const std::string &full, const std::string &incr, std::vector<std::string> &prev_chkpts, config_t& config) {
-  // Read checkpoint header
+  // read checkpoint header
   header_t chkpt_header;
   std::map<int, size_t> region_map;
   read_full_header(full, chkpt_header, region_map);
@@ -530,40 +584,63 @@ void deduplicate_module_t::deduplicate_file(const std::string &full, const std::
 
 void deduplicate_module_t::deduplicate_data(regions_t& full_regions, const std::string& incr, std::vector<std::string>& prev_chkpts, config_t& config) {
   using namespace std::chrono;
-  // Read checkpoint header
+  // read checkpoint header
   header_t chkpt_header;
 
-  printf("Region map:\n");
+  printf("region map:\n");
   for(auto &e: full_regions) {
     printf("(%d,%zd)\n", e.first, e.second.size);
   }
 
   using HashDigest = DefaultHash::Digest;
 
-  // Read headers from prior checkpoints
+  // read headers from prior checkpoints
   std::vector<std::pair<header_t, std::map<int, region_header_t>>> prev_chkpt_headers;
   for(size_t i=0; i<prev_chkpts.size(); i++) {
     header_t main_header;
     std::map<int, region_header_t> region_headers;
-    read_incremental_headers(prev_chkpts[i], main_header, region_headers);
+    printf("reading incremental header for chkpt %d\n", i);
+    read_incremental_headers(prev_chkpts[i], main_header, region_headers, config);
     prev_chkpt_headers.push_back(std::make_pair(main_header, region_headers));
   }
+  printf("Read previous headers\n");
 
   // Get unique hashes
   std::map<int, std::map<std::vector<uint32_t>,size_t>> unique_hashes;
-  collect_unique_hashes(prev_chkpt_headers, unique_hashes);
+  std::map<int, std::map<int, uint8_t*>> prev_trees;
+  if(config.use_merkle_trees) {
+printf("Reading merkle tree\n");
+    read_merkle_trees(prev_chkpt_headers, prev_trees);
+printf("Read merkle tree\n");
+  } else {
+    collect_unique_hashes(prev_chkpt_headers, unique_hashes);
+  }
 
+  int chkpt_id = prev_chkpts.size();
+  printf("Found %d prior trees\n", prev_trees.size());
 
   // Read checkpoint data and deduplicate
   std::map<int, std::pair<uint8_t*,size_t>> region_data;
   std::map<int, region_header_t> region_headers;
+  high_resolution_clock::time_point dedup_start = high_resolution_clock::now();
   for(auto &e : full_regions) {
     uint8_t* incr_data;
     size_t incr_size;
     region_header_t region_header;
     region_header.id = e.first;
     if(e.second.ptr_type == Host) {
-      cpu_dedup((uint8_t*)e.second.ptr, e.second.size, unique_hashes[e.first], region_header, &incr_data, incr_size, config);
+      printf("\nRegion %d\n", e.first);
+      if(config.use_merkle_trees) {
+        high_resolution_clock::time_point t1 = high_resolution_clock::now();
+        cpu_dedup((uint8_t*)e.second.ptr, e.second.size, chkpt_id, prev_trees[e.first], region_header, &incr_data, incr_size, config);
+        high_resolution_clock::time_point t2 = high_resolution_clock::now();
+        std::cout << "Time spent on CPU deduplication: " << duration_cast<duration<double>>(t2-t1).count() << std::endl;
+      } else {
+        high_resolution_clock::time_point t1 = high_resolution_clock::now();
+        cpu_dedup((uint8_t*)e.second.ptr, e.second.size, unique_hashes[e.first], region_header, &incr_data, incr_size, config);
+        high_resolution_clock::time_point t2 = high_resolution_clock::now();
+        std::cout << "Time spent on CPU deduplication: " << duration_cast<duration<double>>(t2-t1).count() << std::endl;
+      }
     } else if(config.dedup_on_gpu) {
       printf("Deduplicating region %d with %zd bytes, data already on GPU\n", e.first, e.second.size);
       high_resolution_clock::time_point t1 = high_resolution_clock::now();
@@ -584,9 +661,14 @@ void deduplicate_module_t::deduplicate_data(regions_t& full_regions, const std::
       printf("\n");
       free(data_h);
     }
+    printf("Inserting checkpoint data\n");
     region_data.insert(std::make_pair(e.first, std::make_pair(incr_data, incr_size)));
+    printf("Inserted checkpoint data\n");
     region_headers.insert(std::make_pair(e.first, region_header));
+    printf("Inserted header\n");
   }
+  high_resolution_clock::time_point dedup_end = high_resolution_clock::now();
+  std::cout << "Total time spent on deduplication: " << duration_cast<duration<double>>(dedup_end-dedup_start).count() << std::endl;
 
   // Create main header
   size_t chkpt_size = 0;
@@ -613,6 +695,7 @@ void deduplicate_module_t::deduplicate_data(regions_t& full_regions, const std::
   os.exceptions(std::ofstream::failbit | std::ofstream::badbit);
   os.open(incr, std::ofstream::out | std::ofstream::binary);
   os.write((char*)&(chkpt_header), sizeof(size_t)*3);
+  printf("Wrote main header\n");
 
   for(auto &e: region_headers) {
   int id;
@@ -625,8 +708,11 @@ void deduplicate_module_t::deduplicate_data(regions_t& full_regions, const std::
 //    printf("Hash size: %zd\n", e.second.hash_size);
 //    printf("Chunk size: %zd\n", e.second.chunk_size);
 //    printf("Num hashes: %zd\n", e.second.num_hashes);
+//    printf("Num unique subtrees: %zd\n", e.second.num_unique_subtrees);
+//    printf("Num shared subtrees: %zd\n", e.second.num_shared_subtrees);
 //    printf("Num unique: %zd\n", e.second.num_unique);
-    write_header(os, e.second);
+    write_header(os, e.second, config);
+//    printf("Wrote subheader\n");
   }
 
   for(auto &e: region_data) {

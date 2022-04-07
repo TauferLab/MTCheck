@@ -2,21 +2,54 @@
 #include <fstream>
 #include "dedup.hpp"
 #include "hash_functions.hpp"
+//#include "merkle_tree.hpp"
 #include <string>
 #include <vector>
 
 int main(int argc, char**argv) {
-  std::string full_chkpt(argv[1]);
+//const char* str_a = "abcd";
+//const char* str_b = "abce";
+//uint8_t* tree_a = create_merkle_tree((uint8_t*)str_a, 4, 20, 1);
+//printf("Tree A\n");
+//print_merkle_tree(tree_a, 20, 4);
+//uint8_t* tree_b = create_merkle_tree((uint8_t*)str_b, 4, 20, 1);
+//printf("\nTree B\n");
+//print_merkle_tree(tree_b, 20, 4);
+//size_t* unique_subtree_roots = new size_t[num_nodes(4)];
+//int* unique_subtree_ids = new int[num_nodes(4)];
+//size_t num_unique_subtrees = 0;
+//size_t* shared_subtree_roots = new size_t[num_nodes(4)];
+//int* shared_subtree_ids = new int[num_nodes(4)];
+//size_t num_shared_subtrees = 0;
+//compare_merkle_trees(tree_b, tree_a, 
+//                     0, 1,
+//		     20, 4,
+//                     unique_subtree_roots, unique_subtree_ids,
+//                     num_unique_subtrees,
+//                     shared_subtree_roots, shared_subtree_ids,
+//                     num_shared_subtrees);
+//printf("\nNum unique subtrees: %zd\n", num_unique_subtrees);
+//for(int i=0; i<num_unique_subtrees; i++) {
+//  printf("Unique subtree: %zd, %d\n", unique_subtree_roots[i], unique_subtree_ids[i]);
+//}
+//printf("Num shared subtrees: %zd\n", num_shared_subtrees);
+//for(int i=0; i<num_shared_subtrees; i++) {
+//  printf("Shared subtree: %zd, %d\n", shared_subtree_roots[i], shared_subtree_ids[i]);
+//}
+
+  int chunk_size = atoi(argv[1]);
+  std::string full_chkpt(argv[2]);
   std::string incr_chkpt = full_chkpt + ".cpu_test.incr_chkpt";
 
   SHA1 hasher;
   std::vector<std::string> prev_chkpt;
   config_t config;
   config.dedup_on_gpu = false;
-  config.chunk_size = 1024;
+  config.use_merkle_trees = true;
+  config.chunk_size = chunk_size;
   config.hash_func = &hasher;
 
-  for(int i=2; i<argc; i++) {
+  for(int i=3; i<argc; i++) {
     prev_chkpt.push_back(std::string(argv[i]));
   }
 
@@ -67,13 +100,17 @@ int main(int argc, char**argv) {
     regions.insert(std::make_pair(e.first, region));
   }
 
-  std::string incr_chkpt_mem = full_chkpt + ".cpu_test.in_mem.incr_chkpt";
-  std::cout << "Starting data mode deduplication\n";
-  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt, config);
-  std::cout << "Done with data mode\n";
+//  std::string incr_chkpt_mem = full_chkpt + ".cpu_test.in_mem.incr_chkpt";
+//  std::cout << "Starting data mode deduplication\n";
+//  module.deduplicate_data(regions, incr_chkpt_mem, prev_chkpt, config);
+//  std::cout << "Done with data mode\n";
 
-  std::cout << "Deduplicating file\n";
-  module.deduplicate_file(full_chkpt, incr_chkpt, prev_chkpt, config);
-  printf("Done deduplicating file\n");
+  std::cout << "Deduplicating with Merkle trees\n";
+  std::string incr_chkpt_merkle_tree = full_chkpt + ".cpu_test.merkle_trees.incr_chkpt";
+  module.deduplicate_file(full_chkpt, incr_chkpt_merkle_tree, prev_chkpt, config);
+//  std::cout << "Deduplicating with Hash lists\n";
+//  std::string incr_chkpt_hash_list = full_chkpt + ".cpu_test.hash_list.incr_chkpt";
+//  config.use_merkle_trees = false;
+//  module.deduplicate_file(full_chkpt, incr_chkpt_hash_list, prev_chkpt, config);
 }
 

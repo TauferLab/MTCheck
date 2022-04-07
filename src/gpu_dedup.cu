@@ -1,6 +1,7 @@
 #include "dedup.hpp"
 //#include "hash_functions.hpp"
 #include "gpu_sha1.hpp"
+//#include "merkle_tree.hpp"
 #include <vector>
 #include <map>
 #include <fstream>

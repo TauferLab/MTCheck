@@ -2,22 +2,24 @@
 #include <fstream>
 #include "dedup.hpp"
 #include "hash_functions.hpp"
+//#include "merkle_tree.hpp"
 #include <string>
 #include <vector>
 #include <cuda.h>
 
 int main(int argc, char**argv) {
-  std::string full_chkpt(argv[1]);
+  int chunk_size = atoi(argv[1]);
+  std::string full_chkpt(argv[2]);
   std::string incr_chkpt = full_chkpt + ".gpu_test.incr_chkpt";
 
   SHA1 hasher;
   std::vector<std::string> prev_chkpt;
   config_t config;
   config.dedup_on_gpu = false;
-  config.chunk_size = 1024;
+  config.chunk_size = chunk_size;
   config.hash_func = &hasher;
 
-  for(int i=2; i<argc; i++) {
+  for(int i=3; i<argc; i++) {
     prev_chkpt.push_back(std::string(argv[i]));
   }
 
@@ -86,16 +88,17 @@ int main(int argc, char**argv) {
   }
   printf("Dedup on GPU\n");
   config.dedup_on_gpu = true;
+  config.use_merkle_trees = false;
   std::string incr_chkpt_gpu = full_chkpt + ".gpu_test.gpu.incr_chkpt";
   std::cout << "Starting gpu deduplication\n";
   module.deduplicate_data(regions, incr_chkpt_gpu, prev_chkpt, config);
   std::cout << "Done with gpu deduplication\n";
 
-  printf("Dedup on CPU\n");
-  config.dedup_on_gpu = false;
-  std::string incr_chkpt_cpu = full_chkpt + ".gpu_test.cpu.incr_chkpt";
-  std::cout << "Starting gpu deduplication\n";
-  module.deduplicate_data(regions, incr_chkpt_cpu, prev_chkpt, config);
-  std::cout << "Done with gpu deduplication\n";
+//  printf("Dedup on CPU\n");
+//  config.dedup_on_gpu = false;
+//  std::string incr_chkpt_cpu = full_chkpt + ".gpu_test.cpu.incr_chkpt";
+//  std::cout << "Starting gpu deduplication\n";
+//  module.deduplicate_data(regions, incr_chkpt_cpu, prev_chkpt, config);
+//  std::cout << "Done with gpu deduplication\n";
 }
 
