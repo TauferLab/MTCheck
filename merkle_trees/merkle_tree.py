@@ -17,27 +17,29 @@ def create_merkle_tree(D, C):
 #        print(node)
         if node >= leaf_start:
 #            T[node] = hashlib.sha1(D[node-leaf_start:node-leaf_start+C].encode('ascii'))
-            T[node] = hashlib.sha1(D[node-leaf_start:node-leaf_start+C].encode('ascii')).hexdigest()
+            T[node] = hashlib.sha1(D[node-leaf_start:node-leaf_start+C].encode('ascii')).digest()
         else:
             child_l = 2*node+1
             child_r = 2*node+2
 #            print("\t" + str(child_l))
 #            print("\t" + str(child_r))
 #            T[node] = hashlib.sha1(T[child_l].digest() + T[child_r].digest())
-            T[node] = hashlib.sha1((T[child_l] + T[child_r]).encode('ascii')).hexdigest()
+            T[node] = hashlib.sha1((T[child_l] + T[child_r])).digest()
+#            T[node] = hashlib.sha1((T[child_l:child_r+1])).digest()
 #        print(T[node].hexdigest())
 #    print(len(T))
+    print(type(T[0]))
     return T
 
 def print_tree(T):
     n_nodes = len(T)
     counter = 2
 #    print("Node: " + str(0) + "    (" + T[0].hexdigest() + ")")
-    print("Node: " + str(0) + "    (" + T[0] + ")")
+    print("Node: " + str(0) + "    (" + T[0].hex() + ")")
     print("\n")
     for node in range(1, n_nodes):
 #        print("Node: " + str(node) + "    (" + T[node].hexdigest() + ")")
-        print("Node: " + str(node) + "    (" + T[node] + ")")
+        print("Node: " + str(node) + "    (" + T[node].hex() + ")")
         if(node == counter):
             print("\n")
             counter += 2*counter
@@ -170,17 +172,19 @@ test_str0 = "Hello Mudda. Hello Faddah. Here I'm at camp Granada"
 #test_str1 = "abcdacdc"
 #test_str1 = "Hello Fadduh"
 test_str1 = "Hello Muddah. Hello Fadduh. Here I am at camp Granada"
-chunk_size = 2
+#test_str1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+print(len(test_str1))
+chunk_size = 1
 tree0 = create_merkle_tree(test_str0, chunk_size)
 print_tree(tree0)
 (Md0, Ms0) = find_distinct_subtrees(tree0, 0)
 tree1 = create_merkle_tree(test_str1, chunk_size)
 print_tree(tree1)
-(Md1, Ms1) = find_distinct_subtrees(tree1, 1)
-(Md, Ms) = deduplication(tree1, [Md0])
-print("Distinct("+str(len(Md))+"): " + str(Md) + str('\n'))
-print("Shared("+str(len(Ms))+"): " + str(Ms) + str('\n'))
-
-print("Reconstructed tree")
-tree = reconstruct_tree(Md, Ms, [Md0], [Ms0], len(tree1))
-print_tree(tree)
+#(Md1, Ms1) = find_distinct_subtrees(tree1, 1)
+#(Md, Ms) = deduplication(tree1, [Md0])
+#print("Distinct("+str(len(Md))+"): " + str(Md) + str('\n'))
+#print("Shared("+str(len(Ms))+"): " + str(Ms) + str('\n'))
+#
+#print("Reconstructed tree")
+#tree = reconstruct_tree(Md, Ms, [Md0], [Ms0], len(tree1))
+#print_tree(tree)
