@@ -37,13 +37,6 @@ struct HashDigest {
 struct transparent_sha1_hash {
   using is_transparent = void;
 
-//  template <typename T>
-//  inline STDGPU_HOST_DEVICE std::size_t 
-//  operator()(const T& key) const
-//  {
-//    return stdgpu::hash<T>{}(key);
-//  }
-
   inline STDGPU_HOST_DEVICE std::size_t
   operator()(const HashDigest& key) const {
     size_t hash = 0;

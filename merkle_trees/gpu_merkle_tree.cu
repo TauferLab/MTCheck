@@ -79,14 +79,14 @@ __global__ void create_merkle_tree(const uint8_t* data, const size_t len, const 
       printf("start: %d\n", start);
       printf("end  : %d\n", end);
     }
-    if(idx < end-start) {
-      if(idx+start >= leaf_start) {
+    for(size_t offset=idx; offset<(end-start); offset += blockDim.x) {
+      if(offset+start >= leaf_start) {
         size_t block_size = chunk_size;
-        if(chunk_size*(idx+1) > len)
-          block_size = len - idx*chunk_size;
-        sha1_hash(data + ((idx+start-leaf_start)*chunk_size), block_size, tree+digest_size()*(start+idx));
+        if(chunk_size*(offset+1) > len)
+          block_size = len - offset*chunk_size;
+        sha1_hash(data + ((offset+start-leaf_start)*chunk_size), block_size, tree+digest_size()*(start+offset));
       } else {
-        sha1_hash(tree+(2*(start+idx) + 1)*digest_size(), 2*digest_size(), tree+digest_size()*(start+idx));
+        sha1_hash(tree+(2*(start+offset) + 1)*digest_size(), 2*digest_size(), tree+digest_size()*(start+offset));
       }
     }
     __syncthreads();
@@ -94,7 +94,7 @@ __global__ void create_merkle_tree(const uint8_t* data, const size_t len, const 
 }
 
 void gpu_create_merkle_tree(const uint8_t* data, const size_t len, const size_t chunk_size, uint8_t* tree) {
-  create_merkle_tree<<<1,64>>>(data, len, chunk_size, tree);
+  create_merkle_tree<<<1,32>>>(data, len, chunk_size, tree);
   cudaDeviceSynchronize();
 }
 
@@ -103,15 +103,19 @@ __global__ void find_distinct_subtrees( const uint8_t* tree,
                                         const int id, 
                                         stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> distinct_map, 
                                         stdgpu::unordered_map<uint32_t, uint32_t> shared_map) {
+  using DistinctMap = stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash>;
   size_t idx = blockIdx.x*blockDim.x + threadIdx.x;
-  const size_t hash_size = digest_size();
-  if(idx < num_nodes) {
-//    uint32_t val[3] = {idx, idx, id};
-    NodeInfo val(idx, idx, id);
+  for(size_t offset=idx; offset<num_nodes; offset+=blockDim.x) {
+    NodeInfo val(offset, offset, id);
     HashDigest digest;
-    digest.ptr = tree+idx*digest_size();
-    thrust::pair<stdgpu::unordered_map<HashDigest,NodeInfo,transparent_sha1_hash>::iterator, bool> result = distinct_map.emplace(digest, val);
-//    thrust::pair<stdgpu::unordered_map<HashDigest,NodeInfo,transparent_sha1_hash>::iterator, bool> result = distinct_map.insert(thrust::make_pair(digest, val));
+    digest.ptr = tree+offset*digest_size();
+printf("Created node info and hash digest: node %d\n", offset);
+    thrust::pair<DistinctMap::iterator, bool> result = distinct_map.emplace(digest, val);
+//    thrust::pair<DistinctMap::iterator, bool> result = distinct_map.insert(thrust::make_pair(digest, val));
+//printf("Created node info and hash digest: node %d\n", offset);
+if(!result.second) {
+printf("Found duplicate at node %d\n", offset);
+}
   }
 }
 
@@ -120,7 +124,8 @@ void gpu_find_distinct_subtrees( const uint8_t* tree,
                                  const int id, 
                                  stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> distinct_map, 
                                  stdgpu::unordered_map<uint32_t, uint32_t> shared_map) {
-  find_distinct_subtrees<<<1,num_nodes>>>(tree, num_nodes, id, distinct_map, shared_map);
+//  find_distinct_subtrees<<<1,1>>>(tree, num_nodes, id, distinct_map, shared_map);
+  find_distinct_subtrees<<<1,1>>>(tree, num_nodes-1, id, distinct_map, shared_map);
   cudaDeviceSynchronize();
 }
 
