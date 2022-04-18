@@ -166,25 +166,32 @@ def reconstruct_tree(MapD, MapS, U, V, n_nodes):
 
 #test_str0 = "abcdefgh"
 #test_str0 = "Hello Muddah"
-test_str0 = "Hello Mudda. Hello Faddah. Here I'm at camp Granada"
+test_str0 = "Hello Muddah. Hello Fadduh. Here I am at camp Granada"
 #test_str0 = "Hello Mother. Hello Father. Here I am at camp Granada"
 
 #test_str1 = "abcdacdc"
 #test_str1 = "Hello Fadduh"
-test_str1 = "Hello Muddah. Hello Fadduh. Here I am at camp Granada"
+test_str1 = "Hello Mother. Hello Father. Here I am at camp Granada"
 #test_str1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 print(len(test_str1))
 chunk_size = 1
 tree0 = create_merkle_tree(test_str0, chunk_size)
 print_tree(tree0)
-(Md0, Ms0) = find_distinct_subtrees(tree0, 0)
 tree1 = create_merkle_tree(test_str1, chunk_size)
 print_tree(tree1)
-#(Md1, Ms1) = find_distinct_subtrees(tree1, 1)
-#(Md, Ms) = deduplication(tree1, [Md0])
-#print("Distinct("+str(len(Md))+"): " + str(Md) + str('\n'))
-#print("Shared("+str(len(Ms))+"): " + str(Ms) + str('\n'))
-#
+
+(Md0, Ms0) = find_distinct_subtrees(tree0, 0)
+tree1 = create_merkle_tree(test_str1, chunk_size)
+#print_tree(tree1)
+#print(len(Md0))
+
+(Md1, Ms1) = find_distinct_subtrees(tree1, 1)
+print("Distinct("+str(len(Md1))+"): " + str(Md1) + str('\n'))
+print("Shared("+str(len(Ms1))+"): " + str(Ms1) + str('\n'))
+(Md1, Ms1) = deduplication(tree1, [Md0])
+print("Distinct("+str(len(Md1))+"): " + str(Md1) + str('\n'))
+print("Shared("+str(len(Ms1))+"): " + str(Ms1) + str('\n'))
+
 #print("Reconstructed tree")
 #tree = reconstruct_tree(Md, Ms, [Md0], [Ms0], len(tree1))
 #print_tree(tree)
