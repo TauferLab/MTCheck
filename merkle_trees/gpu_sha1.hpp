@@ -1,10 +1,10 @@
-#ifndef __GPU_SHA1_HPP
-#define __GPU_SHA1_HPP
+#ifndef GPU_SHA1_HPP_
+#define GPU_SHA1_HPP_
 
 #include <cuda.h>
 #include <string>
 
-std::string hash_name() {
+std::string static hash_name() {
   return std::string("SHA1");
 }
 
@@ -46,7 +46,7 @@ struct SHA1_CTX {
   w = rol(w, 30);
 
 __host__ __device__
-void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64]) {
+static void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64]) {
   uint32_t a, b, c, d, e;
 
   typedef union {
@@ -158,7 +158,7 @@ void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64]) {
   
 /* SHA1_Init - Initialize new context */
 __host__ __device__
-void SHA1_Init(SHA1_CTX *context) {
+static void SHA1_Init(SHA1_CTX *context) {
   /* SHA1 initialization constants */
   context->state[0] = 0x67452301;
   context->state[1] = 0xEFCDAB89;
@@ -170,7 +170,7 @@ void SHA1_Init(SHA1_CTX *context) {
 
 /* Run your data through this. */
 __host__ __device__
-void SHA1_Update(SHA1_CTX *context, const uint8_t *data, const size_t len) {
+static void SHA1_Update(SHA1_CTX *context, const uint8_t *data, const size_t len) {
   size_t i, j;
 
   j = context->count[0];
@@ -192,7 +192,7 @@ void SHA1_Update(SHA1_CTX *context, const uint8_t *data, const size_t len) {
 
 /* Add padding and return the message digest. */
 __host__ __device__
-void SHA1_Final(SHA1_CTX *context, uint8_t digest[SHA1_DIGEST_SIZE]) {
+static void SHA1_Final(SHA1_CTX *context, uint8_t digest[SHA1_DIGEST_SIZE]) {
   unsigned i;
   uint8_t finalcount[8];
   uint8_t c;
@@ -218,7 +218,7 @@ void SHA1_Final(SHA1_CTX *context, uint8_t digest[SHA1_DIGEST_SIZE]) {
 }
 
 __host__ __device__
-void digest_to_hex(const uint8_t digest[SHA1_DIGEST_SIZE], char* output) {
+static void digest_to_hex(const uint8_t digest[SHA1_DIGEST_SIZE], char* output) {
   int i,j;
   char* c = output;
   for(i=0; i<SHA1_DIGEST_SIZE/4; i++) {
@@ -233,12 +233,12 @@ void digest_to_hex(const uint8_t digest[SHA1_DIGEST_SIZE], char* output) {
 }
 
 __host__ __device__
-uint32_t digest_size() {
+static uint32_t digest_size() {
   return SHA1_DIGEST_SIZE;
 }
 
 __host__ __device__
-void sha1_hash(const void* data, int len, uint8_t* digest) {
+static void sha1_hash(const void* data, int len, uint8_t* digest) {
   SHA1_CTX context;
   SHA1_Init(&context);
   SHA1_Update(&context, (const uint8_t*)(data), len);
