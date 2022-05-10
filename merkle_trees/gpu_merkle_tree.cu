@@ -83,7 +83,9 @@ __global__ void create_merkle_tree(const uint8_t* data, const unsigned int len, 
       printf("end  : %d\n", end);
     }
 #endif
-    for(unsigned int offset=idx; offset<(end-start); offset += blockDim.x) {
+    for(unsigned int offset=idx; offset<(end-start); offset += blockDim.x*gridDim.x) {
+//    unsigned int offset = idx;
+//    if(offset < (end-start)) {
       if(offset+start >= leaf_start) {
         unsigned int block_size = chunk_size;
         if(chunk_size*(offset+1) > len)
@@ -99,13 +101,13 @@ __global__ void create_merkle_tree(const uint8_t* data, const unsigned int len, 
 
 void gpu_create_merkle_tree(const uint8_t* data, const unsigned int len, const unsigned int chunk_size, uint8_t* tree) {
   unsigned int num_leaves = len/chunk_size;
-  if(num_leaves*chunk_size < len) {
+  if(num_leaves*chunk_size < len)
     num_leaves += 1;
-  }
-  unsigned int nblocks = num_leaves/32;
-  if(nblocks*32 < num_leaves)
-   nblocks += 1;
-  create_merkle_tree<<<nblocks,32>>>(data, len, chunk_size, tree);
+  unsigned int num_blocks = (2*num_leaves-1)/32;
+  if(num_blocks*32 < num_leaves)
+    num_blocks += 1;
+//  create_merkle_tree<<<num_blocks,32>>>(data, len, chunk_size, tree);
+  create_merkle_tree<<<1,32>>>(data, len, chunk_size, tree);
   cudaDeviceSynchronize();
 }
 
@@ -150,8 +152,11 @@ __global__ void find_distinct_subtrees( const uint8_t* tree,
                                         stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> distinct_map, 
                                         stdgpu::unordered_map<uint32_t, uint32_t> shared_map) {
   using DistinctMap = stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash>;
-  unsigned int idx = blockIdx.x*blockDim.x + threadIdx.x;
-  for(unsigned int offset=idx; offset<num_nodes; offset+=blockDim.x) {
+  using SharedMap   = stdgpu::unordered_map<unsigned int, unsigned int>;
+  unsigned int idx = blockDim.x*blockIdx.x + threadIdx.x;
+  for(unsigned int offset=idx; offset<num_nodes; offset+=blockDim.x*gridDim.x) {
+//unsigned int offset = idx;
+//if(offset<num_nodes) {
     NodeInfo val(offset, offset, id);
     HashDigest digest;
     digest.ptr = tree+offset*digest_size();
@@ -159,12 +164,18 @@ __global__ void find_distinct_subtrees( const uint8_t* tree,
 printf("Created node info and hash digest: node %d\n", offset);
 #endif
     thrust::pair<DistinctMap::iterator, bool> result = distinct_map.insert(thrust::make_pair(digest, val));
+    if(!result.second) {
+      thrust::pair<SharedMap::iterator, bool> shared_insert = shared_map.insert(thrust::make_pair(offset, result.first->second.src));
+      if(!shared_insert.second)
+        printf("Failed to insert %u in the distinct and shared map\n", offset);
+    }
 #ifdef DEBUG
 if(!result.second) {
   printf("Found duplicate at node %d\n", offset);
 }
 #endif
-  }
+}
+//  }
 }
 
 void gpu_find_distinct_subtrees( const uint8_t* tree, 
@@ -173,10 +184,11 @@ void gpu_find_distinct_subtrees( const uint8_t* tree,
                                  stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> distinct_map, 
                                  stdgpu::unordered_map<uint32_t, uint32_t> shared_map) {
   printf("Number of nodes: %u\n", num_nodes);
-  int num_blocks = num_nodes/32;
+  unsigned int num_blocks = num_nodes/32;
   if(num_blocks*32 < num_nodes)
     num_blocks += 1;
-  find_distinct_subtrees<<<num_blocks,32>>>(tree, num_nodes, id, distinct_map, shared_map);
+//  find_distinct_subtrees<<<num_blocks,32>>>(tree, num_nodes, id, distinct_map, shared_map);
+  find_distinct_subtrees<<<1,32>>>(tree, num_nodes, id, distinct_map, shared_map);
   cudaDeviceSynchronize();
 }
 
@@ -417,6 +429,7 @@ __device__ void remove_subtree_parallel(const uint8_t* tree, const unsigned int 
   unsigned int num_remove = 0;
   unsigned int num_leaves = number_of_leaves(root, num_nodes);
   unsigned int num_levels = static_cast<unsigned int>(ceil(log2(static_cast<double>(num_leaves)) + 1));
+//#define DEBUG
 #ifdef DEBUG
     printf("Root (%u): Num levels: %u\n", root, num_levels);
     printf("Root (%u): Num leaves: %u\n", root, num_leaves);
@@ -445,7 +458,7 @@ printf("\tRoot (%u): Removing node %u (%p)\n", root, node, digest.ptr);
       thrust::pair<const HashDigest, NodeInfo>* old_info = distinct_map.find(digest);
       if(old_info != distinct_map.end()) {
 #ifdef DEBUG
-printf("\tRoot (%u): NodeInfo: (%u,%u,%u)\n", root, old_info->node, old_info->src, old_info->tree);
+printf("\tRoot (%u): NodeInfo: (%u,%u,%u)\n", root, old_info->second.node, old_info->second.src, old_info->second.tree);
 #endif
         if(old_info->second.node == node) {
           distinct_map.erase(digest);
@@ -463,17 +476,20 @@ printf("\tRoot (%u): NodeInfo: (%u,%u,%u)\n", root, old_info->node, old_info->sr
 #ifdef DEBUG
   printf("Root (%u): Num removed: %d\n", root, num_remove);
 #endif
+//#undef DEBUG
 }
 
 __global__ void gpu_compare_trees_parallel(const uint8_t* tree,
                                   const unsigned int num_nodes,
                                   const int id,
+const unsigned int queue_size,
                                   stdgpu::queue<unsigned int> queue,
                                   stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> distinct_map,
                                   stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash> prior_map) {
-  
+//#define DEBUG  
   unsigned int idx = blockIdx.x*blockDim.x + threadIdx.x;
-if(idx < queue.size()) {
+//if(idx < queue_size) {
+for(unsigned int offset=idx; idx<queue_size; idx+=blockDim.x*gridDim.x) {
   thrust::pair<unsigned int, bool> result = queue.pop();
   if(!result.second) {
     printf("Failed to pop queue!\n");
@@ -502,10 +518,10 @@ printf("Found node in prior map\n");
 #ifdef DEBUG
 printf("Replacing subtree at %p with (%u,%u,%u)\n", digest.ptr, new_node.node, new_node.src, new_node.tree);
 #endif
-//        node_info->second.src = prior_info->second.src;
-//        node_info->second.tree = prior_info->second.tree;
-      remove_subtree_parallel(tree, num_nodes, node, NULL, distinct_map);
-      thrust::pair<stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash>::iterator, bool> result = distinct_map.insert(thrust::make_pair(digest, new_node));
+        node_info->second.src = prior_info->second.src;
+        node_info->second.tree = prior_info->second.tree;
+//      remove_subtree_parallel(tree, num_nodes, node, NULL, distinct_map);
+//      thrust::pair<stdgpu::unordered_map<HashDigest, NodeInfo, transparent_sha1_hash>::iterator, bool> result = distinct_map.insert(thrust::make_pair(digest, new_node));
     } else {
 #ifdef DEBUG
 printf("Node is distinct for this tree\n");
@@ -526,6 +542,7 @@ printf("Added child %u\n", child_r);
       }
     }
   }
+//#undef DEBUG
 }
 
 //  queue[0] = 0;
@@ -611,14 +628,21 @@ void gpu_compare_trees_parallel( const uint8_t* tree,
 
   stdgpu::queue<unsigned int> queue = stdgpu::queue<unsigned int>::createDeviceObject(num_nodes);
   init_queue_with_root<<<1,1>>>(queue, 0);
+int num_levels = 0;
   while(!queue.empty()) {
-    unsigned int size = queue.size();
-    unsigned int nblocks = size/32;
-    if(nblocks*32 < size)
+    unsigned int qsize = queue.size();
+    unsigned int nblocks = qsize/32;
+    if(nblocks*32 < qsize)
       nblocks += 1;
-    gpu_compare_trees_parallel<<<nblocks,32>>>(tree, num_nodes, id, queue, distinct_map, prior_map);
+//    gpu_compare_trees_parallel<<<nblocks,32>>>(tree, num_nodes, id, qsize, queue, distinct_map, prior_map);
+    gpu_compare_trees_parallel<<<1,32>>>(tree, num_nodes, id, qsize, queue, distinct_map, prior_map);
+//    cudaDeviceSynchronize();
+//printf("\tqueue size: %d\n", queue.size());
+//num_levels+=1;
+//printf("Number of levels %d\n", num_levels);
   } 
   stdgpu::queue<unsigned int>::destroyDeviceObject(queue);
+  cudaDeviceSynchronize();
 }
 
 __global__ void gpu_compare_trees(const uint8_t* tree,

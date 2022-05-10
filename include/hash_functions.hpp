@@ -17,10 +17,13 @@ class Hasher {
 
   virtual std::string hash_name() = 0;
 
-  virtual void hash(const void* data, int len, uint8_t* digest) = 0;
+  KOKKOS_FORCEINLINE_FUNCTION
+  virtual void hash(const void* data, int len, uint8_t* digest) const = 0;
 
-  virtual uint32_t digest_size() = 0;
+  KOKKOS_FORCEINLINE_FUNCTION
+  virtual uint32_t digest_size() const = 0;
 
+  KOKKOS_FORCEINLINE_FUNCTION
   void digest_to_hex(const uint8_t* digest, char* output, uint32_t digest_size) {
     char* c = output;
     for(uint32_t i=0; i<digest_size/4; i++) {
@@ -38,6 +41,7 @@ class Hasher {
 class SHA1: public Hasher {
 public:
   using DIGEST_TYPE = uint8_t;
+  static constexpr uint32_t DIGEST_SIZE = 20;
 
   SHA1() {}
 
@@ -95,7 +99,8 @@ public:
     z += (w ^ x ^ y) + blk(i) + 0xCA62C1D6 + rol(v, 5);                          \
     w = rol(w, 30);
 
-  void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64]) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  void SHA1_Transform(uint32_t state[5], const uint8_t buffer[64]) const {
     uint32_t a, b, c, d, e;
 
     typedef union {
@@ -206,7 +211,8 @@ public:
   }
     
   /* SHA1_Init - Initialize new context */
-  void SHA1_Init(SHA1_CTX *context) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  void SHA1_Init(SHA1_CTX *context) const {
     /* SHA1 initialization constants */
     context->state[0] = 0x67452301;
     context->state[1] = 0xEFCDAB89;
@@ -217,7 +223,8 @@ public:
   }
 
   /* Run your data through this. */
-  void SHA1_Update(SHA1_CTX *context, const uint8_t *data, const size_t len) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  void SHA1_Update(SHA1_CTX *context, const uint8_t *data, const size_t len) const {
     size_t i, j;
   
     j = context->count[0];
@@ -238,7 +245,8 @@ public:
   }
 
   /* Add padding and return the message digest. */
-  void SHA1_Final(SHA1_CTX *context, uint8_t digest[SHA1_DIGEST_SIZE]) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  void SHA1_Final(SHA1_CTX *context, uint8_t digest[SHA1_DIGEST_SIZE]) const {
     unsigned i;
     uint8_t finalcount[8];
     uint8_t c;
@@ -263,6 +271,7 @@ public:
     memset(&finalcount, '\0', sizeof(finalcount));
   }
 
+  KOKKOS_FORCEINLINE_FUNCTION
   void digest_to_hex(const uint8_t digest[SHA1_DIGEST_SIZE], char* output) {
     int i,j;
     char* c = output;
@@ -277,15 +286,32 @@ public:
     *(c-1) = '\0';
   }
 
-  uint32_t digest_size() {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t full_digest_size() const {
     return SHA1_DIGEST_SIZE;
   }
 
-  void hash(const void* data, int len, uint8_t* digest) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t digest_size() const {
+    return SHA1_DIGEST_SIZE-4;
+  }
+
+  KOKKOS_FORCEINLINE_FUNCTION
+  void full_hash(const void* data, int len, uint8_t* digest) const {
     SHA1_CTX context;
     SHA1_Init(&context);
     SHA1_Update(&context, (const uint8_t*)(data), len);
     SHA1_Final(&context, digest);
+  }
+
+  KOKKOS_FORCEINLINE_FUNCTION
+  void hash(const void* data, int len, uint8_t* digest) const {
+    uint8_t temp_digest[20];
+    SHA1_CTX context;
+    SHA1_Init(&context);
+    SHA1_Update(&context, (const uint8_t*)(data), len);
+    SHA1_Final(&context, temp_digest);
+    memcpy(digest, temp_digest, 16);
   }
 };
 
@@ -311,16 +337,19 @@ public:
 
   // MurmurHash3 was written by Austin Appleby, and is placed in the public
   // domain. The author hereby disclaims copyright to this source code.
-  uint32_t getblock32(const uint8_t* p, int i) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t getblock32(const uint8_t* p, int i) const {
     // used to avoid aliasing error which could cause errors with
     // forced inlining
     return ((uint32_t)p[i * 4 + 0]) | ((uint32_t)p[i * 4 + 1] << 8) |
            ((uint32_t)p[i * 4 + 2] << 16) | ((uint32_t)p[i * 4 + 3] << 24);
   }
   
-  uint32_t rotl32(uint32_t x, int8_t r) { return (x << r) | (x >> (32 - r)); }
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t rotl32(uint32_t x, int8_t r) const { return (x << r) | (x >> (32 - r)); }
   
-  uint32_t fmix32(uint32_t h) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t fmix32(uint32_t h) const {
     h ^= h >> 16;
     h *= 0x85ebca6b;
     h ^= h >> 13;
@@ -330,7 +359,8 @@ public:
     return h;
   }
   
-  uint32_t MurmurHash3_x86_32(const void* key, int len, uint32_t seed) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t MurmurHash3_x86_32(const void* key, int len, uint32_t seed) const {
     const uint8_t* data = static_cast<const uint8_t*>(key);
     const int nblocks   = len / 4;
   
@@ -394,8 +424,9 @@ public:
   #endif
   
   template <typename T>
+  KOKKOS_FORCEINLINE_FUNCTION
   bool bitwise_equal(T const* const a_ptr,
-                                                 T const* const b_ptr) {
+                                                 T const* const b_ptr) const {
     typedef uint64_t KOKKOS_IMPL_MAY_ALIAS T64;  // NOLINT(modernize-use-using)
     typedef uint32_t KOKKOS_IMPL_MAY_ALIAS T32;  // NOLINT(modernize-use-using)
     typedef uint16_t KOKKOS_IMPL_MAY_ALIAS T16;  // NOLINT(modernize-use-using)
@@ -437,13 +468,15 @@ public:
     return result;
   }
 
-  void hash(const void* data, int len, uint8_t* digest) {
+  KOKKOS_FORCEINLINE_FUNCTION
+  void hash(const void* data, int len, uint8_t* digest) const {
     uint32_t hash = MurmurHash3_x86_32(data, len, 0);
     memcpy(digest, &hash, 4);
   }
 
   /* Size of hash digest in bytes */
-  uint32_t digest_size() {
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t digest_size() const {
     return 4;
   }
 };

@@ -8,66 +8,80 @@
 #include <stdgpu/utility.h>
 #include <stdgpu/unordered_map.cuh>
 #include <stdgpu/queue.cuh>
+#include "helpers.cuh"
 #include "hash_table.cuh"
-//#include "gpu_sha1.hpp"
 
-struct NodeInfo {
-  uint32_t node;
-  uint32_t src;
-  uint32_t tree;
-
-  inline STDGPU_HOST_DEVICE
-  NodeInfo() {
-    node = UINT_MAX;
-    src = UINT_MAX;
-    tree = UINT_MAX;
-  }
-
-  inline STDGPU_HOST_DEVICE
-  NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
-    node = n;
-    src = s;
-    tree = t;
-  }
-};
-
-struct HashDigest {
-  const uint8_t* ptr;
-
-  inline STDGPU_HOST_DEVICE
-  HashDigest() {
-    ptr = NULL;
-  }
-
-  inline STDGPU_HOST_DEVICE
-  bool operator==(const HashDigest &other) const {
-    if(ptr == NULL || other.ptr == NULL) {
-      return false;
-    }
-    for(int i=0; i<20; i++) {
-      if(ptr[i] != other.ptr[i])
-        return false;
-    }
-    return true;
-  }
-};
-
-struct transparent_sha1_hash {
-//  using is_transparent = void;
-
-  inline STDGPU_HOST_DEVICE unsigned int
-  operator()(const HashDigest& key) const {
-    unsigned int hash = 0;
-    const unsigned int* key_u32 = (const unsigned int*)(key.ptr);
-    hash ^= key_u32[0];
-    hash ^= key_u32[1];
-    hash ^= key_u32[2];
-    hash ^= key_u32[3];
-    hash ^= key_u32[4];
-//printf("Hash: %u\n", hash);
-    return hash;
-  }
-};
+//struct NodeInfo {
+//  uint32_t node;
+//  uint32_t src;
+//  uint32_t tree;
+//
+//  inline STDGPU_HOST_DEVICE
+//  NodeInfo() {
+//    node = UINT_MAX;
+//    src = UINT_MAX;
+//    tree = UINT_MAX;
+//  }
+//
+//  inline STDGPU_HOST_DEVICE
+//  bool operator==(const NodeInfo &other) const {
+//    if(other.node != node || other.src != src || other.tree != tree)
+//      return false;
+//    return true;
+//  }
+//
+//  inline STDGPU_HOST_DEVICE
+//  bool operator!=(const NodeInfo &other) const {
+//    if(other.node != node || other.src != src || other.tree != tree)
+//      return true;
+//    return false;
+//  }
+//
+//  inline STDGPU_HOST_DEVICE
+//  NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
+//    node = n;
+//    src = s;
+//    tree = t;
+//  }
+//};
+//
+//struct HashDigest {
+//  const uint8_t* ptr;
+//
+//  inline STDGPU_HOST_DEVICE
+//  HashDigest() {
+//    ptr = NULL;
+//  }
+//
+//  inline STDGPU_HOST_DEVICE
+//  bool operator==(const HashDigest &other) const {
+//    if(ptr == NULL || other.ptr == NULL) {
+//      return false;
+//    }
+//    for(int i=0; i<20; i++) {
+//      if(ptr[i] != other.ptr[i])
+//        return false;
+//    }
+//    return true;
+//  }
+//};
+//
+//struct transparent_sha1_hash {
+////  using is_transparent = void;
+//
+//  inline STDGPU_HOST_DEVICE unsigned int
+//  operator()(const HashDigest& key) const {
+//    unsigned int hash = 0;
+//    const unsigned int* key_u32 = (const unsigned int*)(key.ptr);
+//    hash ^= key_u32[0];
+//    hash ^= key_u32[1];
+//    hash ^= key_u32[2];
+//    hash ^= key_u32[3];
+//    hash ^= key_u32[4];
+////printf("Hash: %u\n", hash);
+//    return hash;
+//  }
+//};
 
 void gpu_create_merkle_tree(const uint8_t* data, const unsigned int len, const unsigned int chunk_size, uint8_t* tree);
 
