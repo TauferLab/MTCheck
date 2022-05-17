@@ -295,9 +295,15 @@ printf("------------------------------------------------------\n");
         DistinctMap l_distinct_chunks = DistinctMap(num_chunks);
         SharedMap l_shared_chunks = SharedMap(num_chunks);
 
+//  uint32_t num_chunks = current.size()/chunk_size;
+//  if(num_chunks*chunk_size < current.size())
+//    num_chunks += 1;
+//  HashList list0 = HashList(num_chunks);
+
         Timer::time_point start_create_list0 = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Create List ") + std::to_string(counter)).c_str());
         HashList list0 = create_hash_list(hasher, current, chunk_size);
+//        create_hash_list(hasher, list0, current, chunk_size);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_create_list0 = Timer::now();
 
@@ -335,9 +341,12 @@ printf("------------------------------------------------------\n");
         DistinctMap l_distinct_nodes  = DistinctMap(num_nodes);
         SharedMap l_shared_nodes  = SharedMap(num_nodes);
 
+//  uint32_t num_chunks = current.size()/chunk_size;
+//  MerkleTree tree0 = MerkleTree(num_chunks);
         Timer::time_point start_create_tree0 = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(counter)).c_str());
         MerkleTree tree0 = create_merkle_tree(hasher, current, chunk_size);
+        create_merkle_tree(hasher, tree0, current, chunk_size);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_create_tree0 = Timer::now();
 
@@ -358,9 +367,12 @@ printf("------------------------------------------------------\n");
 
         Kokkos::fence();
 
+        Queue queue(num_nodes);
+        Kokkos::fence();
         Timer::time_point start_compare1 = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(counter)).c_str());
-        compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes);
+        compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes, queue);
+//        compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_compare1 = Timer::now();
 

@@ -65,6 +65,24 @@ HashList create_hash_list(Hasher& hasher, Kokkos::View<uint8_t*>& data, const ui
   return list;
 }
 
+template <class Hasher>
+void create_hash_list(Hasher& hasher, HashList& list, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size) {
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size())
+    num_chunks += 1;
+//  HashList list = HashList(num_chunks);
+  Kokkos::parallel_for("Create Hash list", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+        uint32_t num_bytes = chunk_size;
+        if(i == num_chunks-1)
+          num_bytes = data.size()-i*chunk_size;
+        hasher.hash(data.data()+(i*chunk_size), 
+                    num_bytes, 
+                    list(i).digest);
+  });
+  Kokkos::fence();
+//  return list;
+}
+
 void find_distinct_chunks(const HashList& list, const uint32_t list_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
   Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
     HashDigest digest = list.list_d(i);

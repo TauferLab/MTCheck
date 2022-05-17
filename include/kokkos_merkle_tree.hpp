@@ -5,6 +5,7 @@
 #include <climits>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
+#include "kokkos_queue.hpp"
 
 //template<uint32_t N>
 class MerkleTree {
@@ -83,6 +84,36 @@ MerkleTree create_merkle_tree(Hasher& hasher, Kokkos::View<uint8_t*>& data, cons
   }
   Kokkos::fence();
   return tree;
+}
+
+template <class Hasher>
+void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size) {
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size())
+    num_chunks += 1;
+  const uint32_t num_nodes = 2*num_chunks-1;
+  const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
+  const uint32_t leaf_start = num_chunks-1;
+  for(int32_t level=num_levels-1; level>=0; level--) {
+    uint32_t nhashes = 1 << level;
+    uint32_t start_offset = nhashes-1;
+    if(start_offset + nhashes > num_nodes)
+      nhashes = num_nodes - start_offset;
+    auto range_policy = Kokkos::RangePolicy<>(start_offset, start_offset+nhashes);
+    Kokkos::parallel_for("Build tree", range_policy, KOKKOS_LAMBDA(const int i) {
+      uint32_t num_bytes = chunk_size;
+      if((i-leaf_start) == num_chunks-1)
+        num_bytes = data.size()-((i-leaf_start)*chunk_size);
+      if(i >= leaf_start) {
+        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+                    num_bytes, 
+                    (uint8_t*)(tree(i).digest));
+      } else {
+        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+      }
+    });
+  }
+  Kokkos::fence();
 }
 
 void find_distinct_subtrees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map) {
@@ -164,6 +195,44 @@ MerkleTree create_merkle_tree_find_distinct_subtrees(Hasher& hasher,
   }
   Kokkos::fence();
   return tree;
+}
+
+void compare_trees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, DistinctMap& prior_map, Queue& queue) {
+  queue.host_push(0);
+  uint32_t num_comp = 0;
+  uint32_t q_size = queue.size();
+  while(q_size > 0) {
+    num_comp += q_size;
+    Kokkos::parallel_for("Compare trees", Kokkos::RangePolicy<>(0, q_size), KOKKOS_LAMBDA(const uint32_t entry) {
+      uint32_t node = queue.pop();
+      HashDigest digest = tree(node);
+      if(distinct_map.exists(digest)) {
+        uint32_t distinct_index = distinct_map.find(digest);
+        NodeInfo& info = distinct_map.value_at(distinct_index);
+        if(info.node == node) {
+          if(prior_map.exists(digest)) {
+            uint32_t prior_index = prior_map.find(digest);
+            NodeInfo old = prior_map.value_at(prior_index);
+            info.src = old.src;
+            info.tree = old.tree;
+          } else {
+            uint32_t child_l = 2*node+1;
+            uint32_t child_r = 2*node+2;
+            if(child_l < queue.capacity()) {
+              queue.push(child_l);
+            }
+            if(child_r < queue.capacity()) {
+              queue.push(child_r);
+            }
+            
+          }
+        }
+      }
+    });
+    q_size = queue.size();
+  }
+  Kokkos::fence();
+  printf("Number of comparisons (Merkle Tree): %u\n", num_comp);
 }
 
 void compare_trees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, DistinctMap& prior_map) {
