@@ -117,7 +117,7 @@ void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>
 }
 
 void find_distinct_subtrees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map) {
-  auto policy = Kokkos::RangePolicy<>(0, tree.tree_d.extent(0));
+  auto policy = Kokkos::RangePolicy<>(0, (tree.tree_d.extent(0)));
   Kokkos::parallel_for("Insert nodes", policy, KOKKOS_LAMBDA(const uint32_t i) {
     NodeInfo node_info(i, i, tree_id);
     HashDigest digest = tree.tree_d(i);
@@ -127,7 +127,7 @@ void find_distinct_subtrees(const MerkleTree& tree, const uint32_t tree_id, Dist
       if(i < old_info.node) {
         uint32_t prior_node = old_info.node;
         old_info.node = node_info.node;
-        old_info.src = node_info.src;
+        old_info.src  = node_info.src;
         old_info.tree = node_info.tree;
         auto shared_insert = shared_map.insert(prior_node, i);
         if(shared_insert.failed())
@@ -162,7 +162,9 @@ MerkleTree create_merkle_tree_find_distinct_subtrees(Hasher& hasher,
     if(start_offset + nhashes > num_nodes)
       nhashes = num_nodes - start_offset;
     auto range_policy = Kokkos::RangePolicy<>(start_offset, start_offset+nhashes);
+//    auto range_policy = Kokkos::RangePolicy<>(start_offset, start_offset+num_chunks);
     Kokkos::parallel_for("Build tree", range_policy, KOKKOS_LAMBDA(const int i) {
+//if(i-start_offset < nhashes) {
       uint32_t num_bytes = chunk_size;
       if((i-leaf_start) == num_chunks-1)
         num_bytes = data.size()-((i-leaf_start)*chunk_size);
@@ -173,6 +175,7 @@ MerkleTree create_merkle_tree_find_distinct_subtrees(Hasher& hasher,
       } else {
         hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
       }
+//if(i==0) {
       NodeInfo node_info(i, i, tree_id);
       auto result = distinct_map.insert(tree(i), node_info);
       if(result.existing()) {
@@ -191,6 +194,31 @@ MerkleTree create_merkle_tree_find_distinct_subtrees(Hasher& hasher,
             printf("Failed to insert in the distinct and shared map\n");
         }
       } 
+//}
+//} else {
+//uint32_t idx=i-nhashes;
+//uint32_t pidx = (idx-1)/2;
+//for(int index=pidx; index < (1<<(level+1)); index += num_chunks-nhashes) {
+//      NodeInfo node_info(index, index, tree_id);
+//      auto result = distinct_map.insert(tree(index), node_info);
+//      if(result.existing()) {
+//        NodeInfo& old_info = distinct_map.value_at(result.index());
+//        if(index < old_info.node) {
+//          uint32_t prior_node = old_info.node;
+//          old_info.node = node_info.node;
+//          old_info.src = node_info.src;
+//          old_info.tree = node_info.tree;
+//          auto shared_insert = shared_map.insert(prior_node, index);
+//          if(shared_insert.failed())
+//            printf("Failed to insert in the distinct and shared map\n");
+//        } else {
+//          auto shared_insert = shared_map.insert(index, old_info.node);
+//          if(shared_insert.failed())
+//            printf("Failed to insert in the distinct and shared map\n");
+//        }
+//      } 
+//}
+//}
     });
   }
   Kokkos::fence();
@@ -290,27 +318,14 @@ void compare_trees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& 
   printf("Number of comparisons (Merkle Tree): %u\n", num_comp);
 }
 
-void compare_trees_fused(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
-  Kokkos::View<uint32_t*> queue = Kokkos::View<uint32_t*>("queue", tree.tree_d.extent(0));
-  Kokkos::deep_copy(queue, 0);
-  Kokkos::View<uint32_t[1]> q_start("Start index");
-  Kokkos::View<uint32_t[1]> q_end("End index");
-  Kokkos::View<uint32_t[1]> q_len("Length");
-  Kokkos::View<uint32_t[1]>::HostMirror q_len_h = Kokkos::create_mirror_view(q_len);
-  Kokkos::deep_copy(q_start, 0);
-  Kokkos::deep_copy(q_end, 1);
-  Kokkos::deep_copy(q_len, 1);
-  q_len_h(0) = 1;
+void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
+  queue.host_push(0);
   uint32_t num_comp = 0;
-  while(q_len_h(0) > 0) {
-    Kokkos::deep_copy(q_len_h, q_len);
-    num_comp += q_len_h(0);
-    Kokkos::parallel_for(q_len_h(0), KOKKOS_LAMBDA(const uint32_t entry) {
-      uint32_t start = Kokkos::atomic_fetch_add(&q_start(0), 1);
-      start = start % queue.extent(0);
-      Kokkos::atomic_decrement(&q_len(0));
-      uint32_t node = queue(start);
-//printf("Processing node %u\n", node);
+  uint32_t q_size = queue.size();
+  while(q_size > 0) {
+    num_comp += q_size;
+    Kokkos::parallel_for("Compare trees", Kokkos::RangePolicy<>(0, q_size), KOKKOS_LAMBDA(const uint32_t entry) {
+      uint32_t node = queue.pop();
       HashDigest digest = tree(node);
       NodeInfo info(node, node, tree_id);
       if(!distinct_map.exists(digest)) {
@@ -334,17 +349,11 @@ void compare_trees_fused(const MerkleTree& tree, const uint32_t tree_id, Distinc
           }
           uint32_t child_l = 2*node+1;
           uint32_t child_r = 2*node+2;
-          if(child_l < queue.extent(0)) {
-            uint32_t end = Kokkos::atomic_fetch_add(&q_end(0), 1);
-            end = end % queue.extent(0);
-            Kokkos::atomic_increment(&q_len(0));
-            queue[end] = child_l;
+          if(child_l < queue.capacity()) {
+            queue.push(child_l);
           }
-          if(child_r < queue.extent(0)) {
-            uint32_t end = Kokkos::atomic_fetch_add(&q_end(0), 1);
-            end = end % queue.extent(0);
-            Kokkos::atomic_increment(&q_len(0));
-            queue[end] = child_r;
+          if(child_r < queue.capacity()) {
+            queue.push(child_r);
           }
         }
       } else if(distinct_map.exists(digest)) {
@@ -378,7 +387,9 @@ void compare_trees_fused(const MerkleTree& tree, const uint32_t tree_id, Distinc
         printf("Failed to insert in either the distinct and shared maps\n");
       }
     });
+    q_size = queue.size();
   }
+
   printf("Number of comparisons (Merkle Tree): %u\n", num_comp);
   Kokkos::fence();
 }

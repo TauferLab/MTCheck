@@ -338,15 +338,15 @@ printf("------------------------------------------------------\n");
       }
       // Merkle Tree deduplication
       {
-        DistinctMap l_distinct_nodes  = DistinctMap(num_nodes);
-        SharedMap l_shared_nodes  = SharedMap(num_nodes);
+        DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
+        SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
-//  uint32_t num_chunks = current.size()/chunk_size;
-//  MerkleTree tree0 = MerkleTree(num_chunks);
+//uint32_t num_chunks = current.size()/chunk_size;
+//MerkleTree tree0 = MerkleTree(num_chunks);
         Timer::time_point start_create_tree0 = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(counter)).c_str());
         MerkleTree tree0 = create_merkle_tree(hasher, current, chunk_size);
-        create_merkle_tree(hasher, tree0, current, chunk_size);
+//        create_merkle_tree(hasher, tree0, current, chunk_size);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_create_tree0 = Timer::now();
 
@@ -363,7 +363,6 @@ printf("------------------------------------------------------\n");
 //        MerkleTree tree0 = create_merkle_tree_find_distinct_subtrees(hasher, current, chunk_size, counter, l_distinct_nodes, l_shared_nodes);
 //        Kokkos::Profiling::popRegion();
 //        Timer::time_point end_create_tree0 = Timer::now();
-////      tree0.print();
 
         Kokkos::fence();
 
@@ -373,6 +372,7 @@ printf("------------------------------------------------------\n");
         Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(counter)).c_str());
         compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes, queue);
 //        compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes);
+//        compare_trees_fused(tree0, queue, counter, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_compare1 = Timer::now();
 
