@@ -15,12 +15,14 @@ struct NodeInfo {
   uint32_t src;
   uint32_t tree;
 
+  KOKKOS_INLINE_FUNCTION
   NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
     node = n;
     src = s;
     tree = t;
   }
 
+  KOKKOS_INLINE_FUNCTION
   NodeInfo() {
     node = UINT_MAX;
     src = UINT_MAX;
