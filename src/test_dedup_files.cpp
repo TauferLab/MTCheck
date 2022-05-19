@@ -7,6 +7,7 @@
 #include <fstream>
 #include "kokkos_merkle_tree.hpp"
 #include "kokkos_hash_list.hpp"
+#include <libgen.h>
 
 enum DataGenerationMode {
   Random=0,
@@ -146,6 +147,7 @@ printf("------------------------------------------------------\n");
       header_t chkpt_header;
       std::map<int, size_t> region_map;
       read_full_header(chkpt_files[idx], chkpt_header, region_map);
+printf("Read header for checkpoint %u\n", idx);
       g_distinct_chunks.rehash(g_distinct_chunks.size()+(chkpt_header.chkpt_size/chunk_size) + 1);
       g_distinct_nodes.rehash(g_distinct_nodes.size()+2*(chkpt_header.chkpt_size/chunk_size));
       regions_t regions;
@@ -154,6 +156,8 @@ printf("------------------------------------------------------\n");
       f.open(chkpt_files[idx], std::ifstream::in | std::ifstream::binary);
       f.seekg(chkpt_header.header_size);
 
+      size_t name_start = chkpt_files[idx].rfind('/') + 1;
+      chkpt_files[idx].erase(chkpt_files[idx].begin(), chkpt_files[idx].begin()+name_start);
       std::string list_timing = "hashlist_filename_" + chkpt_files[idx] + 
                                 "_chunk_size_" + std::to_string(chunk_size) + 
                                 ".csv";
@@ -172,9 +176,12 @@ printf("------------------------------------------------------\n");
       for(auto &e : region_map) {
         region_t region;
         region.size = e.second;
-        uint32_t data_len = region.size;
+        size_t data_len = region.size;
         Kokkos::View<uint8_t*> current("Current region", data_len);
-        f.read((char*)(current.data()), region.size);
+        Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
+        f.read((char*)(current_h.data()), region.size);
+        Kokkos::deep_copy(current, current_h);
+printf("Read region of size %zd\n", data_len);
 
         SHA1 hasher;
         uint32_t num_chunks = data_len/chunk_size;
@@ -186,9 +193,6 @@ printf("------------------------------------------------------\n");
           DistinctMap l_distinct_chunks = DistinctMap(num_chunks);
           SharedMap l_shared_chunks = SharedMap(num_chunks);
 
-uint32_t num_chunks = current.size()/chunk_size;
-if(num_chunks*chunk_size < current.size())
-  num_chunks += 1;
 HashList list0 = HashList(num_chunks);
 
           Timer::time_point start_create_list0 = Timer::now();
@@ -235,7 +239,7 @@ HashList list0 = HashList(num_chunks);
           DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
           SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
-uint32_t num_chunks = current.size()/chunk_size;
+//uint32_t num_chunks = current.size()/chunk_size;
 MerkleTree tree0 = MerkleTree(num_chunks);
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(idx)).c_str());
@@ -244,13 +248,13 @@ MerkleTree tree0 = MerkleTree(num_chunks);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
-//          Kokkos::fence();
-//
-//          Timer::time_point start_find_distinct0 = Timer::now();
-//          Kokkos::Profiling::pushRegion((std::string("Find distinct nodes ") + std::to_string(idx)).c_str());
-//          find_distinct_subtrees(tree0, idx, l_distinct_nodes, l_shared_nodes);
-//          Kokkos::Profiling::popRegion();
-//          Timer::time_point end_find_distinct0 = Timer::now();
+          Kokkos::fence();
+
+          Timer::time_point start_find_distinct0 = Timer::now();
+          Kokkos::Profiling::pushRegion((std::string("Find distinct nodes ") + std::to_string(idx)).c_str());
+          find_distinct_subtrees(tree0, idx, l_distinct_nodes, l_shared_nodes);
+          Kokkos::Profiling::popRegion();
+          Timer::time_point end_find_distinct0 = Timer::now();
 
 //          Timer::time_point start_create_tree0 = Timer::now();
 //          Kokkos::Profiling::pushRegion("Create Tree 0");
@@ -264,17 +268,11 @@ MerkleTree tree0 = MerkleTree(num_chunks);
           Kokkos::fence();
           Timer::time_point start_compare1 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
-//          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes, queue);
+          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes, queue);
 //          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes);
-          compare_trees_fused(tree0, queue, idx, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
+//          compare_trees_fused(tree0, queue, idx, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_compare1 = Timer::now();
-
-//          Timer::time_point start_compare1 = Timer::now();
-//          Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
-//          compare_trees_fused(tree0, idx, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
-//          Kokkos::Profiling::popRegion();
-//          Timer::time_point end_compare1 = Timer::now();
 
           Kokkos::fence();
 
@@ -282,8 +280,8 @@ MerkleTree tree0 = MerkleTree(num_chunks);
 
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
           tree_fs << ",";
-//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
-//          tree_fs << ",";
+          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
+          tree_fs << ",";
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
           tree_fs << "\n";
 
@@ -302,9 +300,10 @@ MerkleTree tree0 = MerkleTree(num_chunks);
             }
           });
         }
-        list_fs.close();
-        tree_fs.close();
       }
+      list_fs.close();
+      tree_fs.close();
+printf("------------------------------------------------------\n");
     }
   }
 printf("------------------------------------------------------\n");

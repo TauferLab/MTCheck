@@ -140,7 +140,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
     }
   });
   Kokkos::deep_copy(counter_h, counter);
-  printf("Number of distinct chunks: %u\n", counter_h(0));
+  printf("Number of distinct chunks: %u out of %u\n", counter_h(0), list.list_d.extent(0));
 }
 
 #endif
