@@ -154,7 +154,10 @@ printf("Read header for checkpoint %u\n", idx);
       std::ifstream f;
       f.exceptions(std::ifstream::failbit | std::ifstream::badbit);
       f.open(chkpt_files[idx], std::ifstream::in | std::ifstream::binary);
-      f.seekg(chkpt_header.header_size);
+      f.seekg(0, f.end);
+      size_t data_len = f.tellg();
+      f.seekg(0, f.beg);
+//      f.seekg(chkpt_header.header_size);
 
       size_t name_start = chkpt_files[idx].rfind('/') + 1;
       chkpt_files[idx].erase(chkpt_files[idx].begin(), chkpt_files[idx].begin()+name_start);
@@ -173,15 +176,20 @@ printf("Read header for checkpoint %u\n", idx);
       tree_fs << "CreateTree, FindDistinctSubtrees, CompareTrees\n";
 //      tree_fs << "CreateTree, CompareTrees\n";
 
-      for(auto &e : region_map) {
-        region_t region;
-        region.size = e.second;
-        size_t data_len = region.size;
-        Kokkos::View<uint8_t*> current("Current region", data_len);
-        Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
-        f.read((char*)(current_h.data()), region.size);
-        Kokkos::deep_copy(current, current_h);
-printf("Read region of size %zd\n", data_len);
+      Kokkos::View<uint8_t*> current("Current region", data_len);
+      Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
+      f.read((char*)(current_h.data()), data_len);
+      Kokkos::deep_copy(current, current_h);
+
+//      for(auto &e : region_map) {
+//        region_t region;
+//        region.size = e.second;
+//        size_t data_len = region.size;
+//        Kokkos::View<uint8_t*> current("Current region", data_len);
+//        Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
+//        f.read((char*)(current_h.data()), region.size);
+//        Kokkos::deep_copy(current, current_h);
+//printf("Read region of size %zd\n", data_len);
 
         SHA1 hasher;
         uint32_t num_chunks = data_len/chunk_size;
@@ -248,13 +256,13 @@ MerkleTree tree0 = MerkleTree(num_chunks);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
-          Kokkos::fence();
-
-          Timer::time_point start_find_distinct0 = Timer::now();
-          Kokkos::Profiling::pushRegion((std::string("Find distinct nodes ") + std::to_string(idx)).c_str());
-          find_distinct_subtrees(tree0, idx, l_distinct_nodes, l_shared_nodes);
-          Kokkos::Profiling::popRegion();
-          Timer::time_point end_find_distinct0 = Timer::now();
+//          Kokkos::fence();
+//
+//          Timer::time_point start_find_distinct0 = Timer::now();
+//          Kokkos::Profiling::pushRegion((std::string("Find distinct nodes ") + std::to_string(idx)).c_str());
+//          find_distinct_subtrees(tree0, idx, l_distinct_nodes, l_shared_nodes);
+//          Kokkos::Profiling::popRegion();
+//          Timer::time_point end_find_distinct0 = Timer::now();
 
 //          Timer::time_point start_create_tree0 = Timer::now();
 //          Kokkos::Profiling::pushRegion("Create Tree 0");
@@ -265,23 +273,35 @@ MerkleTree tree0 = MerkleTree(num_chunks);
           Kokkos::fence();
 
           Queue queue(num_nodes);
+//queue.host_push(0);
+queue.fill(0, 1);
+//for(uint32_t i=0; i<16384; i++) {
+//  queue.host_push(16383+i);
+//}
           Kokkos::fence();
           Timer::time_point start_compare1 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
-          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes, queue);
+//          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes, queue);
 //          compare_trees(tree0, idx, l_distinct_nodes, g_distinct_nodes);
-//          compare_trees_fused(tree0, queue, idx, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
+          compare_trees_fused(tree0, queue, idx, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_compare1 = Timer::now();
 
           Kokkos::fence();
 
-          count_distinct_nodes(tree0, idx, l_distinct_nodes);
+queue.clear();
+//queue.host_push(0);
+queue.fill(0, 1);
+//for(uint32_t i=0; i<16384; i++) {
+//  queue.host_push(16383+i);
+//}
+//          count_distinct_nodes(tree0, idx, l_distinct_nodes);
+          count_distinct_nodes(tree0, queue, idx, l_distinct_nodes);
 
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
           tree_fs << ",";
-          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
-          tree_fs << ",";
+//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
+//          tree_fs << ",";
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
           tree_fs << "\n";
 
@@ -300,7 +320,7 @@ MerkleTree tree0 = MerkleTree(num_chunks);
             }
           });
         }
-      }
+//      }
       list_fs.close();
       tree_fs.close();
 printf("------------------------------------------------------\n");

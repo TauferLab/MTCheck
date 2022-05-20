@@ -112,8 +112,8 @@ void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>
         hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
       }
     });
-  }
   Kokkos::fence();
+  }
 }
 
 void find_distinct_subtrees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map) {
@@ -257,6 +257,7 @@ void compare_trees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& 
         }
       }
     });
+    Kokkos::fence();
     q_size = queue.size();
   }
   Kokkos::fence();
@@ -319,7 +320,7 @@ void compare_trees(const MerkleTree& tree, const uint32_t tree_id, DistinctMap& 
 }
 
 void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
-  queue.host_push(0);
+//  queue.host_push(0);
   uint32_t num_comp = 0;
   uint32_t q_size = queue.size();
   while(q_size > 0) {
@@ -334,7 +335,7 @@ void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tr
 //        uint32_t prior_idx = prior_map.find(digest);
 //        if(prior_idx < prior_map.capacity()) {
         if(prior_map.exists(digest)) {
-//printf("Node (%u): Hash does not exist in the distinct map but exists in the prior map\n", node);
+////printf("Node (%u): Hash does not exist in the distinct map but exists in the prior map\n", node);
           uint32_t prior_idx = prior_map.find(digest);
           NodeInfo prior_info = prior_map.value_at(prior_idx);
 //printf("Node (%u): Inserting prior entry (%u,%u,%u)\n", node, prior_info.node, prior_info.src, prior_info.tree);
@@ -370,14 +371,15 @@ void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tr
             if(existing.tree == tree_id) {
               existing.node = node;
               existing.src = node;
-//            } else {
-//              existing.node = node;
+            } else {
+              existing.node = node;
             }
         }
       } else {
         printf("Failed to insert in either the distinct and shared maps\n");
       }
     });
+Kokkos::fence();
     q_size = queue.size();
   }
 
@@ -385,12 +387,10 @@ void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tr
   Kokkos::fence();
 }
 
-void count_distinct_nodes(const MerkleTree& tree, const uint32_t tree_id, const DistinctMap& distinct) {
+void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t tree_id, const DistinctMap& distinct) {
   Kokkos::View<uint32_t[1]> n_distinct("Num distinct\n");
   Kokkos::View<uint32_t[1]>::HostMirror n_distinct_h = Kokkos::create_mirror_view(n_distinct);
   Kokkos::deep_copy(n_distinct, 0);
-  Queue queue(tree.tree_d.extent(0));
-  queue.host_push(0);
   uint32_t q_size = queue.size();
   while(q_size > 0) {
     Kokkos::parallel_for(q_size, KOKKOS_LAMBDA(const uint32_t entry) {
@@ -399,10 +399,49 @@ void count_distinct_nodes(const MerkleTree& tree, const uint32_t tree_id, const 
       if(distinct.exists(digest)) {
         uint32_t distinct_index = distinct.find(digest);
         NodeInfo info = distinct.value_at(distinct_index);
-//        n_distinct(0) += 1;
+if(info.tree != tree_id || node == info.node) {
 	Kokkos::atomic_add(&n_distinct(0), 1);
-//        if(node == info.node)  {
-//          printf("Node %u: (%u,%u,%u)\n", node, info.node, info.src, info.tree);
+}
+          if(info.tree == tree_id) {
+            uint32_t child_l = 2*node+1;
+            uint32_t child_r = 2*node+2;
+            if(child_l < queue.capacity()) {
+              queue.push(child_l);
+            }
+            if(child_r < queue.capacity()) {
+              queue.push(child_r);
+            }
+          }
+//        }
+      }
+    });
+    q_size = queue.size();
+  }
+  Kokkos::deep_copy(n_distinct_h, n_distinct);
+  Kokkos::fence();
+  printf("Number of distinct nodes: %u out of %u\n", n_distinct_h(0), tree.tree_d.extent(0));
+}
+
+void count_distinct_nodes(const MerkleTree& tree, const uint32_t tree_id, const DistinctMap& distinct) {
+  Kokkos::View<uint32_t[1]> n_distinct("Num distinct\n");
+  Kokkos::View<uint32_t[1]>::HostMirror n_distinct_h = Kokkos::create_mirror_view(n_distinct);
+  Kokkos::deep_copy(n_distinct, 0);
+  Queue queue(tree.tree_d.extent(0));
+  queue.host_push(0);
+//for(uint32_t i=0; i<512; i++) {
+//  queue.host_push(511+i);
+//}
+  uint32_t q_size = queue.size();
+  while(q_size > 0) {
+    Kokkos::parallel_for(q_size, KOKKOS_LAMBDA(const uint32_t entry) {
+      uint32_t node = queue.pop();
+      HashDigest digest = tree(node);
+      if(distinct.exists(digest)) {
+        uint32_t distinct_index = distinct.find(digest);
+        NodeInfo info = distinct.value_at(distinct_index);
+if(info.tree != tree_id || node == info.node) {
+	Kokkos::atomic_add(&n_distinct(0), 1);
+}
           if(info.tree == tree_id) {
             uint32_t child_l = 2*node+1;
             uint32_t child_r = 2*node+2;

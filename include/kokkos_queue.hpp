@@ -59,5 +59,20 @@ class Queue {
     KOKKOS_INLINE_FUNCTION uint32_t capacity() const {
       return queue_d.extent(0);
     }
+
+    void fill(uint32_t start, uint32_t end) const {
+      Kokkos::parallel_for("Fill with start..end", Kokkos::RangePolicy<>(start, end), KOKKOS_LAMBDA(const uint32_t i) {
+        push(i);
+      });
+    }
+
+    void clear() const {
+      Kokkos::deep_copy(len_d, 0);
+      Kokkos::deep_copy(beg_d, 0);
+      Kokkos::deep_copy(end_d, 0);
+      Kokkos::deep_copy(len_h, 0);
+      Kokkos::deep_copy(beg_h, 0);
+      Kokkos::deep_copy(end_h, 0);
+    }
 };
 #endif // KOKKOS_QUEUE_HPP
