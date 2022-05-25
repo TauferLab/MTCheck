@@ -294,7 +294,7 @@ queue.clear();
 queue.host_push(0);
 //queue.fill((1 << (num_levels-levels) - 1), (1 << ((num_levels-levels) + 1)) - 1);
           Kokkos::fence();
-          count_distinct_nodes(tree0, queue, idx, l_distinct_nodes);
+          count_distinct_nodes(tree0, queue, idx, l_distinct_nodes, l_shared_nodes);
           print_nodes(tree0, idx, l_distinct_nodes, l_shared_nodes);
 
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();

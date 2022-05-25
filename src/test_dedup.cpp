@@ -116,7 +116,7 @@ printf("------------------------------------------------------\n");
     SHA1 hasher;
     int counter = 0;
     {
-      uint32_t num_nodes = 53;
+      uint32_t num_nodes = 2*53-1;
       DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
       SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
@@ -172,7 +172,7 @@ printf("------------------------------------------------------\n");
       counter += 1;
     }
     {
-      uint32_t num_nodes = 53;
+      uint32_t num_nodes = 2*53-1;
       DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
       SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 

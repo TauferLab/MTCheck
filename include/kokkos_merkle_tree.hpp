@@ -331,76 +331,82 @@ void compare_trees_fused(const MerkleTree& tree, Queue& queue, const uint32_t tr
       uint32_t node = queue.pop();
       HashDigest digest = tree(node);
       NodeInfo info(node, node, tree_id);
-//      if(prior_map.exists(digest)) { // Hash in prior map
+      if(prior_map.exists(digest)) { // Hash in prior map
+        uint32_t prior_idx = prior_map.find(digest);
+        NodeInfo prior_info = prior_map.value_at(prior_idx);
+        info.src = prior_info.src;
+        info.tree = prior_info.tree;
+      }
+      auto result = distinct_map.insert(digest, info); // Try to insert
+      if(result.success()) { // Node is distinct
+//        printf("Inserted distinct node %u: (%u,%u,%u)\n", node, info.node, info.src, info.tree);
+        if(info.tree == tree_id) {
+          uint32_t child_l = 2*node+1;
+          if(child_l < queue.capacity())
+            queue.push(child_l);
+          uint32_t child_r = 2*node+2;
+          if(child_r < queue.capacity())
+            queue.push(child_r);
+        }
+      } else if(result.existing()) {
+        NodeInfo& existing = distinct_map.value_at(result.index());
+//        printf("Subtree at %u already exists: (%u,%u,%u)\n", node, existing.node, existing.src, existing.tree);
+        if(node < existing.node) {
+          uint32_t old_node = existing.node;
+          existing.node = node;
+          if(existing.tree == tree_id)
+            existing.src = node;
+          shared_map.insert(old_node, node);
+//          printf("Inserted shared node   %u: (%u,%u)\n", node, old_node, node);
+        } else {
+          shared_map.insert(node, existing.node);
+//          printf("Inserted shared node   %u: (%u,%u)\n", node, node, existing.node);
+        }
+      } else {
+        printf("Failed to insert (%u,%u,%u)\n", info.node, info.src, info.tree);
+      }
+
+//      uint32_t distinct_idx = distinct_map.find(digest);
+//      if(distinct_idx > distinct_map.capacity()) { // Node is distinct
 //        uint32_t prior_idx = prior_map.find(digest);
-//        NodeInfo prior_info = prior_map.value_at(prior_idx);
-//        info.src = prior_info.src;
-//        info.tree = prior_info.tree;
-//      }
-//      auto result = distinct_map.insert(digest, info);
-//      if(result.success()) {
-//        if(info.tree == tree_id) {
+//        if(prior_idx < prior_map.capacity()) { // Found node in prior map
+//          NodeInfo prior_info = prior_map.value_at(prior_idx);
+//          info.src = prior_info.src;
+//          info.tree = prior_info.tree;
+//          auto insert_res = distinct_map.insert(digest, info);
+//          if(insert_res.failed()) {
+//            printf("Failed to insert prior existing entry into distinct map\n");
+//          }
+//        } else {
+//          auto insert_res = distinct_map.insert(digest, info);
+//          if(insert_res.failed()) {
+//            printf("Failed to insert new entry into distinct map\n");
+//          }
 //          uint32_t child_l = 2*node+1;
-//          if(child_l < queue.capacity())
-//            queue.push(child_l);
 //          uint32_t child_r = 2*node+2;
-//          if(child_r < queue.capacity())
+//          if(child_l < queue.capacity()) {
+//            queue.push(child_l);
+//          }
+//          if(child_r < queue.capacity()) {
 //            queue.push(child_r);
+//          }
 //        }
-//      } else if(result.existing()) {
-//        NodeInfo& existing = distinct_map.value_at(result.index());
+//      } else { // Already encountered the hash
+//        uint32_t existing_idx = distinct_idx;
+//        NodeInfo& existing = distinct_map.value_at(existing_idx);
 //        if(node < existing.node) {
 //          uint32_t old_node = existing.node;
-//          existing.node = node;
-//          if(existing.tree == tree_id)
+//          if(existing.tree == tree_id) {
+//            existing.node = node;
 //            existing.src = node;
+//          } else {
+//            existing.node = node;
+//          }
 //          shared_map.insert(old_node, node);
 //        } else {
 //          shared_map.insert(node, existing.node);
 //        }
 //      }
-
-      uint32_t distinct_idx = distinct_map.find(digest);
-      if(distinct_idx > distinct_map.capacity()) { // Node is distinct
-        uint32_t prior_idx = prior_map.find(digest);
-        if(prior_idx < prior_map.capacity()) { // Found node in prior map
-          NodeInfo prior_info = prior_map.value_at(prior_idx);
-          info.src = prior_info.src;
-          info.tree = prior_info.tree;
-          auto insert_res = distinct_map.insert(digest, info);
-          if(insert_res.failed()) {
-            printf("Failed to insert prior existing entry into distinct map\n");
-          }
-        } else {
-          auto insert_res = distinct_map.insert(digest, info);
-          if(insert_res.failed()) {
-            printf("Failed to insert new entry into distinct map\n");
-          }
-          uint32_t child_l = 2*node+1;
-          uint32_t child_r = 2*node+2;
-          if(child_l < queue.capacity()) {
-            queue.push(child_l);
-          }
-          if(child_r < queue.capacity()) {
-            queue.push(child_r);
-          }
-        }
-      } else { // Already encountered the hash
-        uint32_t existing_idx = distinct_idx;
-        NodeInfo& existing = distinct_map.value_at(existing_idx);
-        if(node < existing.node) {
-          uint32_t old_node = existing.node;
-          if(existing.tree == tree_id) {
-            existing.node = node;
-            existing.src = node;
-          } else {
-            existing.node = node;
-          }
-	  shared_map.insert(old_node, node);
-        } else {
-	  shared_map.insert(node, existing.node);
-        }
-      }
     });
 Kokkos::fence();
     q_size = queue.size();
@@ -410,12 +416,12 @@ Kokkos::fence();
   Kokkos::fence();
 }
 
-void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t tree_id, const DistinctMap& distinct) {
+void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t tree_id, const DistinctMap& distinct, const SharedMap& shared) {
+  Kokkos::View<uint32_t[1]> n_shared("Num shared\n");
+  Kokkos::View<uint32_t[1]>::HostMirror n_shared_h = Kokkos::create_mirror_view(n_shared);
   Kokkos::View<uint32_t[1]> n_distinct("Num distinct\n");
   Kokkos::View<uint32_t[1]>::HostMirror n_distinct_h = Kokkos::create_mirror_view(n_distinct);
   Kokkos::deep_copy(n_distinct, 0);
-  Kokkos::View<uint32_t[1]> n_shared("Num shared\n");
-  Kokkos::View<uint32_t[1]>::HostMirror n_shared_h = Kokkos::create_mirror_view(n_shared);
   Kokkos::deep_copy(n_shared, 0);
   uint32_t q_size = queue.size();
   while(q_size > 0) {
@@ -425,8 +431,8 @@ void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t t
       if(distinct.exists(digest)) {
         uint32_t distinct_index = distinct.find(digest);
         NodeInfo info = distinct.value_at(distinct_index);
-        if(info.tree != tree_id) { // Prior existing node
-	  Kokkos::atomic_add(&n_distinct(0), 1);
+        if(node == info.node) {
+          Kokkos::atomic_add(&n_distinct(0), 1);
           if(info.tree == tree_id) {
             uint32_t child_l = 2*node+1;
             uint32_t child_r = 2*node+2;
@@ -437,23 +443,12 @@ void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t t
               queue.push(child_r);
             }
           }
-        } else if(node == info.node) { // Distinct node
-	  Kokkos::atomic_add(&n_distinct(0), 1);
-          if(info.tree == tree_id) {
-            uint32_t child_l = 2*node+1;
-            uint32_t child_r = 2*node+2;
-            if(child_l < queue.capacity()) {
-              queue.push(child_l);
-            }
-            if(child_r < queue.capacity()) {
-              queue.push(child_r);
-            }
-          }
-        } else {
+        } else if(node != info.node){
+          uint32_t src = shared.value_at(shared.find(node));
           Kokkos::atomic_add(&n_shared(0), 1);
-	}
+        }
       } else {
-        Kokkos::atomic_add(&n_shared(0), 1);
+        printf("Digest for node %u not in distinct map. This shouldn't happen.\n", node);
       }
     });
     q_size = queue.size();
@@ -568,26 +563,26 @@ void print_nodes(const MerkleTree& tree, const uint32_t tree_id, const DistinctM
       if(distinct.exists(digest)) {
         uint32_t distinct_index = distinct.find(digest);
         NodeInfo info = distinct.value_at(distinct_index);
-        if(info.tree != tree_id || node == info.node) {
+        if(node == info.node) {
           printf("Distinct Node %u: (%u,%u,%u)\n", node, info.node, info.src, info.tree);
-	  Kokkos::atomic_add(&n_distinct(0), 1);
+          Kokkos::atomic_add(&n_distinct(0), 1);
+          if(info.tree == tree_id) {
+            uint32_t child_l = 2*node+1;
+            uint32_t child_r = 2*node+2;
+            if(child_l < queue.capacity()) {
+              queue.push(child_l);
+            }
+            if(child_r < queue.capacity()) {
+              queue.push(child_r);
+            }
+          }
         } else if(node != info.node){
           uint32_t src = shared.value_at(shared.find(node));
-          printf("Shared Node:  %u: (%u,%u)\n", node, node, src);
+          printf("Shared Node:  %u: (%u,%u)\n", node, node, info.node);
           Kokkos::atomic_add(&n_shared(0), 1);
         }
-        if(info.tree == tree_id) {
-          uint32_t child_l = 2*node+1;
-          uint32_t child_r = 2*node+2;
-          if(child_l < queue.capacity()) {
-            queue.push(child_l);
-          }
-          if(child_r < queue.capacity()) {
-            queue.push(child_r);
-          }
-        }
       } else {
-        printf("Digest not in distinct map. This shouldn't happen.\n");
+        printf("Digest for node %u not in distinct map. This shouldn't happen.\n", node);
       }
     });
     q_size = queue.size();
