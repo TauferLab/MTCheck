@@ -53,6 +53,7 @@ class Queue {
 
     uint32_t size() const {
       Kokkos::deep_copy(len_h, len_d);
+      Kokkos::fence();
       return len_h(0);
     }
 
@@ -61,12 +62,21 @@ class Queue {
     }
 
     void fill(uint32_t start, uint32_t end) const {
-      Kokkos::parallel_for("Fill with start..end", Kokkos::RangePolicy<>(start, end), KOKKOS_LAMBDA(const uint32_t i) {
-        push(i);
-      });
+      for(int i=start; i<end; i++) {
+        queue_h(i-start) = i;
+      }
+      len_h(0) = end-start;
+      end_h(0) = end-start;
+      beg_h(0) = 0;
+      Kokkos::deep_copy(beg_d, beg_h);
+      Kokkos::deep_copy(end_d, end_h);
+      Kokkos::deep_copy(len_d, len_h);
+      Kokkos::deep_copy(queue_d, queue_h);
     }
 
     void clear() const {
+      Kokkos::deep_copy(queue_d, 0);
+      Kokkos::deep_copy(queue_d, 0);
       Kokkos::deep_copy(len_d, 0);
       Kokkos::deep_copy(beg_d, 0);
       Kokkos::deep_copy(end_d, 0);

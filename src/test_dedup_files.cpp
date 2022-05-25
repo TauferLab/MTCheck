@@ -247,12 +247,14 @@ HashList list0 = HashList(num_chunks);
           DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
           SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
+  const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
+  const int32_t levels = INT_MAX;
 //uint32_t num_chunks = current.size()/chunk_size;
 MerkleTree tree0 = MerkleTree(num_chunks);
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(idx)).c_str());
 //          MerkleTree tree0 = create_merkle_tree(hasher, current, chunk_size);
-          create_merkle_tree(hasher, tree0, current, chunk_size);
+          create_merkle_tree(hasher, tree0, current, chunk_size, levels);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
@@ -273,11 +275,10 @@ MerkleTree tree0 = MerkleTree(num_chunks);
           Kokkos::fence();
 
           Queue queue(num_nodes);
-//queue.host_push(0);
-queue.fill(0, 1);
-//for(uint32_t i=0; i<16384; i++) {
-//  queue.host_push(16383+i);
-//}
+queue.clear();
+queue.host_push(0);
+//queue.fill((1 << (num_levels-levels) - 1), (1 << ((num_levels-levels) + 1)) - 1);
+//printf("Filled queue\n");
           Kokkos::fence();
           Timer::time_point start_compare1 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
@@ -290,13 +291,11 @@ queue.fill(0, 1);
           Kokkos::fence();
 
 queue.clear();
-//queue.host_push(0);
-queue.fill(0, 1);
-//for(uint32_t i=0; i<16384; i++) {
-//  queue.host_push(16383+i);
-//}
-//          count_distinct_nodes(tree0, idx, l_distinct_nodes);
+queue.host_push(0);
+//queue.fill((1 << (num_levels-levels) - 1), (1 << ((num_levels-levels) + 1)) - 1);
+          Kokkos::fence();
           count_distinct_nodes(tree0, queue, idx, l_distinct_nodes);
+          print_nodes(tree0, idx, l_distinct_nodes, l_shared_nodes);
 
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
           tree_fs << ",";
