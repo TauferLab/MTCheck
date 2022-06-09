@@ -117,8 +117,6 @@ printf("------------------------------------------------------\n");
     int counter = 0;
     {
       uint32_t num_nodes = 2*53-1;
-      DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
-      SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
       uint32_t num_chunks = data_len/chunk_size;
       if(num_chunks*chunk_size < data_len)
@@ -131,19 +129,13 @@ printf("------------------------------------------------------\n");
 
       Kokkos::fence();
 
-//      find_distinct_subtrees(tree0, counter, l_distinct_nodes, l_shared_nodes);
-//
-//      Kokkos::fence();
-
       Queue queue(num_nodes);
       queue.clear();
       queue.host_push(0);
 
       Kokkos::fence();
 
-//      compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes);
-//      compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes, queue);
-      compare_trees_fused(tree0, queue, counter, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
+      compare_trees_fused(tree0, queue, counter, g_distinct_nodes);
 
       Kokkos::fence();
 
@@ -152,29 +144,14 @@ printf("------------------------------------------------------\n");
       
       Kokkos::fence();
 
-      print_nodes(tree0, counter, l_distinct_nodes, l_shared_nodes);
+      print_nodes(tree0, counter, g_distinct_nodes);
 
       Kokkos::fence();
 
-      // Update global map
-      g_distinct_nodes.rehash(g_distinct_nodes.size()+l_distinct_nodes.size());
-      Kokkos::parallel_for(l_distinct_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
-        if(l_distinct_nodes.valid_at(i) && !g_distinct_nodes.exists(l_distinct_nodes.key_at(i))) {
-          auto result = g_distinct_nodes.insert(l_distinct_nodes.key_at(i), l_distinct_nodes.value_at(i));
-          if(result.existing()) {
-            printf("Key already exists in global node map\n");
-          } else if(result.failed()) {
-            printf("Failed to insert local entry into global node map\n");
-          }
-        }
-      });
-      Kokkos::fence();
       counter += 1;
     }
     {
       uint32_t num_nodes = 2*53-1;
-      DistinctMap l_distinct_nodes  = DistinctMap(num_nodes*2);
-      SharedMap l_shared_nodes  = SharedMap(num_nodes*2);
 
       uint32_t num_chunks = data_len/chunk_size;
       if(num_chunks*chunk_size < data_len)
@@ -187,19 +164,13 @@ printf("------------------------------------------------------\n");
 
       Kokkos::fence();
 
-//      find_distinct_subtrees(tree0, counter, l_distinct_nodes, l_shared_nodes);
-//
-//      Kokkos::fence();
-
       Queue queue(num_nodes);
       queue.clear();
       queue.host_push(0);
 
       Kokkos::fence();
 
-//      compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes);
-//      compare_trees(tree0, counter, l_distinct_nodes, g_distinct_nodes, queue);
-      compare_trees_fused(tree0, queue, counter, l_distinct_nodes, l_shared_nodes, g_distinct_nodes);
+      compare_trees_fused(tree0, queue, counter, g_distinct_nodes);
 
       Kokkos::fence();
 
@@ -208,23 +179,10 @@ printf("------------------------------------------------------\n");
       
       Kokkos::fence();
 
-      print_nodes(tree0, counter, l_distinct_nodes, l_shared_nodes);
+      print_nodes(tree0, counter, g_distinct_nodes);
 
       Kokkos::fence();
 
-      // Update global map
-      g_distinct_nodes.rehash(g_distinct_nodes.size()+l_distinct_nodes.size());
-      Kokkos::parallel_for(l_distinct_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
-        if(l_distinct_nodes.valid_at(i) && !g_distinct_nodes.exists(l_distinct_nodes.key_at(i))) {
-          auto result = g_distinct_nodes.insert(l_distinct_nodes.key_at(i), l_distinct_nodes.value_at(i));
-          if(result.existing()) {
-            printf("Key already exists in global node map\n");
-          } else if(result.failed()) {
-            printf("Failed to insert local entry into global node map\n");
-          }
-        }
-      });
-      Kokkos::fence();
       counter += 1;
     }
 

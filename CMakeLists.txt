@@ -62,7 +62,7 @@ target_link_libraries(merkle_tree_test PRIVATE Kokkos::kokkos)
 set_target_properties(merkle_tree_test PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS NO
+    CXX_EXTENSIONS OFF
 )
 
 add_executable(merkle_tree_test_files src/test_dedup_files.cpp)
@@ -72,6 +72,16 @@ target_link_libraries(merkle_tree_test_files PRIVATE Kokkos::kokkos)
 set_target_properties(merkle_tree_test_files PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS NO
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(checkpoint_generator src/data_generation.cpp)
+target_include_directories(checkpoint_generator PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(checkpoint_generator PRIVATE Kokkos::kokkos)
+
+set_target_properties(checkpoint_generator PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
 )
 

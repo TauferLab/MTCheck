@@ -48,61 +48,56 @@ public:
 };
 
 template <class Hasher>
+void create_hash_list(Hasher& hasher, HashList& list, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size) {
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size())
+    num_chunks += 1;
+  Kokkos::parallel_for("Create Hash list", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+        uint32_t num_bytes = chunk_size;
+        if(i == num_chunks-1)
+          num_bytes = data.size()-i*chunk_size;
+        hasher.hash(data.data()+(i*chunk_size), 
+                    num_bytes, 
+                    list(i).digest);
+  });
+  Kokkos::fence();
+}
+
+template <class Hasher>
 HashList create_hash_list(Hasher& hasher, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size) {
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
   HashList list = HashList(num_chunks);
-  Kokkos::parallel_for("Create Hash list", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-        uint32_t num_bytes = chunk_size;
-        if(i == num_chunks-1)
-          num_bytes = data.size()-i*chunk_size;
-        hasher.hash(data.data()+(i*chunk_size), 
-                    num_bytes, 
-                    list(i).digest);
-  });
+  create_hash_list(hasher, list, data, chunk_size);
   Kokkos::fence();
   return list;
-}
-
-template <class Hasher>
-void create_hash_list(Hasher& hasher, HashList& list, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size) {
-  uint32_t num_chunks = data.size()/chunk_size;
-  if(num_chunks*chunk_size < data.size())
-    num_chunks += 1;
-//  HashList list = HashList(num_chunks);
-  Kokkos::parallel_for("Create Hash list", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-        uint32_t num_bytes = chunk_size;
-        if(i == num_chunks-1)
-          num_bytes = data.size()-i*chunk_size;
-        hasher.hash(data.data()+(i*chunk_size), 
-                    num_bytes, 
-                    list(i).digest);
-  });
-  Kokkos::fence();
-//  return list;
 }
 
 void find_distinct_chunks(const HashList& list, const uint32_t list_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
   Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
     HashDigest digest = list.list_d(i);
     NodeInfo info(i, i, list_id);
-    if(prior_map.exists(digest)) {
-      auto old_res = prior_map.find(digest);
-      NodeInfo old_node = prior_map.value_at(old_res);
-      NodeInfo new_node(i, old_node.src, old_node.tree);
-      auto distinct_res = distinct_map.insert(digest, new_node);
-      if(distinct_res.failed())
-        printf("Failed to insert entry into distinct map\n");
-    } else {
-      auto result = distinct_map.insert(digest, info);
-      if(result.existing()) {
-        NodeInfo old_info = distinct_map.value_at(result.index());
-        auto shared_res = shared_map.insert(i, old_info.node);
-        if(shared_res.failed())
-          printf("Failed to insert chunk into either distinct or shared maps\n");
-      }
-    }
+    auto result = distinct_map.insert(digest, info);
+    if(result.failed()) 
+      printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
+
+//    if(prior_map.exists(digest)) {
+//      auto old_res = prior_map.find(digest);
+//      NodeInfo old_node = prior_map.value_at(old_res);
+//      NodeInfo new_node(i, old_node.src, old_node.tree);
+//      auto distinct_res = distinct_map.insert(digest, new_node);
+//      if(distinct_res.failed())
+//        printf("Failed to insert entry into distinct map\n");
+//    } else {
+//      auto result = distinct_map.insert(digest, info);
+//      if(result.existing()) {
+//        NodeInfo old_info = distinct_map.value_at(result.index());
+//        auto shared_res = shared_map.insert(i, old_info.node);
+//        if(shared_res.failed())
+//          printf("Failed to insert chunk into either distinct or shared maps\n");
+//      }
+//    }
   });
   printf("Number of comparisons (Hash List)  : %d\n", list.list_d.extent(0));
   Kokkos::fence();
@@ -131,17 +126,54 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
   Kokkos::View<uint32_t[1]> counter("Counter");
   Kokkos::View<uint32_t[1]>::HostMirror counter_h = Kokkos::create_mirror_view(counter);
   Kokkos::deep_copy(counter, 0);
-  Kokkos::parallel_for("Count current nodes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
-    if(distinct.valid_at(i)) {
-      NodeInfo info = distinct.value_at(i);
-      if(info.tree == tree_id) {
-        Kokkos::atomic_increment(&counter(0));
+  Kokkos::parallel_for("Count updated chunks", Kokkos::RangePolicy<>(0, list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t chunk) {
+    HashDigest digest = list(chunk);
+    uint32_t idx = distinct.find(digest);
+    if(distinct.exists(digest)) {
+      NodeInfo info = distinct.value_at(idx);
+//      if(chunk == info.node && info.tree == tree_id || (info.tree != tree_id)) {
+      if((info.tree == tree_id) || ((info.tree != tree_id) && (info.node != chunk)) ) {
+        Kokkos::atomic_add(&counter(0), 1);
       }
     }
   });
+//  Kokkos::parallel_for("Count current nodes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+//    if(distinct.valid_at(i)) {
+//      NodeInfo info = distinct.value_at(i);
+//      if(info.tree == tree_id) {
+//        Kokkos::atomic_increment(&counter(0));
+//      }
+//    }
+//  });
   Kokkos::deep_copy(counter_h, counter);
   printf("Number of distinct chunks: %u out of %u\n", counter_h(0), list.list_d.extent(0));
 }
+
+//void estimate_metadata(const HashList& list, const uint32_t tree_id, const DistinctMap& distinct) {
+//  Kokkos::View<uint32_t[1]> counter("Counter");
+//  Kokkos::View<uint32_t[1]>::HostMirror counter_h = Kokkos::create_mirror_view(counter);
+//  Kokkos::deep_copy(counter, 0);
+//  Kokkos::parallel_for("Count updated chunks", Kokkos::RangePolicy<>(0, list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t chunk) {
+//    HashDigest digest = list(chunk);
+//    uint32_t idx = distinct.find(digest);
+//    if(distinct.exists(digest)) {
+//      NodeInfo info = distinct.value_at(idx);
+//      if((chunk == info.node && info.tree == tree_id) || (info.tree != tree_id)) {
+//        Kokkos::atomic_add(&counter(0), 1);
+//      }
+//    }
+//  });
+////  Kokkos::parallel_for("Count current nodes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+////    if(distinct.valid_at(i)) {
+////      NodeInfo info = distinct.value_at(i);
+////      if(info.tree == tree_id) {
+////        Kokkos::atomic_increment(&counter(0));
+////      }
+////    }
+////  });
+//  Kokkos::deep_copy(counter_h, counter);
+//  printf("Number of distinct chunks: %u out of %u\n", counter_h(0), list.list_d.extent(0));
+//}
 
 #endif
 
