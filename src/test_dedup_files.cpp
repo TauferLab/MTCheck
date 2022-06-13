@@ -143,6 +143,10 @@ printf("------------------------------------------------------\n");
 
     DistinctMap g_distinct_chunks = DistinctMap(1);
     DistinctMap g_distinct_nodes  = DistinctMap(1);
+    SharedMap g_shared_chunks = SharedMap(1);
+    SharedMap g_shared_nodes = SharedMap(1);
+
+    CompactTable<31> updates = CompactTable<31>(1);
 
     HashList prior_list(0), current_list(0);
 
@@ -160,7 +164,11 @@ printf("------------------------------------------------------\n");
       f.seekg(0, f.beg);
 //      f.seekg(chkpt_header.header_size);
       g_distinct_chunks.rehash(g_distinct_chunks.size()+(data_len/chunk_size) + 1);
-      g_distinct_nodes.rehash(g_distinct_nodes.size()+2*(data_len/chunk_size));
+      g_distinct_nodes.rehash(g_distinct_nodes.size()+2*(data_len/chunk_size) + 1);
+      g_shared_chunks.rehash(g_shared_chunks.size()+(data_len/chunk_size) + 1);
+      g_shared_nodes.rehash(g_shared_nodes.size()+(data_len/chunk_size) + 1);
+
+      updates.rehash(updates.size() + 2*(data_len/chunk_size)+1);
 
       size_t name_start = chkpt_files[idx].rfind('/') + 1;
       chkpt_files[idx].erase(chkpt_files[idx].begin(), chkpt_files[idx].begin()+name_start);
@@ -207,41 +215,84 @@ HashList list0 = HashList(num_chunks);
 
 Kokkos::fence();
 
-          Timer::time_point start_create_list0 = Timer::now();
-          Kokkos::Profiling::pushRegion((std::string("Create List ") + std::to_string(idx)).c_str());
-//          HashList list0 = create_hash_list(hasher, current, chunk_size);
-          create_hash_list(hasher, list0, current, chunk_size);
-          Kokkos::Profiling::popRegion();
-          Timer::time_point end_create_list0 = Timer::now();
+//          Timer::time_point start_create_list0 = Timer::now();
+//          Kokkos::Profiling::pushRegion((std::string("Create List ") + std::to_string(idx)).c_str());
+////          HashList list0 = create_hash_list(hasher, current, chunk_size);
+//          create_hash_list(hasher, list0, current, chunk_size);
+//          Kokkos::Profiling::popRegion();
+//          Timer::time_point end_create_list0 = Timer::now();
+//
+//          Kokkos::fence();
+//          Timer::time_point start_find_distinct0 = Timer::now();
+//          Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
+//          find_distinct_chunks(list0, idx, g_distinct_chunks, l_shared_chunks, g_distinct_chunks);
+//          Kokkos::Profiling::popRegion();
+//          Timer::time_point end_find_distinct0 = Timer::now();
+//
+//          Kokkos::fence();
+//
+//          count_distinct_nodes(list0, idx, g_distinct_chunks);
+//
+//          list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_list0 - start_create_list0).count();
+//          list_fs << ",";
+//          list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
+//          list_fs << "\n";
+//
+//          // Update global map
+//          g_distinct_chunks.rehash(g_distinct_chunks.size()+l_distinct_chunks.size());
+//          Kokkos::parallel_for(l_distinct_chunks.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+//            if(l_distinct_chunks.valid_at(i) && !g_distinct_chunks.exists(l_distinct_chunks.key_at(i))) {
+//              auto result = g_distinct_chunks.insert(l_distinct_chunks.key_at(i), l_distinct_chunks.value_at(i));
+//              if(result.existing()) {
+//                printf("Key already exists in global chunk map\n");
+//              } else if(result.failed()) {
+//                printf("Failed to insert local entry into global chunk map\n");
+//              }
+//            }
+//          });
 
           Kokkos::fence();
-          Timer::time_point start_find_distinct0 = Timer::now();
+          Timer::time_point start_compare = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
-          find_distinct_chunks(list0, idx, g_distinct_chunks, l_shared_chunks, g_distinct_chunks);
+          compare_lists(hasher, list0, idx, current, chunk_size, l_shared_chunks, l_distinct_chunks, g_distinct_chunks);
           Kokkos::Profiling::popRegion();
-          Timer::time_point end_find_distinct0 = Timer::now();
+          Timer::time_point end_compare = Timer::now();
 
           Kokkos::fence();
 
-          count_distinct_nodes(list0, idx, g_distinct_chunks);
+          count_distinct_nodes(list0, idx, l_distinct_chunks, g_distinct_chunks);
+	  printf("Size of distinct map: %u\n", l_distinct_chunks.size());
+	  printf("Size of shared map:   %u\n", l_shared_chunks.size());
 
-          list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_list0 - start_create_list0).count();
-          list_fs << ",";
-          list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_find_distinct0 - start_find_distinct0).count();
+          list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
           list_fs << "\n";
 
-          // Update global map
-          g_distinct_chunks.rehash(g_distinct_chunks.size()+l_distinct_chunks.size());
-          Kokkos::parallel_for(l_distinct_chunks.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
-            if(l_distinct_chunks.valid_at(i) && !g_distinct_chunks.exists(l_distinct_chunks.key_at(i))) {
-              auto result = g_distinct_chunks.insert(l_distinct_chunks.key_at(i), l_distinct_chunks.value_at(i));
-              if(result.existing()) {
-                printf("Key already exists in global chunk map\n");
-              } else if(result.failed()) {
-                printf("Failed to insert local entry into global chunk map\n");
+	  if(idx == 0) {
+            // Update global distinct map
+            g_distinct_chunks.rehash(g_distinct_chunks.size()+l_distinct_chunks.size());
+            Kokkos::parallel_for(l_distinct_chunks.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+              if(l_distinct_chunks.valid_at(i) && !g_distinct_chunks.exists(l_distinct_chunks.key_at(i))) {
+                auto result = g_distinct_chunks.insert(l_distinct_chunks.key_at(i), l_distinct_chunks.value_at(i));
+                if(result.existing()) {
+                  printf("Key already exists in global chunk map\n");
+                } else if(result.failed()) {
+                  printf("Failed to insert local entry into global chunk map\n");
+                }
               }
-            }
-          });
+            });
+	    // Update global shared map
+            g_shared_chunks.rehash(g_shared_chunks.size()+l_shared_chunks.size());
+            Kokkos::parallel_for(l_shared_chunks.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+              if(l_shared_chunks.valid_at(i) && !g_shared_chunks.exists(l_shared_chunks.key_at(i))) {
+                auto result = g_shared_chunks.insert(l_shared_chunks.key_at(i), l_shared_chunks.value_at(i));
+                if(result.existing()) {
+                  printf("Key already exists in global chunk map\n");
+                } else if(result.failed()) {
+                  printf("Failed to insert local entry into global chunk map\n");
+                }
+              }
+            });
+	  }
 
 	  prior_list = current_list;
 	  current_list = list0;
@@ -262,49 +313,76 @@ const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
 const int32_t levels = INT_MAX;
 //uint32_t num_chunks = current.size()/chunk_size;
 MerkleTree tree0 = MerkleTree(num_chunks);
+          SharedMap l_shared_nodes = SharedMap(num_chunks);
 
 Kokkos::fence();
 
+	  Kokkos::fence();
           Timer::time_point start_create_tree0 = Timer::now();
-          Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(idx)).c_str());
-//          MerkleTree tree0 = create_merkle_tree(hasher, current, chunk_size);
-          create_merkle_tree(hasher, tree0, current, chunk_size, levels);
-//          create_merkle_tree_task(hasher, tree0, current, chunk_size);
+          Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
+//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
-          Kokkos::fence();
+	  printf("Number of entries: %u\n", updates.size());
 
-          Queue queue(num_nodes);
-queue.clear();
-queue.host_push(0);
-//uint32_t start_node = (1 << (num_levels-levels)) - 1;
-//uint32_t stop_node = (1 << ((num_levels-levels)+1)) - 1;
-//if(stop_node > num_nodes)
-//  stop_node = num_nodes;
-//queue.fill(start_node, stop_node);
+	  if(idx == 0) {
+	    // Update global shared map
+            g_shared_nodes.rehash(g_shared_nodes.size()+l_shared_nodes.size());
+            Kokkos::parallel_for(l_shared_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+              if(l_shared_nodes.valid_at(i) && !g_shared_nodes.exists(l_shared_nodes.key_at(i))) {
+                auto result = g_shared_nodes.insert(l_shared_nodes.key_at(i), l_shared_nodes.value_at(i));
+                if(result.existing()) {
+                  printf("Key already exists in global chunk map\n");
+                } else if(result.failed()) {
+                  printf("Failed to insert local entry into global chunk map\n");
+                }
+              }
+            });
+	  }
 
-          Kokkos::fence();
-          Timer::time_point start_compare1 = Timer::now();
-          Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
-          compare_trees_fused(tree0, queue, idx, g_distinct_nodes);
-//          compare_trees_tasks(tree0, queue, idx, g_distinct_nodes);
-          Kokkos::Profiling::popRegion();
-          Timer::time_point end_compare1 = Timer::now();
 
-          Kokkos::fence();
-
-queue.clear();
-queue.host_push(0);
-//queue.fill(start_node, stop_node);
-
-          Kokkos::fence();
-          count_distinct_nodes(tree0, queue, idx, g_distinct_nodes);
-//          print_nodes(tree0, idx, g_distinct_nodes);
+//          Timer::time_point start_create_tree0 = Timer::now();
+//          Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(idx)).c_str());
+////          MerkleTree tree0 = create_merkle_tree(hasher, current, chunk_size);
+//          create_merkle_tree(hasher, tree0, current, chunk_size, levels);
+////          create_merkle_tree_task(hasher, tree0, current, chunk_size);
+//          Kokkos::Profiling::popRegion();
+//          Timer::time_point end_create_tree0 = Timer::now();
+//
+//          Kokkos::fence();
+//
+//          Queue queue(num_nodes);
+//queue.clear();
+//queue.host_push(0);
+////uint32_t start_node = (1 << (num_levels-levels)) - 1;
+////uint32_t stop_node = (1 << ((num_levels-levels)+1)) - 1;
+////if(stop_node > num_nodes)
+////  stop_node = num_nodes;
+////queue.fill(start_node, stop_node);
+//
+//          Kokkos::fence();
+//          Timer::time_point start_compare1 = Timer::now();
+//          Kokkos::Profiling::pushRegion((std::string("Compare trees ") + std::to_string(idx)).c_str());
+//          compare_trees_fused(tree0, queue, idx, g_distinct_nodes);
+////          compare_trees_tasks(tree0, queue, idx, g_distinct_nodes);
+//          Kokkos::Profiling::popRegion();
+//          Timer::time_point end_compare1 = Timer::now();
+//
+//          Kokkos::fence();
+//
+//queue.clear();
+//queue.host_push(0);
+////queue.fill(start_node, stop_node);
+//
+//          Kokkos::fence();
+//          count_distinct_nodes(tree0, queue, idx, g_distinct_nodes);
+////          print_nodes(tree0, idx, g_distinct_nodes);
 
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
-          tree_fs << ",";
-          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
+//          tree_fs << ",";
+//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
           tree_fs << "\n";
 
         }

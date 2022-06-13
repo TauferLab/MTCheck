@@ -3,6 +3,12 @@
 #include <Kokkos_Core.hpp>
 //#include <Kokkos_UnorderedMap.hpp>
 #include <climits>
+#include "kokkos_vector.hpp"
+
+union Storage {
+  uint8_t digest[16];
+  uint32_t count[4];
+};
 
 //template<uint32_t N> 
 struct alignas(16) HashDigest {
@@ -32,6 +38,30 @@ struct NodeInfo {
   KOKKOS_INLINE_FUNCTION
   bool operator==(const NodeInfo &other) const {
     if(other.node != node || other.src != src || other.tree != tree)
+      return false;
+    return true;
+  }
+};
+
+struct CompactNodeInfo {
+  uint32_t node;
+  uint32_t size;
+
+  KOKKOS_INLINE_FUNCTION
+  CompactNodeInfo(uint32_t n, uint32_t s) {
+    node = n;
+    size = s;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  CompactNodeInfo() {
+    node = UINT_MAX;
+    size = UINT_MAX;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  bool operator==(const CompactNodeInfo &other) const {
+    if(other.node != node || other.size != size)
       return false;
     return true;
   }
@@ -86,7 +116,8 @@ struct digest_equal_to {
   }
 };
 
-using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
+//using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
+using SharedMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<HashDigest, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 using DistinctMap = Kokkos::UnorderedMap<HashDigest, 
@@ -94,6 +125,8 @@ using DistinctMap = Kokkos::UnorderedMap<HashDigest,
                                          Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
+template<uint32_t N>
+using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
 
 #endif
 
