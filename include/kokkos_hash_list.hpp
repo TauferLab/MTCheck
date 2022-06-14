@@ -104,7 +104,7 @@ void find_distinct_chunks(const HashList& list, const uint32_t list_id, Distinct
 }
 
 template<class Hasher>
-void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id, const Kokkos::View<uint8_t*>& data, const uint32_t chunk_size, SharedMap& shared_map, DistinctMap& distinct_map, const DistinctMap& prior_map) {
+void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id, const Kokkos::View<uint8_t*>& data, const uint32_t chunk_size, SharedMap& shared_map, DistinctMap& distinct_map, const SharedMap prior_shared_map, const DistinctMap& prior_distinct_map) {
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
@@ -117,9 +117,8 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
                 list(i).digest);
     HashDigest digest = list.list_d(i);
     NodeInfo info(i, i, list_id);
-    uint32_t old_idx = prior_map.find(digest);
-//    if( !prior_map.valid_at(old_idx) || ( (prior_map.value_at(old_idx).node != i) ) ) {
-    if(!prior_map.valid_at(old_idx)) {
+    uint32_t old_idx = prior_distinct_map.find(digest); // Search for digest in prior distinct map
+    if(!prior_distinct_map.valid_at(old_idx)) { // Chunk not in prior chkpt
       auto result = distinct_map.insert(digest, info);
       if(result.existing()) {
         NodeInfo old = distinct_map.value_at(result.index());
@@ -127,10 +126,16 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
       } else if(result.failed())  {
         printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
       }
-    } else {
-      NodeInfo old = prior_map.value_at(old_idx);
-      if(i != old.node)
-        shared_map.insert(i, old);
+    } else { // Chunk is in prior chkpt
+      NodeInfo old_distinct = prior_distinct_map.value_at(old_idx);
+      if(i != old_distinct.node) {
+        uint32_t old_shared_idx = prior_shared_map.find(i);
+        if(prior_shared_map.valid_at(old_shared_idx)) {
+          NodeInfo old_shared = prior_shared_map.value_at(old_shared_idx);
+          if(i != prior_shared_map.value_at(old_shared_idx).node)
+            shared_map.insert(i, old_shared);
+        }
+      }
     }
   });
 //  printf("Number of comparisons (Hash List)  : %d\n", list.list_d.extent(0));

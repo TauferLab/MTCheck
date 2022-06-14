@@ -142,8 +142,8 @@ printf("------------------------------------------------------\n");
     uint32_t num_chkpts = argc-2;
 
     DistinctMap g_distinct_chunks = DistinctMap(1);
-    DistinctMap g_distinct_nodes  = DistinctMap(1);
     SharedMap g_shared_chunks = SharedMap(1);
+    DistinctMap g_distinct_nodes  = DistinctMap(1);
     SharedMap g_shared_nodes = SharedMap(1);
 
     CompactTable<31> updates = CompactTable<31>(1);
@@ -163,9 +163,12 @@ printf("------------------------------------------------------\n");
       size_t data_len = f.tellg();
       f.seekg(0, f.beg);
 //      f.seekg(chkpt_header.header_size);
-      g_distinct_chunks.rehash(g_distinct_chunks.size()+(data_len/chunk_size) + 1);
+      uint32_t num_chunks = data_len/chunk_size;
+      if(num_chunks*chunk_size < data_len)
+        num_chunks += 1;
+      g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
+      g_shared_chunks.rehash(g_shared_chunks.size()+num_chunks);
       g_distinct_nodes.rehash(g_distinct_nodes.size()+2*(data_len/chunk_size) + 1);
-      g_shared_chunks.rehash(g_shared_chunks.size()+(data_len/chunk_size) + 1);
       g_shared_nodes.rehash(g_shared_nodes.size()+(data_len/chunk_size) + 1);
 
       updates.rehash(updates.size() + 2*(data_len/chunk_size)+1);
@@ -202,9 +205,9 @@ printf("------------------------------------------------------\n");
 //printf("Read region of size %zd\n", data_len);
 
         SHA1 hasher;
-        uint32_t num_chunks = data_len/chunk_size;
-        if(num_chunks*chunk_size < data_len)
-          num_chunks += 1;
+//        uint32_t num_chunks = data_len/chunk_size;
+//        if(num_chunks*chunk_size < data_len)
+//          num_chunks += 1;
         uint32_t num_nodes = 2*num_chunks-1;
         // Hash list deduplication
         {
@@ -254,7 +257,7 @@ Kokkos::fence();
           Kokkos::fence();
           Timer::time_point start_compare = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
-          compare_lists(hasher, list0, idx, current, chunk_size, l_shared_chunks, l_distinct_chunks, g_distinct_chunks);
+          compare_lists(hasher, list0, idx, current, chunk_size, l_shared_chunks, l_distinct_chunks, g_shared_chunks, g_distinct_chunks);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_compare = Timer::now();
 
@@ -325,6 +328,7 @@ Kokkos::fence();
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
+    printf("Number of shared entries: %u\n", l_shared_nodes.size());
 	  printf("Number of entries: %u\n", updates.size());
 
 	  if(idx == 0) {

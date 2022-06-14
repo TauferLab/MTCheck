@@ -60,7 +60,7 @@ target_include_directories(merkle_tree_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(merkle_tree_test PRIVATE Kokkos::kokkos)
 
 set_target_properties(merkle_tree_test PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS OFF
 )
@@ -70,7 +70,7 @@ target_include_directories(merkle_tree_test_files PUBLIC ${CMAKE_SOURCE_DIR}/inc
 target_link_libraries(merkle_tree_test_files PRIVATE Kokkos::kokkos)
 
 set_target_properties(merkle_tree_test_files PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS OFF
 )
@@ -80,7 +80,7 @@ target_include_directories(checkpoint_generator PUBLIC ${CMAKE_SOURCE_DIR}/inclu
 target_link_libraries(checkpoint_generator PRIVATE Kokkos::kokkos)
 
 set_target_properties(checkpoint_generator PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS OFF
 )
