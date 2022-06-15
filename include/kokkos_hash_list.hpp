@@ -108,6 +108,23 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
+#ifdef STATS
+  Kokkos::View<uint32_t[1]> num_same("Number of chunks that remain the same");
+  Kokkos::View<uint32_t[1]> num_new("Number of chunks that are new");
+  Kokkos::View<uint32_t[1]> num_shift("Number of chunks that exist but in different spaces");
+  Kokkos::View<uint32_t[1]> num_comp("Number of compressed nodes");
+  Kokkos::View<uint32_t[1]> num_dupl("Number of new duplicate nodes");
+  Kokkos::View<uint32_t[1]>::HostMirror num_same_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::View<uint32_t[1]>::HostMirror num_new_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::View<uint32_t[1]>::HostMirror num_shift_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::View<uint32_t[1]>::HostMirror num_comp_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::View<uint32_t[1]>::HostMirror num_dupl_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::deep_copy(num_same, 0);
+  Kokkos::deep_copy(num_new, 0);
+  Kokkos::deep_copy(num_shift, 0);
+  Kokkos::deep_copy(num_comp, 0);
+  Kokkos::deep_copy(num_dupl, 0);
+#endif
   Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
@@ -123,8 +140,15 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
       if(result.existing()) {
         NodeInfo old = distinct_map.value_at(result.index());
         shared_map.insert(i, old);
+#ifdef STATS
+Kokkos::atomic_add(&num_dupl(0), 1);
+#endif
       } else if(result.failed())  {
         printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
+#ifdef STATS
+      } else {
+Kokkos::atomic_add(&num_new(0), 1);
+#endif
       }
     } else { // Chunk is in prior chkpt
       NodeInfo old_distinct = prior_distinct_map.value_at(old_idx);
@@ -132,14 +156,41 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
         uint32_t old_shared_idx = prior_shared_map.find(i);
         if(prior_shared_map.valid_at(old_shared_idx)) {
           NodeInfo old_shared = prior_shared_map.value_at(old_shared_idx);
-          if(i != prior_shared_map.value_at(old_shared_idx).node)
+          if(i != old_shared.node) {
             shared_map.insert(i, old_shared);
+#ifdef STATS
+Kokkos::atomic_add(&num_shift(0), 1);
+          } else {
+Kokkos::atomic_add(&num_same(0), 1);
+#endif
+          }
+        } else {
+          shared_map.insert(i, old_distinct);
+#ifdef STATS
+Kokkos::atomic_add(&num_shift(0), 1);
+#endif
         }
+#ifdef STATS
+      } else {
+Kokkos::atomic_add(&num_same(0), 1);
+#endif
       }
     }
   });
-//  printf("Number of comparisons (Hash List)  : %d\n", list.list_d.extent(0));
   Kokkos::fence();
+#ifdef STATS
+  Kokkos::deep_copy(num_same_h, num_same);
+  Kokkos::deep_copy(num_new_h, num_new);
+  Kokkos::deep_copy(num_shift_h, num_shift);
+  Kokkos::deep_copy(num_comp_h, num_comp);
+  Kokkos::deep_copy(num_dupl_h, num_dupl);
+  printf("Number of chunks: %u\n", num_chunks);
+  printf("Number of new chunks: %u\n", num_new_h(0));
+  printf("Number of same chunks: %u\n", num_same_h(0));
+  printf("Number of shift chunks: %u\n", num_shift_h(0));
+  printf("Number of comp nodes: %u\n", num_comp_h(0));
+  printf("Number of dupl nodes: %u\n", num_dupl_h(0));
+#endif
 }
 
 void print_distinct_nodes(const HashList& list, const uint32_t id, const DistinctMap& distinct) {
