@@ -116,8 +116,8 @@ struct digest_equal_to {
   }
 };
 
-//using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
-using SharedMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
+using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
+//using SharedMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<HashDigest, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 using DistinctMap = Kokkos::UnorderedMap<HashDigest, 

@@ -126,6 +126,8 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
   Kokkos::deep_copy(num_dupl, 0);
 #endif
   Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
+//  Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,1), KOKKOS_LAMBDA(const uint32_t _i) {
+//  for(uint32_t i=0; i<list.list_d.extent(0); i++) {
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
       num_bytes = data.size()-i*chunk_size;
@@ -138,15 +140,35 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
     if(!prior_distinct_map.valid_at(old_idx)) { // Chunk not in prior chkpt
       auto result = distinct_map.insert(digest, info);
       if(result.existing()) {
-        NodeInfo old = distinct_map.value_at(result.index());
-        shared_map.insert(i, old);
+        NodeInfo& old = distinct_map.value_at(result.index());
+//        uint32_t old_node = old.node;
+        uint32_t old_node = Kokkos::atomic_fetch_min(&old.node, i);
+        if(i < old_node) {
+//          old.node = i;
+          old.src = i;
+//          shared_map.insert(old_node, i);
+          auto shared_result = shared_map.insert(old_node, result.index());
+          if(shared_result.existing()) {
+            printf("Update DistinctMap: Node %u already in shared map.\n", old_node);
+          } else if(shared_result.failed()) {
+            printf("Update DistinctMap: Failed to insert %u into the shared map.\n", old_node);
+          }
+        } else {
+//          shared_map.insert(i, old.node);
+          auto shared_result = shared_map.insert(i, result.index());
+          if(shared_result.existing()) {
+            printf("Update SharedMap: Node %u already in shared map.\n", i);
+          } else if(shared_result.failed()) {
+            printf("Update SharedMap: Failed to insert %u into the shared map.\n", i);
+          }
+        }
 #ifdef STATS
 Kokkos::atomic_add(&num_dupl(0), 1);
 #endif
       } else if(result.failed())  {
         printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
 #ifdef STATS
-      } else {
+      } else if(result.success()) {
 Kokkos::atomic_add(&num_new(0), 1);
 #endif
       }
@@ -155,9 +177,12 @@ Kokkos::atomic_add(&num_new(0), 1);
       if(i != old_distinct.node) {
         uint32_t old_shared_idx = prior_shared_map.find(i);
         if(prior_shared_map.valid_at(old_shared_idx)) {
-          NodeInfo old_shared = prior_shared_map.value_at(old_shared_idx);
-          if(i != old_shared.node) {
-            shared_map.insert(i, old_shared);
+//          uint32_t old_node = prior_shared_map.value_at(old_shared_idx);
+//          if(i != old_node) {
+//            shared_map.insert(i, old_node);
+          uint32_t old_index = prior_shared_map.value_at(old_shared_idx);
+          if(i != prior_distinct_map.value_at(old_index).node) {
+            shared_map.insert(i, old_index);
 #ifdef STATS
 Kokkos::atomic_add(&num_shift(0), 1);
           } else {
@@ -165,7 +190,8 @@ Kokkos::atomic_add(&num_same(0), 1);
 #endif
           }
         } else {
-          shared_map.insert(i, old_distinct);
+//          shared_map.insert(i, old_distinct.node);
+          shared_map.insert(i, old_idx);
 #ifdef STATS
 Kokkos::atomic_add(&num_shift(0), 1);
 #endif
@@ -176,6 +202,7 @@ Kokkos::atomic_add(&num_same(0), 1);
 #endif
       }
     }
+//  }
   });
   Kokkos::fence();
 #ifdef STATS

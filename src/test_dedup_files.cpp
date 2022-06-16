@@ -263,14 +263,14 @@ Kokkos::fence();
 
           Kokkos::fence();
 
-          count_distinct_nodes(list0, idx, l_distinct_chunks, g_distinct_chunks);
-	  printf("Size of distinct map: %u\n", l_distinct_chunks.size());
-	  printf("Size of shared map:   %u\n", l_shared_chunks.size());
+//          count_distinct_nodes(list0, idx, l_distinct_chunks, g_distinct_chunks);
+          printf("Size of distinct map: %u\n", l_distinct_chunks.size());
+          printf("Size of shared map:   %u\n", l_shared_chunks.size());
 
           list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
           list_fs << "\n";
 
-	  if(idx == 0) {
+          if(idx == 0) {
             // Update global distinct map
             g_distinct_chunks.rehash(g_distinct_chunks.size()+l_distinct_chunks.size());
             Kokkos::deep_copy(g_distinct_chunks, l_distinct_chunks);
@@ -284,7 +284,7 @@ Kokkos::fence();
 //                }
 //              }
 //            });
-	    // Update global shared map
+            // Update global shared map
             g_shared_chunks.rehash(g_shared_chunks.size()+l_shared_chunks.size());
             Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
 //            Kokkos::parallel_for(l_shared_chunks.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
@@ -324,7 +324,6 @@ MerkleTree tree0 = MerkleTree(num_chunks);
 Kokkos::fence();
 
 	  Kokkos::fence();
-          printf("Number of shared entries: %u\n", g_shared_nodes.size());
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
 //          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, updates);
@@ -332,24 +331,24 @@ Kokkos::fence();
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
-          printf("Number of shared entries: %u\n", l_shared_nodes.size());
-          printf("Number of entries: %u\n", updates.size());
+          printf("Size of shared entries: %u\n", l_shared_nodes.size());
+          printf("Size of entries: %u\n", updates.size());
 
 	  if(idx == 0) {
 	    // Update global shared map
             g_shared_nodes.rehash(g_shared_nodes.size()+l_shared_nodes.size());
-//            Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
+            Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 
-            Kokkos::parallel_for(l_shared_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
-              if(l_shared_nodes.valid_at(i) && !g_shared_nodes.exists(l_shared_nodes.key_at(i))) {
-                auto result = g_shared_nodes.insert(l_shared_nodes.key_at(i), l_shared_nodes.value_at(i));
-                if(result.existing()) {
-                  printf("Key already exists in global chunk map\n");
-                } else if(result.failed()) {
-                  printf("Failed to insert local entry into global chunk map\n");
-                }
-              }
-            });
+//            Kokkos::parallel_for(l_shared_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+//              if(l_shared_nodes.valid_at(i) && !g_shared_nodes.exists(l_shared_nodes.key_at(i))) {
+//                auto result = g_shared_nodes.insert(l_shared_nodes.key_at(i), l_shared_nodes.value_at(i));
+//                if(result.existing()) {
+//                  printf("Key already exists in global chunk map\n");
+//                } else if(result.failed()) {
+//                  printf("Failed to insert local entry into global chunk map\n");
+//                }
+//              }
+//            });
 	  }
 
 
