@@ -320,6 +320,7 @@ const int32_t levels = INT_MAX;
 MerkleTree tree0 = MerkleTree(num_chunks);
           SharedMap l_shared_nodes = SharedMap(num_chunks);
           CompactTable<31> updates = CompactTable<31>(2*num_chunks - 1);
+          DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
 
 Kokkos::fence();
 
@@ -327,7 +328,8 @@ Kokkos::fence();
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
 //          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, updates);
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+//          deduplicate_data_team(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
