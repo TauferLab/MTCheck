@@ -125,6 +125,11 @@ using DistinctMap = Kokkos::UnorderedMap<HashDigest,
                                          Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
+using DistinctHostMap = Kokkos::UnorderedMap<HashDigest, 
+                                             NodeInfo, 
+                                             Kokkos::DefaultHostExecutionSpace, 
+                                             digest_hash, 
+                                             digest_equal_to>;
 template<uint32_t N>
 using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
 

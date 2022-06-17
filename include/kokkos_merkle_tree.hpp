@@ -417,8 +417,6 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
   while(nodes_leftover_h(0) != prev_leftover) {
     prev_leftover = nodes_leftover_h(0);
     Kokkos::parallel_for("Insert/compare hashes", Kokkos::RangePolicy<>(0,num_threads), KOKKOS_LAMBDA(const uint32_t i) {
-//    Kokkos::parallel_for("Insert/compare hashes", Kokkos::RangePolicy<>(0,1), KOKKOS_LAMBDA(const uint32_t _i) {
-//    for(uint32_t i=0; i<num_threads; i++) {
       uint32_t node = i+start_offset;
       if(start_offset == leaf_start) {
         uint32_t num_bytes = chunk_size;
@@ -524,7 +522,6 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           }
         }
       }
-//    }
     });
     Kokkos::deep_copy(nodes_leftover_h, nodes_leftover);
 //    printf("Found %u nodes to process\n", nodes_leftover_h(0));
@@ -568,7 +565,6 @@ void deduplicate_data_team( Kokkos::View<uint8_t*>& data,
   uint32_t prev_leftover = UINT32_MAX;
   uint32_t num_nodes_left = num_chunks;
   uint32_t num_threads = num_chunks;
-  uint32_t start_offset = leaf_start;
   Kokkos::View<uint32_t[1]> nodes_leftover("Leftover nodes to process");
   Kokkos::View<uint32_t[1]>::HostMirror nodes_leftover_h = Kokkos::create_mirror_view(nodes_leftover);
   Kokkos::deep_copy(nodes_leftover, 0);
@@ -593,33 +589,291 @@ void deduplicate_data_team( Kokkos::View<uint8_t*>& data,
   Kokkos::deep_copy(num_dupl, 0);
 #endif
 
-  uint32_t per_league = 131072;
-  uint32_t num_leagues = num_chunks / per_league;
-  if(num_leagues * per_league < num_chunks) 
+  uint32_t level_width = (1 << (num_levels-1));
+  uint32_t per_league = 128;
+  uint32_t num_leagues = level_width/per_league;
+  if(num_leagues*per_league < level_width)
     num_leagues += 1;
-  Kokkos::TeamPolicy<> team_policy(num_leagues, Kokkos::AUTO);
+//  uint32_t per_league = 1024;
+//  uint32_t num_leagues = num_chunks / per_league;
+//  if(num_leagues * per_league < num_chunks) 
+//    num_leagues += 1;
+  typedef Kokkos::DefaultExecutionSpace::scratch_memory_space ScratchSpace;
+  typedef Kokkos::View<uint32_t[1], ScratchSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>> shared_uint32_t;
+printf("Width: %u, Num leagues: %u, per_league: %u\n", level_width, num_leagues, per_league);
+
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>(num_leagues, 128).set_scratch_size(0, Kokkos::PerTeam(2*(4+sizeof(shared_uint32_t))));
   Kokkos::parallel_for("Compare chkpts", team_policy, KOKKOS_LAMBDA(Kokkos::TeamPolicy<>::member_type team_member) {
-    uint32_t start_offset = 1 << (num_levels-1) + team_member.league_rank()*per_league;
-    uint32_t end_offset = 1 << (num_levels-1) + (team_member.league_rank()+1)*per_league;
-    uint32_t prev_parents = 0;
-    uint32_t curr_parents = 0;
-//    while(start_offset != end_offset || (prev_parents < curr_parents) {
-    while(start_offset != end_offset) {
-      prev_parents = curr_parents;
-      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, end_offset-start_offset+1), [=] (uint32_t i) {
-        uint32_t node = start_offset + i;
-if(i == 0 && team_member.league_rank() == 5)
-printf("League rank: %u, start: %u, end: %u\n", team_member.league_rank(), start_offset, end_offset);
-        if(node < num_nodes) {
-          if(node > num_chunks-1) { // Bottom level
-          } else { // Other levels
+//    uint32_t start_offset = leaf_start + team_member.league_rank()*per_league;
+//    uint32_t end_offset   = leaf_start + (team_member.league_rank()+1)*per_league;
+//    uint32_t start_offset = level_width-1 + team_member.league_rank()*per_league;
+//    uint32_t end_offset = start_offset + per_league - 1; 
+//team_member.team_barrier();
+//    if(team_member.team_rank() == 0) {
+//printf("League %d, interval: [%u,%u)\n", team_member.league_rank(), start_offset, end_offset);
+//    }
+    shared_uint32_t prev_parents(team_member.team_scratch(0));
+    shared_uint32_t curr_parents(team_member.team_scratch(0));
+    if(team_member.team_rank() == 0) {
+      prev_parents(0) = UINT32_MAX;
+      curr_parents(0) = 0;
+    }
+    team_member.team_barrier();
+
+  uint32_t num_iter = num_chunks;
+  uint32_t start_offset = leaf_start;
+  uint32_t num_threads = per_league;
+  while(curr_parents(0) != prev_parents(0)) {
+    if(team_member.team_rank() == 0)  {
+      prev_parents(0) = curr_parents(0);
+    }
+    team_member.team_barrier();
+//if(team_member.team_rank() == 0) {
+//printf("League %d, chunks [%u,%u), nodes: [%u,%u)\n", team_member.league_rank(), team_member.league_rank()*num_threads, team_member.league_rank()*num_threads+num_threads, start_offset+team_member.league_rank()*num_threads, start_offset+team_member.league_rank()*num_threads+num_threads);
+//}
+//team_member.team_barrier();
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, num_threads), [=] (const uint32_t _i) {
+      uint32_t i = team_member.league_rank()*num_threads + _i;
+      uint32_t node = i+start_offset;
+if(node < num_nodes) {
+      if(start_offset == leaf_start) {
+        uint32_t num_bytes = chunk_size;
+        if(i == num_chunks-1)
+          num_bytes = data.size()-i*chunk_size;
+        hasher.hash(data.data()+(i*chunk_size), num_bytes, tree(node).digest);
+        if(tree_id == 0) {
+          NodeInfo info(node, node, tree_id);
+          auto result = prior_distinct_map.insert(tree(node), info);
+          if(result.existing()) {
+            NodeInfo& old = prior_distinct_map.value_at(result.index());
+            uint32_t prev = Kokkos::atomic_fetch_min(&old.node, node);
+            if(prev > node) {
+              old.src = node;
+              NodeInfo new_info(prev, prev, old.tree);
+              shared_map.insert(prev, result.index());
+            } else {
+              shared_map.insert(node, result.index());
+            }
+            Kokkos::atomic_add(&(num_shift(0)), 1);
+          } else if(result.success()) {
+            Kokkos::atomic_add(&(num_new(0)), 1);
+          } else if(result.failed()) {
+            printf("Failed to insert node into distinct or shared map (tree 0). Shouldn't happen.");
+          }
+        } else {
+          NodeInfo info = NodeInfo(node, node, tree_id);
+          uint32_t index = prior_distinct_map.find(tree(node));
+          if(!prior_distinct_map.valid_at(index)) { // New chunk 
+            auto result = distinct_map.insert(tree(node), info);
+            if(result.success()) {
+              Kokkos::atomic_add(&(num_new(0)), 1);
+              Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+              Kokkos::atomic_add(&curr_parents(0), 1);
+            } else if(result.existing()) {
+              NodeInfo& existing_info = distinct_map.value_at(result.index());
+              uint32_t existing_node = Kokkos::atomic_fetch_min(&existing_info.node, node);
+              if(existing_node > node) {
+                Kokkos::atomic_sub(&(tree.distinct_children_d((existing_node-1)/2)), 1);
+                Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+                existing_info.src = node;
+                shared_map.insert(existing_node, result.index());
+              } else {
+                shared_map.insert(node, result.index());
+              }
+              Kokkos::atomic_add(&num_dupl(0), 1);
+            } else if(result.failed()) {
+              printf("Failed to insert new chunk into distinct or shared map (tree %u). Shouldn't happen.", tree_id);
+            }
+          } else { // Chunk already exists
+            NodeInfo old_distinct = prior_distinct_map.value_at(index);
+            if(node != old_distinct.node) { // Chunk exists but at a different offset
+              uint32_t prior_shared_idx = prior_shared_map.find(node);
+              if(prior_shared_map.valid_at(prior_shared_idx)) { // Node is in prior shared map
+                uint32_t prior_node = prior_distinct_map.value_at(prior_shared_map.value_at(prior_shared_idx)).node;
+                if(prior_node != node) { // Chunk has changed since prior checkpoint
+                  shared_map.insert(node, index);
+                  Kokkos::atomic_add(&(num_shift(0)), 1);
+                } else {
+                  Kokkos::atomic_add(&(num_same(0)), 1);
+                }
+              } else { // Node not in prior shared map
+                shared_map.insert(node, index);
+                Kokkos::atomic_add(&(num_shift(0)), 1);
+              }
+            } else { // Chunk exists and hasn't changed node
+              Kokkos::atomic_add(&(num_same(0)), 1);
+            }
           }
         }
-      });
-      start_offset = (start_offset-1)/2;
-      end_offset = (end_offset-1)/2;
-      team_member.team_barrier();
-    }
+      } else if(tree.distinct_children_d(node) == 2) {
+        hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+        Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+        Kokkos::atomic_add(&curr_parents(0), 1);
+      } else if(tree.distinct_children_d(node) == 1) {
+        uint32_t child_l = 2*(node)+1;
+        uint32_t child_r = 2*(node)+2;
+        if((tree.distinct_children_d(child_l) == 2) || (child_l >= leaf_start)) {
+          uint32_t size = num_leaf_descendents(child_l, num_nodes);
+          CompactNodeInfo info(child_l, size);
+          uint32_t existing_idx = updates.find(info);
+          if(updates.valid_at(existing_idx)) {
+            auto& old = updates.value_at(existing_idx);
+            old.push(tree_id);
+          } else {
+            auto insert_res = updates.insert(info);
+            Array<N>& vec = updates.value_at(insert_res.index());
+            vec.push(tree_id);
+            Kokkos::atomic_add(&(num_comp(0)), 1);
+          }
+        } else if((tree.distinct_children_d(child_r) == 2) || (child_r >= leaf_start)) {
+          uint32_t size = num_leaf_descendents(child_r, num_nodes);
+          CompactNodeInfo info(child_r, size);
+          uint32_t existing_idx = updates.find(info);
+          if(updates.valid_at(existing_idx)) {
+            auto& old = updates.value_at(existing_idx);
+            old.push(tree_id);
+          } else {
+            auto insert_res = updates.insert(info);
+            Array<N>& vec = updates.value_at(insert_res.index());
+            vec.push(tree_id);
+            Kokkos::atomic_add(&(num_comp(0)), 1);
+          }
+        }
+      }
+}
+    });
+team_member.team_barrier();
+    num_threads /= 2;
+    num_iter /= 2;
+    start_offset -= num_iter;
+team_member.team_barrier();
+  }
+
+//    while( (start_offset != end_offset) && (prev_parents(0) != curr_parents(0))) {
+//      if(team_member.team_rank() == 0) {
+//        prev_parents(0) = curr_parents(0);
+//      }
+////if(team_member.team_rank() == 0)
+////printf("League %d, interval: [%u,%u), prev: %u, curr: %u\n", team_member.league_rank(), start_offset, end_offset, prev_parents(0), curr_parents(0));
+//      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, end_offset-start_offset+1), [=] (uint32_t i) {
+//        uint32_t node = start_offset + i;
+//        if(node < num_nodes) {
+//          if(node >= leaf_start) { // Chunks
+//            uint32_t num_bytes = chunk_size;
+//            if(node == num_nodes-1)
+//              num_bytes = data.size()-((node-leaf_start)*chunk_size);
+//            hasher.hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
+//            if(tree_id == 0) {
+//              NodeInfo info(node, node, tree_id);
+//              auto result = prior_distinct_map.insert(tree(node), info);
+//              if(result.existing()) {
+//                NodeInfo& old = prior_distinct_map.value_at(result.index());
+//                uint32_t prev = Kokkos::atomic_fetch_min(&old.node, node);
+//                if(prev > node) {
+//                  old.src = node;
+//                  NodeInfo new_info(prev, prev, old.tree);
+//                  shared_map.insert(prev, result.index());
+//                } else {
+//                  shared_map.insert(node, result.index());
+//                }
+//                Kokkos::atomic_add(&(num_shift(0)), 1);
+//              } else if(result.success()) {
+//                Kokkos::atomic_add(&(num_new(0)), 1);
+//              } else if(result.failed()) {
+//                printf("Failed to insert node into distinct or shared map (tree 0). Shouldn't happen.");
+//              }
+//            } else {
+//              NodeInfo info = NodeInfo(node, node, tree_id);
+//              uint32_t index = prior_distinct_map.find(tree(node));
+//              if(!prior_distinct_map.valid_at(index)) { // New chunk 
+//                auto result = distinct_map.insert(tree(node), info);
+//                if(result.success()) {
+//                  Kokkos::atomic_add(&(num_new(0)), 1);
+//                  Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+////                  Kokkos::atomic_add(&nodes_leftover(0), 1);
+//                  Kokkos::atomic_add(&curr_parents(0), 1);
+//                } else if(result.existing()) {
+//                  NodeInfo& existing_info = distinct_map.value_at(result.index());
+//                  uint32_t existing_node = Kokkos::atomic_fetch_min(&existing_info.node, node);
+//                  if(existing_node > node) {
+//                    Kokkos::atomic_sub(&(tree.distinct_children_d((existing_node-1)/2)), 1);
+//                    Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+//                    existing_info.src = node;
+//                    shared_map.insert(existing_node, result.index());
+//                  } else {
+//                    shared_map.insert(node, result.index());
+//                  }
+//                  Kokkos::atomic_add(&num_dupl(0), 1);
+//                } else if(result.failed()) {
+//                  printf("Failed to insert new chunk into distinct or shared map (tree %u). Shouldn't happen.", tree_id);
+//                }
+//              } else { // Chunk already exists
+//                NodeInfo old_distinct = prior_distinct_map.value_at(index);
+//                if(node != old_distinct.node) { // Chunk exists but at a different offset
+//                  uint32_t prior_shared_idx = prior_shared_map.find(node);
+//                  if(prior_shared_map.valid_at(prior_shared_idx)) { // Node is in prior shared map
+//                    uint32_t prior_node = prior_distinct_map.value_at(prior_shared_map.value_at(prior_shared_idx)).node;
+//                    if(prior_node != node) { // Chunk has changed since prior checkpoint
+//                      shared_map.insert(node, index);
+//                      Kokkos::atomic_add(&(num_shift(0)), 1);
+//                    } else {
+//                      Kokkos::atomic_add(&(num_same(0)), 1);
+//                    }
+//                  } else { // Node not in prior shared map
+//                    shared_map.insert(node, index);
+//                    Kokkos::atomic_add(&(num_shift(0)), 1);
+//                  }
+//                } else { // Chunk exists and hasn't changed node
+//                  Kokkos::atomic_add(&(num_same(0)), 1);
+//                }
+//              }
+//            }
+//          } else if(tree.distinct_children_d(node) == 2) {
+//            hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+//            Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
+////            Kokkos::atomic_add(&nodes_leftover(0), 1);
+//            Kokkos::atomic_add(&curr_parents(0), 1);
+//          } else if(tree.distinct_children_d(node) == 1) {
+//            uint32_t child_l = 2*(node)+1;
+//            uint32_t child_r = 2*(node)+2;
+//            if((tree.distinct_children_d(child_l) == 2) || (child_l >= leaf_start)) {
+//              uint32_t size = num_leaf_descendents(child_l, num_nodes);
+//              CompactNodeInfo info(child_l, size);
+//              uint32_t existing_idx = updates.find(info);
+//              if(updates.valid_at(existing_idx)) {
+//                auto& old = updates.value_at(existing_idx);
+//                old.push(tree_id);
+//              } else {
+//                auto insert_res = updates.insert(info);
+//                Array<N>& vec = updates.value_at(insert_res.index());
+//                vec.push(tree_id);
+//                Kokkos::atomic_add(&(num_comp(0)), 1);
+//              }
+//            } else if((tree.distinct_children_d(child_r) == 2) || (child_r >= leaf_start)) {
+//              uint32_t size = num_leaf_descendents(child_r, num_nodes);
+//              CompactNodeInfo info(child_r, size);
+//              uint32_t existing_idx = updates.find(info);
+//              if(updates.valid_at(existing_idx)) {
+//                auto& old = updates.value_at(existing_idx);
+//                old.push(tree_id);
+//              } else {
+//                auto insert_res = updates.insert(info);
+//                Array<N>& vec = updates.value_at(insert_res.index());
+//                vec.push(tree_id);
+//                Kokkos::atomic_add(&(num_comp(0)), 1);
+//              }
+//            }
+//          }
+//        } else {
+//          Kokkos::atomic_add(&curr_parents(0), 1);
+//        }
+//      });
+//      start_offset = (start_offset-1)/2;
+//      end_offset = (end_offset-2)/2;
+////if(team_member.team_rank() == 0)
+////printf("Post: League %d, interval: [%u,%u), prev: %u, curr: %u\n", team_member.league_rank(), start_offset, end_offset, prev_parents(0), curr_parents(0));
+//      team_member.team_barrier();
+//    }
   }); 
 #ifdef STATS
   Kokkos::deep_copy(num_same_h, num_same);
