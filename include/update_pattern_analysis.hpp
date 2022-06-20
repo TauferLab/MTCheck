@@ -5,7 +5,7 @@
 #include <fstream>
 
 template<typename ViewType>
-uint32_t print_changed_blocks(std::fstream& fs, ViewType new_data_d, ViewType old_data_d) {
+uint32_t print_changed_blocks_no_shifts(std::fstream& fs, ViewType new_data_d, ViewType old_data_d) {
   auto new_data = Kokkos::create_mirror_view(new_data_d);
   auto old_data = Kokkos::create_mirror_view(old_data_d);
   Kokkos::deep_copy(new_data, new_data_d);
@@ -113,12 +113,59 @@ std::map<int, int> print_contiguous_regions_no_shifts(std::fstream& fs, ViewType
 }
 
 template<typename ViewType>
-std::map<int, int> print_contiguous_regions(std::fstream& fs, ViewType new_data_d, ViewType old_data_d) {
+uint32_t print_changed_blocks(std::fstream& fs, ViewType new_data_d, ViewType old_data_d) {
   auto new_data = Kokkos::create_mirror_view(new_data_d);
   auto old_data = Kokkos::create_mirror_view(old_data_d);
   Kokkos::deep_copy(new_data, new_data_d);
   Kokkos::deep_copy(old_data, old_data_d);
   DistinctHostMap distinct(new_data.size());
+  for(int idx=0; idx <old_data.size(); idx++) {
+    distinct.insert(old_data(idx));
+  }
+  uint32_t num_changed = 0;
+  fs << "Number of blocks: " << new_data.size() << std::endl;
+  fs << "Changed blocks: ";
+  bool flag = false;
+  for(int idx = 0; idx<new_data.size(); idx++) {
+    bool same = true;
+    auto result = distinct.insert(new_data(idx));
+    if(result.success()) {
+      same = false;
+    }
+    if(!same)
+    {
+      num_changed += 1;
+      if(!flag) {
+        fs << "[" << idx << ",";
+        flag = true;
+      }
+    } else {
+      if(flag) {
+        fs << idx << ") ";
+        flag = false;
+      }
+    }
+  }
+  if(flag)
+    fs << new_data.size() << ")";
+  fs << std::endl;
+  fs << num_changed << "/" << new_data.size() << " blocks changed " << std::endl;
+  return num_changed;
+}
+
+template<typename ViewType>
+std::map<int, int> print_contiguous_regions(std::string& region_log, ViewType new_data_d, ViewType old_data_d) {
+  std::fstream fs(region_log, std::fstream::out | std::fstream::app);
+  std::fstream csv_fs(region_log+".csv", std::fstream::out | std::fstream::app);
+  csv_fs << "Region size\n";
+  auto new_data = Kokkos::create_mirror_view(new_data_d);
+  auto old_data = Kokkos::create_mirror_view(old_data_d);
+  Kokkos::deep_copy(new_data, new_data_d);
+  Kokkos::deep_copy(old_data, old_data_d);
+  DistinctHostMap distinct(new_data.size());
+  for(int idx=0; idx <old_data.size(); idx++) {
+    distinct.insert(old_data(idx));
+  }
   std::map<int, int> contiguous_regions;
   int largest_region = 1;
   int region_size_counter = 0;
@@ -139,6 +186,7 @@ std::map<int, int> print_contiguous_regions(std::fstream& fs, ViewType new_data_
         largest_region = region_size_counter;
       }
       if(region_size_counter > 0) {
+//        csv_fs << region_size_counter << std::endl;
         auto pos = contiguous_regions.find(region_size_counter);
         if(pos != contiguous_regions.end())
         {
@@ -157,6 +205,7 @@ std::map<int, int> print_contiguous_regions(std::fstream& fs, ViewType new_data_
     largest_region = region_size_counter;
   }
   if(region_size_counter > 0) {
+//    csv_fs << region_size_counter << std::endl;
     auto pos = contiguous_regions.find(region_size_counter);
     if(pos != contiguous_regions.end())
     {
@@ -171,6 +220,9 @@ std::map<int, int> print_contiguous_regions(std::fstream& fs, ViewType new_data_
   fs << "Region map\n";
   for(auto itr = contiguous_regions.begin(); itr != contiguous_regions.end(); ++itr)
   {
+for(int i=0; i<itr->second; i++) {
+csv_fs << itr->first << std::endl;
+}
     fs << itr->second << " regions of size " << itr->first << std::endl;
   }
   return contiguous_regions;

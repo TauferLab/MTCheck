@@ -308,7 +308,7 @@ std::string region_log("region-data-");
 region_log = region_log + chkpt_files[idx] + std::string(".log");
 std::fstream fs(region_log, std::fstream::out|std::fstream::app);
 uint32_t num_changed = print_changed_blocks(fs, current_list.list_d, prior_list.list_d);
-auto contiguous_regions = print_contiguous_regions(fs, current_list.list_d, prior_list.list_d);
+auto contiguous_regions = print_contiguous_regions(region_log, current_list.list_d, prior_list.list_d);
 }
         }
         // Merkle Tree deduplication
@@ -327,8 +327,8 @@ Kokkos::fence();
 	  Kokkos::fence();
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
-//          deduplicate_data_team(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+          deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
