@@ -175,18 +175,26 @@ printf("------------------------------------------------------\n");
 
       size_t name_start = chkpt_files[idx].rfind('/') + 1;
       chkpt_files[idx].erase(chkpt_files[idx].begin(), chkpt_files[idx].begin()+name_start);
-      std::string list_timing = "hashlist_filename_" + chkpt_files[idx] + 
-                                "_chunk_size_" + std::to_string(chunk_size) + 
+      std::string list_timing = "hashstructure.list.filename." + chkpt_files[idx] + 
+                                ".chunk_size." + std::to_string(chunk_size) + 
                                 ".csv";
-      std::fstream list_fs;
+      std::string list_metadata = "hashstructure.list.filename." + chkpt_files[idx] + 
+                                  ".chunk_size." + std::to_string(chunk_size) + 
+                                  ".metadata.csv";
+      std::fstream list_fs, list_meta;
       list_fs.open(list_timing, std::fstream::out | std::fstream::app);
+      list_meta.open(list_metadata, std::fstream::out | std::fstream::app);
 //      list_fs << "CreateList, CompareLists\n";
 
-      std::string tree_timing = "hashtree_filename_" + chkpt_files[idx] + 
-                                "_chunk_size_" + std::to_string(chunk_size) + 
+      std::string tree_timing = "hashstructure.tree.filename." + chkpt_files[idx] + 
+                                ".chunk_size." + std::to_string(chunk_size) + 
                                 ".csv";
-      std::fstream tree_fs;
+      std::string tree_metadata = "hashstructure.tree.filename." + chkpt_files[idx] + 
+                                  ".chunk_size." + std::to_string(chunk_size) + 
+                                  ".metadata.csv";
+      std::fstream tree_fs, tree_meta;
       tree_fs.open(tree_timing, std::fstream::out | std::fstream::app);
+      tree_meta.open(tree_metadata, std::fstream::out | std::fstream::app);
 //      tree_fs << "CreateTree, CompareTrees\n";
 
       Kokkos::View<uint8_t*> current("Current region", data_len);
@@ -266,6 +274,7 @@ Kokkos::fence();
 //          count_distinct_nodes(list0, idx, l_distinct_chunks, g_distinct_chunks);
           printf("Size of distinct map: %u\n", l_distinct_chunks.size());
           printf("Size of shared map:   %u\n", l_shared_chunks.size());
+          list_meta << l_distinct_chunks.size() << "," << l_shared_chunks.size() << std::endl;
 
           list_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
           list_fs << "\n";
@@ -327,13 +336,14 @@ Kokkos::fence();
 	  Kokkos::fence();
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
-          deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+//          deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
           printf("Size of shared entries: %u\n", l_shared_nodes.size());
           printf("Size of entries: %u\n", updates.size());
+          tree_meta << updates.size() << "," << l_shared_nodes.size() << std::endl;
 
 	  if(idx == 0) {
 	    // Update global shared map

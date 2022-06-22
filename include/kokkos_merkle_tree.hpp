@@ -7,7 +7,7 @@
 #include "map_helpers.hpp"
 #include "kokkos_queue.hpp"
 
-#define STATS
+//#define STATS
 
 //template<uint32_t N>
 class MerkleTree {
