@@ -168,8 +168,8 @@ printf("------------------------------------------------------\n");
         num_chunks += 1;
       g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
       g_shared_chunks.rehash(g_shared_chunks.size()+num_chunks);
-      g_distinct_nodes.rehash(g_distinct_nodes.size()+2*(data_len/chunk_size) + 1);
-      g_shared_nodes.rehash(g_shared_nodes.size()+(data_len/chunk_size) + 1);
+      g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks + 1);
+      g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks + 1);
 
 //      updates.rehash(updates.size() + 2*(data_len/chunk_size)+1);
 
@@ -197,6 +197,7 @@ printf("------------------------------------------------------\n");
       tree_meta.open(tree_metadata, std::fstream::out | std::fstream::app);
 //      tree_fs << "CreateTree, CompareTrees\n";
 
+      Kokkos::View<uint8_t*> first("First region", data_len);
       Kokkos::View<uint8_t*> current("Current region", data_len);
       Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
       f.read((char*)(current_h.data()), data_len);
@@ -326,42 +327,66 @@ auto contiguous_regions = print_contiguous_regions(region_log, current_list.list
 const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
 const int32_t levels = INT_MAX;
 //uint32_t num_chunks = current.size()/chunk_size;
-MerkleTree tree0 = MerkleTree(num_chunks);
-          SharedMap l_shared_nodes = SharedMap(num_chunks);
-          CompactTable<31> updates = CompactTable<31>(2*num_chunks - 1);
-          DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
-
-Kokkos::fence();
+MerkleTree tree0 = MerkleTree(2*num_chunks-1);
+          CompactTable<31> shared_updates = CompactTable<31>(2*num_chunks - 1);
+          CompactTable<31> distinct_updates = CompactTable<31>(2*num_chunks - 1);
 
 	  Kokkos::fence();
+
+if(idx == 0) {
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+          create_merkle_tree(hasher, tree0, current, chunk_size, idx, g_distinct_nodes, g_shared_nodes);
+          Kokkos::Profiling::popRegion();
+          Timer::time_point end_create_tree0 = Timer::now();
+
+          printf("Size of shared entries: %u\n", g_shared_nodes.size());
+          printf("Size of distinct entries: %u\n", g_distinct_nodes.size());
+          printf("Size of shared updates: %u\n", shared_updates.size());
+          printf("Size of distinct updates: %u\n", distinct_updates.size());
+          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
+          tree_fs << "\n";
+//l_shared_nodes.clear();
+Kokkos::deep_copy(first, current);
+} else {
+{
+          DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
+          SharedMap l_shared_nodes = SharedMap(2*num_chunks-1);
+
+          Timer::time_point start_create_tree0 = Timer::now();
+          Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
+//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, distinct_updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
 //          deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
           printf("Size of shared entries: %u\n", l_shared_nodes.size());
-          printf("Size of entries: %u\n", updates.size());
-          tree_meta << updates.size() << "," << l_shared_nodes.size() << std::endl;
+          printf("Size of distinct entries: %u\n", l_distinct_nodes.size());
+          printf("Size of shared updates: %u\n", shared_updates.size());
+          printf("Size of distinct updates: %u\n", distinct_updates.size());
+          tree_meta << distinct_updates.size() << "," << l_shared_nodes.size() << std::endl;
 
-	  if(idx == 0) {
-	    // Update global shared map
+	        if(idx == 0) {
+            // Update global shared map
             g_shared_nodes.rehash(g_shared_nodes.size()+l_shared_nodes.size());
             Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
-
-//            Kokkos::parallel_for(l_shared_nodes.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
-//              if(l_shared_nodes.valid_at(i) && !g_shared_nodes.exists(l_shared_nodes.key_at(i))) {
-//                auto result = g_shared_nodes.insert(l_shared_nodes.key_at(i), l_shared_nodes.value_at(i));
-//                if(result.existing()) {
-//                  printf("Key already exists in global chunk map\n");
-//                } else if(result.failed()) {
-//                  printf("Failed to insert local entry into global chunk map\n");
-//                }
-//              }
-//            });
-	  }
-
+          }
+          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
+//          tree_fs << ",";
+//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
+          tree_fs << "\n";
+}
+          Kokkos::fence();
+          Kokkos::View<uint8_t*> restart_data("Restart data", current.size());
+Kokkos::deep_copy(restart_data, 0);
+          bool success = restart(first, current, restart_data, chunk_size, idx, distinct_updates, shared_updates);
+          if(success) {
+            printf("Success!\n");
+          } else {
+            printf("Failure!\n");
+          }
+}
 
 //          Timer::time_point start_create_tree0 = Timer::now();
 //          Kokkos::Profiling::pushRegion((std::string("Create Tree ") + std::to_string(idx)).c_str());
@@ -400,10 +425,10 @@ Kokkos::fence();
 //          count_distinct_nodes(tree0, queue, idx, g_distinct_nodes);
 ////          print_nodes(tree0, idx, g_distinct_nodes);
 
-          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
-//          tree_fs << ",";
-//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
-          tree_fs << "\n";
+//          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
+////          tree_fs << ",";
+////          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
+//          tree_fs << "\n";
 
         }
       list_fs.close();

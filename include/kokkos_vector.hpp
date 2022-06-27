@@ -64,6 +64,10 @@ class Array {
       len = 0;
     }
 
+    KOKKOS_INLINE_FUNCTION uint32_t operator()(int32_t i) const {
+      return array[i];
+    }
+
     KOKKOS_INLINE_FUNCTION void push(uint32_t item) {
       uint32_t end = Kokkos::atomic_fetch_add(&len, 1);
       array[end] = item;
