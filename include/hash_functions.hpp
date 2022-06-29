@@ -2,7 +2,7 @@
 #define __HASH_FUNCTIONS_HPP
 
 #include <cstring>
-#include <cuda.h>
+//#include <cuda.h>
 #include <string>
 
 enum HashFunc {
