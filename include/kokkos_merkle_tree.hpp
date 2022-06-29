@@ -144,7 +144,7 @@ void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>
           shared_map.insert(i, result.index());
         }
       } else if(result.failed()) {
-          printf("Failed to insert node %u into distinct map\n");
+          printf("Failed to insert node %u into distinct map\n",i);
       }
     });
   }

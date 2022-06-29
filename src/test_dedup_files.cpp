@@ -214,6 +214,8 @@ printf("------------------------------------------------------\n");
 //printf("Read region of size %zd\n", data_len);
 
         SHA1 hasher;
+//        Murmur3F hasher;
+
 //        uint32_t num_chunks = data_len/chunk_size;
 //        if(num_chunks*chunk_size < data_len)
 //          num_chunks += 1;
@@ -311,15 +313,15 @@ Kokkos::fence();
 
 	  prior_list = current_list;
 	  current_list = list0;
-if(idx > 0) {
-//	  Kokkos::deep_copy(prior_list.list_h, prior_list.list_d);
-//	  Kokkos::deep_copy(current_list.list_h, current_list.list_d);
-std::string region_log("region-data-");
-region_log = region_log + chkpt_files[idx] + std::string(".log");
-std::fstream fs(region_log, std::fstream::out|std::fstream::app);
-uint32_t num_changed = print_changed_blocks(fs, current_list.list_d, prior_list.list_d);
-auto contiguous_regions = print_contiguous_regions(region_log, current_list.list_d, prior_list.list_d);
-}
+//if(idx > 0) {
+////	  Kokkos::deep_copy(prior_list.list_h, prior_list.list_d);
+////	  Kokkos::deep_copy(current_list.list_h, current_list.list_d);
+//std::string region_log("region-data-");
+//region_log = region_log + chkpt_files[idx] + std::string(".log");
+//std::fstream fs(region_log, std::fstream::out|std::fstream::app);
+//uint32_t num_changed = print_changed_blocks(fs, current_list.list_d, prior_list.list_d);
+//auto contiguous_regions = print_contiguous_regions(region_log, current_list.list_d, prior_list.list_d);
+//}
         }
         // Merkle Tree deduplication
         {
