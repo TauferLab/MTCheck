@@ -117,6 +117,7 @@ struct digest_equal_to {
 };
 
 using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
+using SharedHostMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
 //using SharedMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<HashDigest, NodeInfo>;
 //using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
@@ -132,6 +133,8 @@ using DistinctHostMap = Kokkos::UnorderedMap<HashDigest,
                                              digest_equal_to>;
 template<uint32_t N>
 using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
+template<uint32_t N>
+using CompactHostTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> , Kokkos::DefaultHostExecutionSpace>;
 
 #endif
 

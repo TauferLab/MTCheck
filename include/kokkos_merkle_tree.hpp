@@ -657,6 +657,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           if(!prior_distinct_map.valid_at(index)) { // Chunk not in prior map
             auto result = distinct_map.insert(tree(node), info);
             if(result.success()) { // Chunk is brand new
+//Kokkos::atomic_exchange(&tree.distinct_children_d(node), 2);
               tree.distinct_children_d(node) = 2;
 #ifdef STATS
               Kokkos::atomic_add(&(num_new(0)), 1);
@@ -664,9 +665,22 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
               Kokkos::atomic_add(&nodes_leftover(0), 1);
             } else if(result.existing()) { // Chunk already exists locally
               NodeInfo& existing_info = distinct_map.value_at(result.index());
+//              uint32_t prev = Kokkos::atomic_fetch_min(&existing_info.node, node);
+//              if(prev > node) {
+//                existing_info.src = node;
+////Kokkos::atomic_exchange(&tree.distinct_children_d(prev), 8);
+////Kokkos::atomic_exchange(&tree.distinct_children_d(node), 2);
+////                tree.distinct_children_d(prev) = 8;
+////                tree.distinct_children_d(node) = 2;
+//                shared_map.insert(prev, result.index());
+//              } else {
+////Kokkos::atomic_exchange(&tree.distinct_children_d(node), 8);
+////                tree.distinct_children_d(node) = 8;
+//                shared_map.insert(node, result.index());
+//              }
               tree.distinct_children_d(node) = 8;
-              Kokkos::atomic_add(&nodes_leftover(0), 1);
               shared_map.insert(node, result.index());
+              Kokkos::atomic_add(&nodes_leftover(0), 1);
 #ifdef STATS
               Kokkos::atomic_add(&num_dupl(0), 1);
 #endif
@@ -681,17 +695,20 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
                 uint32_t prior_node = prior_distinct_map.value_at(prior_shared_map.value_at(prior_shared_idx)).node;
                 if(prior_node != node) { // Chunk has changed since prior checkpoint
                   shared_map.insert(node, index);
+//Kokkos::atomic_exchange(&tree.distinct_children_d(node), 8);
                   tree.distinct_children_d(node) = 8;
                   Kokkos::atomic_add(&nodes_leftover(0), 1);
 #ifdef STATS
                   Kokkos::atomic_add(&(num_shift(0)), 1);
                 } else {
                   Kokkos::atomic_add(&(num_same(0)), 1);
+//Kokkos::atomic_exchange(&tree.distinct_children_d(node), 0);
                   tree.distinct_children_d(node) = 0;
 #endif
                 }
               } else { // Node not in prior shared map
                 shared_map.insert(node, index);
+//Kokkos::atomic_exchange(&tree.distinct_children_d(node), 8);
                 tree.distinct_children_d(node) = 8;
                 Kokkos::atomic_add(&nodes_leftover(0), 1);
 #ifdef STATS
@@ -701,6 +718,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 #ifdef STATS
             } else { // Chunk exists and hasn't changed node
               Kokkos::atomic_add(&(num_same(0)), 1);
+//Kokkos::atomic_exchange(&tree.distinct_children_d(node), 2);
               tree.distinct_children_d(node) = 0;
 #endif
             }

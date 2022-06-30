@@ -725,9 +725,9 @@ public:
   uint64_t getblock64(const uint8_t* p, int i) const {
     // used to avoid aliasing error which could cause errors with
     // forced inlining
-    //return p[i];
-    return ((uint64_t)p[i*8 + 0]) | ((uint64_t)p[i * 8 + 1] << 8) | ((uint64_t)p[i * 8 + 2] << 16) | ((uint64_t)p[i * 8 + 3] << 24) |
-           ((uint64_t)p[i*8 + 4] << 32) | ((uint64_t)p[i * 8 + 5] << 40) | ((uint64_t)p[i * 8 + 6] << 48) | ((uint64_t)p[i * 8 + 7] << 56);
+    return ((uint64_t*)p)[i];
+//    return ((uint64_t)p[i*8 + 0]) | ((uint64_t)p[i * 8 + 1] << 8) | ((uint64_t)p[i * 8 + 2] << 16) | ((uint64_t)p[i * 8 + 3] << 24) |
+//           ((uint64_t)p[i*8 + 4] << 32) | ((uint64_t)p[i * 8 + 5] << 40) | ((uint64_t)p[i * 8 + 6] << 48) | ((uint64_t)p[i * 8 + 7] << 56);
   }
   
   KOKKOS_FORCEINLINE_FUNCTION

@@ -127,6 +127,156 @@ bool read_full_header(const std::string& chkpt, header_t& header, std::map<int, 
   }
 }
 
+void write_incr_chkpt_hashlist( const std::string& filename, 
+                                const Kokkos::View<uint8_t*>& data, 
+                                uint32_t chunk_size, 
+                                const DistinctMap& distinct, 
+                                const SharedMap& shared,
+                                uint32_t prior_chkpt_id,
+                                uint32_t chkpt_id) {
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(filename, std::ofstream::out | std::ofstream::binary);
+
+  Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data);
+  Kokkos::deep_copy(data_h, data);
+  
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size()) {
+    num_chunks += 1;
+  }
+  // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
+  file << prior_chkpt_id << chkpt_id << data.size() << chunk_size << shared.size() << distinct.size();
+  if(prior_chkpt_id == chkpt_id) {
+    {
+      SharedHostMap shared_h(shared.capacity());
+      Kokkos::deep_copy(shared_h, shared);
+      for(uint32_t i=0; i<shared_h.capacity(); i++) {
+        if(shared_h.valid_at(i)) {
+          uint32_t chunk = shared_h.key_at(i);
+          uint32_t origin = shared_h.value_at(i);
+          file << chunk << origin;
+        }
+      }
+    }
+    {
+      DistinctHostMap distinct_h(distinct.capacity());
+      Kokkos::deep_copy(distinct_h, distinct);
+      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
+        if(distinct_h.valid_at(i)) {
+          HashDigest digest = distinct_h.key_at(i);
+          NodeInfo info = distinct_h.value_at(i);
+          file << info.node;
+          file.write((const char*)(digest.digest), 16);
+          uint32_t writesize = chunk_size;
+          if(info.node == num_chunks) {
+            writesize = data.size()-i*chunk_size;
+          }
+          file.write((const char*)(data.data())+info.node*chunk_size, writesize);
+        }
+      }
+    }
+  } else {
+    {
+      SharedHostMap shared_h(shared.capacity());
+      Kokkos::deep_copy(shared_h, shared);
+      for(uint32_t i=0; i<shared_h.capacity(); i++) {
+        if(shared_h.valid_at(i)) {
+          uint32_t chunk = shared_h.key_at(i);
+          uint32_t origin = shared_h.value_at(i);
+          file << chunk << origin;
+        }
+      }
+    }
+    {
+      DistinctHostMap distinct_h(distinct.capacity());
+      Kokkos::deep_copy(distinct_h, distinct);
+      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
+        if(distinct_h.valid_at(i)) {
+          HashDigest digest = distinct_h.key_at(i);
+          NodeInfo info = distinct_h.value_at(i);
+          file << info.node;
+          uint32_t writesize = chunk_size;
+          if(info.node == num_chunks) {
+            writesize = data.size()-i*chunk_size;
+          }
+          file.write((const char*)(data.data())+info.node*chunk_size, writesize);
+          if(writesize != chunk_size)
+            file << std::setw(chunk_size-writesize) << std::setfill(' ') << std::left << " ";
+        }
+      }
+    }
+  }
+  file.close();
+}
+
+//template<uint32_t N>
+void write_incr_chkpt_hashtree( const std::string& filename, 
+                                const Kokkos::View<uint8_t*>& data, 
+                                uint32_t chunk_size, 
+                                const CompactTable<31>& distinct, 
+                                const CompactTable<31>& shared,
+                                uint32_t prior_chkpt_id,
+                                uint32_t chkpt_id) {
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(filename, std::ofstream::out | std::ofstream::binary);
+
+  Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data);
+  Kokkos::deep_copy(data_h, data);
+  
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size()) {
+    num_chunks += 1;
+  }
+  // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
+  file << prior_chkpt_id << chkpt_id << data.size() << chunk_size << shared.size() << distinct.size();
+
+  if(prior_chkpt_id == chkpt_id) {
+  } else {
+    {
+      CompactHostTable<31> shared_h(shared.capacity());
+      Kokkos::deep_copy(shared_h, shared);
+      for(uint32_t i=0; i<shared_h.capacity(); i++) {
+        if(shared_h.valid_at(i)) {
+          auto entry = shared_h.key_at(i);
+          auto& hist = shared_h.value_at(i);
+          for(uint32_t j=0; j<hist.size(); j++) {
+            if(hist(j) == chkpt_id) {
+              file << entry.node << entry.size;
+              break;
+            }
+          }
+        }
+      }
+    }
+    {
+      CompactHostTable<31> distinct_h(distinct.capacity());
+      Kokkos::deep_copy(distinct_h, distinct);
+      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
+        if(distinct_h.valid_at(i)) {
+          auto entry = distinct_h.key_at(i);
+          auto& hist = distinct_h.value_at(i);
+          for(uint32_t j=0; j<hist.size(); j++) {
+            if(hist(j) == chkpt_id) {
+              file << entry.node << entry.size;
+              uint32_t writesize = chunk_size;
+              if(entry.node == num_chunks) {
+                writesize = data.size()-i*chunk_size;
+              }
+              file.write((const char*)(data.data())+entry.node*chunk_size, writesize);
+              if(writesize != chunk_size)
+                file << std::setw(chunk_size-writesize) << std::setfill(' ') << std::left << " ";
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  file.close();
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -213,8 +363,8 @@ printf("------------------------------------------------------\n");
 //        Kokkos::deep_copy(current, current_h);
 //printf("Read region of size %zd\n", data_len);
 
-        SHA1 hasher;
-//        Murmur3F hasher;
+//        SHA1 hasher;
+        Murmur3C hasher;
 
 //        uint32_t num_chunks = data_len/chunk_size;
 //        if(num_chunks*chunk_size < data_len)
@@ -322,6 +472,14 @@ Kokkos::fence();
 //uint32_t num_changed = print_changed_blocks(fs, current_list.list_d, prior_list.list_d);
 //auto contiguous_regions = print_contiguous_regions(region_log, current_list.list_d, prior_list.list_d);
 //}
+
+//          uint32_t prior_idx = 0;
+//          if(idx == 0) {
+//            prior_idx = 0;
+//          } else {
+//            prior_idx = idx-1;
+//          }
+//          write_incr_chkpt_hashlist(chkpt_files[idx]+".hashlist.incr_chkpt",  current, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx);
         }
         // Merkle Tree deduplication
         {
@@ -367,7 +525,7 @@ Kokkos::deep_copy(first, current);
           printf("Size of distinct entries: %u\n", l_distinct_nodes.size());
           printf("Size of shared updates: %u\n", shared_updates.size());
           printf("Size of distinct updates: %u\n", distinct_updates.size());
-          tree_meta << distinct_updates.size() << "," << l_shared_nodes.size() << std::endl;
+          tree_meta << distinct_updates.size() << "," << shared_updates.size() << std::endl;
 
 	        if(idx == 0) {
             // Update global shared map
@@ -378,16 +536,23 @@ Kokkos::deep_copy(first, current);
 //          tree_fs << ",";
 //          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
           tree_fs << "\n";
+
+//if(idx > 0) {
+//          uint32_t prior_idx = 0;
+//          if(idx > 0)
+//            prior_idx = idx-1;
+//          write_incr_chkpt_hashtree(chkpt_files[idx]+".hashtree.incr_chkpt", current, chunk_size, distinct_updates, shared_updates, prior_idx, idx);
+//}
 }
           Kokkos::fence();
-          Kokkos::View<uint8_t*> restart_data("Restart data", current.size());
-Kokkos::deep_copy(restart_data, 0);
-          bool success = restart(first, current, restart_data, chunk_size, idx, distinct_updates, shared_updates);
-          if(success) {
-            printf("Success!\n");
-          } else {
-            printf("Failure!\n");
-          }
+//          Kokkos::View<uint8_t*> restart_data("Restart data", current.size());
+//Kokkos::deep_copy(restart_data, 0);
+//          bool success = restart(first, current, restart_data, chunk_size, idx, distinct_updates, shared_updates);
+//          if(success) {
+//            printf("Success!\n");
+//          } else {
+//            printf("Failure!\n");
+//          }
 }
 
 //          Timer::time_point start_create_tree0 = Timer::now();
