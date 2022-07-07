@@ -83,7 +83,7 @@ void perturb_data(Kokkos::View<uint8_t*>& data0,
     while((B_offset < A_offset + num_changes) || (B_offset + num_changes > data0.size()) || (((B_offset / 128)*128) != B_offset)) {
       B_offset = distribution(generator);
     }
-    printf("B offset: %llu\n", B_offset);
+    printf("B offset: %lu\n", B_offset);
     auto A_subview = Kokkos::subview(data0, std::pair<uint64_t, uint64_t>(A_offset, A_offset+num_changes));
     auto B_subview = Kokkos::subview(data0, std::pair<uint64_t, uint64_t>(B_offset, B_offset+num_changes));
     Kokkos::deep_copy(chunkA, A_subview);
@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
     uint64_t data_len = strtoull(argv[1], NULL, 0);
-    int num_chkpts = atoi(argv[2]);
+    uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
     char generator_mode = *(argv[3]);
     DataGenerationMode mode = Random;
     if(generator_mode == 'R') {
@@ -137,10 +137,10 @@ int main(int argc, char** argv) {
     uint64_t num_changes = strtoull(argv[4], NULL, 0);
     std::string chkpt_filename(argv[5]);
     chkpt_filename = chkpt_filename + std::string(".");
-    printf("Data length: %llu\n", data_len);
+    printf("Data length: %lu\n", data_len);
     printf("Number of checkpoints: %d\n", num_chkpts);
     printf("Mode: %c\n", generator_mode);
-    printf("Num changes: %llu\n", num_changes);
+    printf("Num changes: %lu\n", num_changes);
     printf("File name: %s\n", chkpt_filename.c_str());
 
     Kokkos::Random_XorShift64_Pool<> rand_pool(1931);

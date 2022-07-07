@@ -115,10 +115,10 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
   Kokkos::View<uint32_t[1]> num_comp("Number of compressed nodes");
   Kokkos::View<uint32_t[1]> num_dupl("Number of new duplicate nodes");
   Kokkos::View<uint32_t[1]>::HostMirror num_same_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_new_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_shift_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_comp_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_dupl_h = Kokkos::create_mirror_view(num_same);
+  Kokkos::View<uint32_t[1]>::HostMirror num_new_h = Kokkos::create_mirror_view(num_new);
+  Kokkos::View<uint32_t[1]>::HostMirror num_shift_h = Kokkos::create_mirror_view(num_shift);
+  Kokkos::View<uint32_t[1]>::HostMirror num_comp_h = Kokkos::create_mirror_view(num_comp);
+  Kokkos::View<uint32_t[1]>::HostMirror num_dupl_h = Kokkos::create_mirror_view(num_dupl);
   Kokkos::deep_copy(num_same, 0);
   Kokkos::deep_copy(num_new, 0);
   Kokkos::deep_copy(num_shift, 0);
@@ -142,7 +142,7 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
       if(result.existing()) {
         NodeInfo& old = distinct_map.value_at(result.index());
 //        uint32_t old_node = old.node;
-        uint32_t old_node = Kokkos::atomic_fetch_min(&old.node, i);
+        uint32_t old_node = Kokkos::atomic_fetch_min(&old.node, static_cast<uint32_t>(i));
         if(i < old_node) {
 //          old.node = i;
           old.src = i;
@@ -163,13 +163,13 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
           }
         }
 #ifdef STATS
-Kokkos::atomic_add(&num_dupl(0), 1);
+Kokkos::atomic_add(&num_dupl(0), static_cast<uint32_t>(1));
 #endif
       } else if(result.failed())  {
         printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
 #ifdef STATS
       } else if(result.success()) {
-Kokkos::atomic_add(&num_new(0), 1);
+Kokkos::atomic_add(&num_new(0), static_cast<uint32_t>(1));
 #endif
       }
     } else { // Chunk is in prior chkpt
@@ -184,21 +184,21 @@ Kokkos::atomic_add(&num_new(0), 1);
           if(i != prior_distinct_map.value_at(old_index).node) {
             shared_map.insert(i, old_index);
 #ifdef STATS
-Kokkos::atomic_add(&num_shift(0), 1);
+Kokkos::atomic_add(&num_shift(0), static_cast<uint32_t>(1));
           } else {
-Kokkos::atomic_add(&num_same(0), 1);
+Kokkos::atomic_add(&num_same(0), static_cast<uint32_t>(1));
 #endif
           }
         } else {
 //          shared_map.insert(i, old_distinct.node);
           shared_map.insert(i, old_idx);
 #ifdef STATS
-Kokkos::atomic_add(&num_shift(0), 1);
+Kokkos::atomic_add(&num_shift(0), static_cast<uint32_t>(1));
 #endif
         }
 #ifdef STATS
       } else {
-Kokkos::atomic_add(&num_same(0), 1);
+Kokkos::atomic_add(&num_same(0), static_cast<uint32_t>(1));
 #endif
       }
     }
@@ -250,7 +250,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
       NodeInfo info = distinct.value_at(idx);
       if((info.tree == tree_id) || ((info.tree != tree_id) && (info.node != chunk)) ) {
 //      if(info.tree == tree_id) {
-        Kokkos::atomic_add(&counter(0), 1);
+        Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
       }
     }
   });
@@ -276,11 +276,11 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
     uint32_t idx = distinct.find(digest);
     uint32_t prior_idx = prior.find(digest);
     if(distinct.valid_at(idx)) {
-      Kokkos::atomic_add(&counter(0), 1);
+      Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
     } else if(prior.valid_at(prior_idx)) {
       NodeInfo info = prior.value_at(idx);
       if(info.node != chunk) {
-        Kokkos::atomic_add(&counter(0), 1);
+        Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
       }
     } else {
       printf("Could not find digest for chunk %u in prior or current map!\n", chunk);
