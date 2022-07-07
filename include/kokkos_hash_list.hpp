@@ -99,7 +99,7 @@ void find_distinct_chunks(const HashList& list, const uint32_t list_id, Distinct
 //      }
 //    }
   });
-  printf("Number of comparisons (Hash List)  : %d\n", list.list_d.extent(0));
+  printf("Number of comparisons (Hash List)  : %lu\n", list.list_d.extent(0));
   Kokkos::fence();
 }
 
@@ -263,7 +263,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
 //    }
 //  });
   Kokkos::deep_copy(counter_h, counter);
-  printf("Number of distinct chunks: %u out of %u\n", counter_h(0), list.list_d.extent(0));
+  printf("Number of distinct chunks: %u out of %lu\n", counter_h(0), list.list_d.extent(0));
 }
 
 
@@ -287,7 +287,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
     }
   });
   Kokkos::deep_copy(counter_h, counter);
-  printf("Number of distinct chunks: %u out of %u\n", counter_h(0), list.list_d.extent(0));
+  printf("Number of distinct chunks: %u out of %lu\n", counter_h(0), list.list_d.extent(0));
 }
 
 //void estimate_metadata(const HashList& list, const uint32_t tree_id, const DistinctMap& distinct) {

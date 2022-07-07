@@ -50,6 +50,7 @@ cmake_minimum_required(VERSION 3.12)
 project(dedup VERSION 0.0.1 LANGUAGES CXX)
 
 find_package(Kokkos REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -68,6 +69,7 @@ include(GNUInstallDirs)
 add_executable(merkle_tree_test_files src/test_dedup_files.cpp)
 target_include_directories(merkle_tree_test_files PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(merkle_tree_test_files PRIVATE Kokkos::kokkos)
+target_link_libraries(merkle_tree_test_files PRIVATE OpenSSL::SSL)
 
 set_target_properties(merkle_tree_test_files PROPERTIES
     CXX_STANDARD 14

@@ -10,6 +10,9 @@
 #include "update_pattern_analysis.hpp"
 #include <libgen.h>
 
+#define WRITE_CHKPT
+#define DEBUG
+
 enum DataGenerationMode {
   Random=0,
   BeginningIdentical,
@@ -138,75 +141,212 @@ void write_incr_chkpt_hashlist( const std::string& filename,
   file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
   file.open(filename, std::ofstream::out | std::ofstream::binary);
 
-  Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data);
-  Kokkos::deep_copy(data_h, data);
-  
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size()) {
     num_chunks += 1;
   }
+
   // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
   file << prior_chkpt_id << chkpt_id << data.size() << chunk_size << shared.size() << distinct.size();
   if(prior_chkpt_id == chkpt_id) {
-    {
-      SharedHostMap shared_h(shared.capacity());
-      Kokkos::deep_copy(shared_h, shared);
-      for(uint32_t i=0; i<shared_h.capacity(); i++) {
-        if(shared_h.valid_at(i)) {
-          uint32_t chunk = shared_h.key_at(i);
-          uint32_t origin = shared_h.value_at(i);
-          file << chunk << origin;
+    uint64_t buffer_size = 0;
+    buffer_size += sizeof(uint32_t)*2*shared.size();
+    buffer_size += distinct.size()*(sizeof(uint32_t) + sizeof(HashDigest) + chunk_size);
+    Kokkos::View<uint8_t*> buffer_d("Buffer", buffer_size);
+    Kokkos::View<uint8_t*>::HostMirror buffer_h = Kokkos::create_mirror_view(buffer_d);
+    Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
+    Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_data_h = Kokkos::create_mirror_view(num_bytes_data_d);
+    Kokkos::View<uint64_t[1]> num_bytes_metadata_d("Number of bytes written for checkpoint metadata");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_metadata_h = Kokkos::create_mirror_view(num_bytes_metadata_d);
+    Kokkos::deep_copy(num_bytes_d, 0);
+    Kokkos::deep_copy(num_bytes_data_d, 0);
+    Kokkos::deep_copy(num_bytes_metadata_d, 0);
+    Kokkos::parallel_for("Count shared updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+      if(shared.valid_at(i)) {
+        uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = shared.key_at(i);
+        buffer32[1] = shared.value_at(i);
+      }
+    });
+    Kokkos::parallel_for("Count distinct updates", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+      if(distinct.valid_at(i)) {
+        auto info = distinct.value_at(i);
+        auto digest = distinct.key_at(i);
+        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + sizeof(HashDigest) + chunk_size);
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t) + sizeof(HashDigest));
+        Kokkos::atomic_add(&num_bytes_data_d(0), chunk_size);
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = info.node;
+        for(size_t j=0; j<sizeof(HashDigest); j++) {
+          buffer_d(pos+sizeof(uint32_t)+j) = digest.digest[j];
+        }
+        uint32_t writesize = chunk_size;
+        if(info.node == num_chunks-1) {
+          writesize = data.size()-info.node*chunk_size;
+        }
+        for(size_t j=0; j<writesize; j++) {
+          buffer_d(pos+sizeof(uint32_t)+sizeof(HashDigest)+j) = data(chunk_size*(info.node)+j);
         }
       }
-    }
-    {
-      DistinctHostMap distinct_h(distinct.capacity());
-      Kokkos::deep_copy(distinct_h, distinct);
-      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
-        if(distinct_h.valid_at(i)) {
-          HashDigest digest = distinct_h.key_at(i);
-          NodeInfo info = distinct_h.value_at(i);
-          file << info.node;
-          file.write((const char*)(digest.digest), 16);
-          uint32_t writesize = chunk_size;
-          if(info.node == num_chunks) {
-            writesize = data.size()-i*chunk_size;
-          }
-          file.write((const char*)(data.data())+info.node*chunk_size, writesize);
-        }
-      }
-    }
+    });
+    Kokkos::deep_copy(num_bytes_h, num_bytes_d);
+    Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
+    Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
+    Kokkos::deep_copy(buffer_h, buffer_d);
+    file.write((const char*)(buffer_h.data()), num_bytes_h(0));
+//    uint32_t bytes_written = 7*sizeof(uint32_t) + num_bytes_h(0);
+//    std::cout << "Number of bytes written for incremental checkpoint: " << bytes_written << std::endl;
+//    std::cout << "Number of bytes written for data: " << num_bytes_data_h(0) << std::endl;;
+//    std::cout << "Number of bytes written for metadata: " << 7*sizeof(uint32_t) + num_bytes_metadata_h(0) << std::endl;
+    printf("Number of bytes written for incremental checkpoint: %lu\n", 7*sizeof(uint32_t) + num_bytes_h(0));
+    printf("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
+    printf("Number of bytes written for metadata: %lu\n", 7*sizeof(uint32_t) + num_bytes_metadata_h(0));
   } else {
-    {
-      SharedHostMap shared_h(shared.capacity());
-      Kokkos::deep_copy(shared_h, shared);
-      for(uint32_t i=0; i<shared_h.capacity(); i++) {
-        if(shared_h.valid_at(i)) {
-          uint32_t chunk = shared_h.key_at(i);
-          uint32_t origin = shared_h.value_at(i);
-          file << chunk << origin;
+    uint32_t buffer_size = 0;
+    buffer_size += sizeof(uint32_t)*2*shared.size();
+    buffer_size += distinct.size()*(sizeof(uint32_t) + chunk_size);
+printf("Buffer size: %u\n", buffer_size);
+    Kokkos::View<uint8_t*> buffer_d("Buffer", buffer_size);
+    Kokkos::View<uint8_t*>::HostMirror buffer_h = Kokkos::create_mirror_view(buffer_d);
+    Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
+    Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_data_h = Kokkos::create_mirror_view(num_bytes_data_d);
+    Kokkos::View<uint64_t[1]> num_bytes_metadata_d("Number of bytes written for checkpoint metadata");
+    Kokkos::View<uint64_t[1]>::HostMirror num_bytes_metadata_h = Kokkos::create_mirror_view(num_bytes_metadata_d);
+    Kokkos::deep_copy(num_bytes_d, 0);
+    Kokkos::deep_copy(num_bytes_data_d, 0);
+    Kokkos::deep_copy(num_bytes_metadata_d, 0);
+    Kokkos::parallel_for("Count shared updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+      if(shared.valid_at(i)) {
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
+        uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = shared.key_at(i);
+        buffer32[1] = shared.value_at(i);
+      }
+    });
+    Kokkos::parallel_for("Count distinct updates", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+      if(distinct.valid_at(i)) {
+        auto info = distinct.value_at(i);
+//        auto digest = distinct.key_at(i);
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
+        Kokkos::atomic_add(&num_bytes_data_d(0), chunk_size);
+        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + chunk_size);
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = info.node;
+        uint32_t writesize = chunk_size;
+        if(info.node == num_chunks-1) {
+          writesize = data.size()-info.node*chunk_size;
+        }
+        for(size_t j=0; j<writesize; j++) {
+          buffer_d(pos+sizeof(uint32_t)+j) = data(chunk_size*(info.node)+j);
         }
       }
-    }
-    {
-      DistinctHostMap distinct_h(distinct.capacity());
-      Kokkos::deep_copy(distinct_h, distinct);
-      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
-        if(distinct_h.valid_at(i)) {
-          HashDigest digest = distinct_h.key_at(i);
-          NodeInfo info = distinct_h.value_at(i);
-          file << info.node;
-          uint32_t writesize = chunk_size;
-          if(info.node == num_chunks) {
-            writesize = data.size()-i*chunk_size;
-          }
-          file.write((const char*)(data.data())+info.node*chunk_size, writesize);
-          if(writesize != chunk_size)
-            file << std::setw(chunk_size-writesize) << std::setfill(' ') << std::left << " ";
-        }
-      }
-    }
+    });
+    Kokkos::deep_copy(num_bytes_h, num_bytes_d);
+    Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
+    Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
+    Kokkos::deep_copy(buffer_h, buffer_d);
+    file.write((const char*)(buffer_h.data()), num_bytes_h(0));
+  file.flush();
+//    std::cout << "Number of bytes written for incremental checkpoint: " << 7*sizeof(uint32_t) + num_bytes_h(0) << std::endl;
+//    std::cout << "Number of bytes written for data: " << num_bytes_data_h(0) << std::endl;;
+//    std::cout << "Number of bytes written for metadata: " << 7*sizeof(uint32_t) + num_bytes_metadata_h(0) << std::endl;
+    printf("Number of bytes written for incremental checkpoint: %lu\n", 7*sizeof(uint32_t) + num_bytes_h(0));
+    printf("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
+    printf("Number of bytes written for metadata: %lu\n", 7*sizeof(uint32_t) + num_bytes_metadata_h(0));
   }
+printf("Trying to close file\n");
+  file.flush();
+  file.close();
+printf("Closed file\n");
+}
+
+void write_incr_chkpt_hashtree( const std::string& filename, 
+                                const Kokkos::View<uint8_t*>& data, 
+                                uint32_t chunk_size, 
+                                const DistinctMap& distinct, 
+                                const SharedMap& shared,
+                                uint32_t prior_chkpt_id,
+                                uint32_t chkpt_id) {
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(filename, std::ofstream::out | std::ofstream::binary);
+
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size()) {
+    num_chunks += 1;
+  }
+  uint32_t num_nodes = 2*num_chunks-1;
+
+  // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
+  file << prior_chkpt_id << chkpt_id << data.size() << chunk_size << shared.size() << distinct.size();
+  Kokkos::View<uint8_t*> buffer_d("Buffer", shared.size()*2*sizeof(uint32_t) + distinct.size()*(sizeof(uint32_t)+sizeof(HashDigest)+chunk_size));
+  Kokkos::View<uint8_t*>::HostMirror buffer_h = Kokkos::create_mirror_view(buffer_d);
+  Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
+  Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_data_h = Kokkos::create_mirror_view(num_bytes_data_d);
+  Kokkos::View<uint64_t[1]> num_bytes_metadata_d("Number of bytes written for checkpoint metadata");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_metadata_h = Kokkos::create_mirror_view(num_bytes_metadata_d);
+  Kokkos::deep_copy(num_bytes_d, 0);
+  Kokkos::deep_copy(num_bytes_data_d, 0);
+  Kokkos::deep_copy(num_bytes_metadata_d, 0);
+
+  Kokkos::parallel_for("Count shared updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(shared.valid_at(i)) {
+      Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
+      uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
+      uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+      buffer32[0] = shared.key_at(i);
+      buffer32[1] = shared.value_at(i);
+    }
+  });
+  Kokkos::parallel_for("Count distinct updates", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(distinct.valid_at(i)) {
+      auto info = distinct.value_at(i);
+      if(info.node >= num_chunks-1) {
+        auto digest = distinct.key_at(i);
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t)+sizeof(HashDigest));
+        Kokkos::atomic_add(&num_bytes_data_d(0), chunk_size);
+        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + sizeof(HashDigest) + chunk_size);
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = info.node;
+        for(size_t j=0; j<sizeof(HashDigest); j++) {
+          buffer_d(pos+sizeof(uint32_t)+j) = digest.digest[j];
+        }
+        uint32_t writesize = chunk_size;
+        if(info.node == num_nodes-1) {
+          writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
+        }
+        for(size_t j=0; j<writesize; j++) {
+          buffer_d(pos+sizeof(uint32_t)+sizeof(HashDigest)+j) = data(chunk_size*(info.node-num_chunks+1)+j);
+        }
+      } else {
+        auto digest = distinct.key_at(i);
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t)+sizeof(HashDigest));
+        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + sizeof(HashDigest));
+        uint32_t* buffer32 = (uint32_t*)(buffer_d.data()+pos);
+        buffer32[0] = info.node;
+        for(size_t j=0; j<sizeof(HashDigest); j++) {
+          buffer_d(pos+sizeof(uint32_t)+j) = digest.digest[j];
+        }
+      }
+    }
+  });
+  Kokkos::deep_copy(num_bytes_h, num_bytes_d);
+  Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
+  Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
+  Kokkos::deep_copy(buffer_h, buffer_d);
+  file.write((const char*)(buffer_h.data()), num_bytes_h(0));
+  printf("Number of bytes written for compact incremental checkpoint: %lu\n", 7*sizeof(uint32_t) + num_bytes_h(0));
+  printf("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
+  printf("Number of bytes written for metadata: %lu\n", 7*sizeof(uint32_t) + num_bytes_metadata_h(0));
   file.close();
 }
 
@@ -221,59 +361,126 @@ void write_incr_chkpt_hashtree( const std::string& filename,
   std::ofstream file;
   file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
   file.open(filename, std::ofstream::out | std::ofstream::binary);
+//printf("File: %s\n", filename.c_str());
 
-  Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data);
-  Kokkos::deep_copy(data_h, data);
+//printf("Setup files.\n");
+
+//  Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data);
+//  Kokkos::deep_copy(data_h, data);
+
+//printf("Copied data to host\n");
   
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size()) {
     num_chunks += 1;
   }
+  uint32_t num_nodes = 2*num_chunks-1;
+
   // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
   file << prior_chkpt_id << chkpt_id << data.size() << chunk_size << shared.size() << distinct.size();
+//printf("Wrote header: %u, %u, %u, %u, %u, %u\n", prior_chkpt_id, chkpt_id, data.size(), chunk_size, shared.size(), distinct.size());
+  Kokkos::View<uint8_t*> buffer_d("Buffer", shared.size()*2*sizeof(uint32_t) + distinct.size()*(sizeof(uint32_t)+sizeof(HashDigest)+chunk_size));
+  Kokkos::View<uint8_t*>::HostMirror buffer_h = Kokkos::create_mirror_view(buffer_d);
+  Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
+  Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_data_h = Kokkos::create_mirror_view(num_bytes_data_d);
+  Kokkos::View<uint64_t[1]> num_bytes_metadata_d("Number of bytes written for checkpoint metadata");
+  Kokkos::View<uint64_t[1]>::HostMirror num_bytes_metadata_h = Kokkos::create_mirror_view(num_bytes_metadata_d);
+  Kokkos::deep_copy(num_bytes_d, 0);
+  Kokkos::deep_copy(num_bytes_data_d, 0);
+  Kokkos::deep_copy(num_bytes_metadata_d, 0);
 
-  if(prior_chkpt_id == chkpt_id) {
-  } else {
-    {
-      CompactHostTable<31> shared_h(shared.capacity());
-      Kokkos::deep_copy(shared_h, shared);
-      for(uint32_t i=0; i<shared_h.capacity(); i++) {
-        if(shared_h.valid_at(i)) {
-          auto entry = shared_h.key_at(i);
-          auto& hist = shared_h.value_at(i);
-          for(uint32_t j=0; j<hist.size(); j++) {
-            if(hist(j) == chkpt_id) {
-              file << entry.node << entry.size;
-              break;
-            }
-          }
+  Kokkos::parallel_for("Count shared bytes", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(shared.valid_at(i)) {
+      auto entry = shared.key_at(i);
+      auto hist = shared.value_at(i);
+      for(uint32_t j=0; j<hist.size(); j++) {
+        if(hist(j) == chkpt_id) {
+          Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)*2);
+          size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)*2);
+          uint32_t* buffer32 = (uint32_t*)(buffer_d.data() + pos);
+          buffer32[0] = entry.node;
+          buffer32[1] = entry.size;
+          break;
         }
       }
     }
-    {
-      CompactHostTable<31> distinct_h(distinct.capacity());
-      Kokkos::deep_copy(distinct_h, distinct);
-      for(uint32_t i=0; i<distinct_h.capacity(); i++) {
-        if(distinct_h.valid_at(i)) {
-          auto entry = distinct_h.key_at(i);
-          auto& hist = distinct_h.value_at(i);
-          for(uint32_t j=0; j<hist.size(); j++) {
-            if(hist(j) == chkpt_id) {
-              file << entry.node << entry.size;
+  });
+//  Kokkos::Bitset<Kokkos::DefaultExecutionSpace> visited(num_chunks);
+//  visited.reset();
+  Kokkos::parallel_for("Count distinct bytes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(distinct.valid_at(i)) {
+      auto entry = distinct.key_at(i);
+      auto hist = distinct.value_at(i);
+      for(uint32_t j=0; j<hist.size(); j++) {
+        if(hist(j) == chkpt_id) {
+          if(entry.node == entry.size) {
+            uint32_t size = num_leaf_descendents(entry.node, num_nodes);
+            uint32_t start = leftmost_leaf(entry.node, num_nodes) - (num_chunks-1);
+            Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)*2);
+            Kokkos::atomic_add(&num_bytes_data_d(0), size*chunk_size);
+            size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)*2 + size*chunk_size);
+            uint32_t* buffer32 = (uint32_t*)(buffer_d.data() + pos);
+            buffer32[0] = entry.node;
+            buffer32[1] = entry.size;
+            for(size_t j=0; j<size; j++) {
               uint32_t writesize = chunk_size;
-              if(entry.node == num_chunks) {
-                writesize = data.size()-i*chunk_size;
+              if(start+j == num_chunks-1) {
+                writesize = data.size()-(start+j)*chunk_size;
               }
-              file.write((const char*)(data.data())+entry.node*chunk_size, writesize);
-              if(writesize != chunk_size)
-                file << std::setw(chunk_size-writesize) << std::setfill(' ') << std::left << " ";
-              break;
+              memcpy((buffer_d.data()+pos+2*sizeof(uint32_t)+j*chunk_size), data.data() + (start*chunk_size + j*chunk_size), writesize);
             }
+          } else {
+            Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)*2);
+            size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)*2);
+            uint32_t* buffer32 = (uint32_t*)(buffer_d.data() + pos);
+            buffer32[0] = entry.node;
+            buffer32[1] = entry.size;
           }
+          break;
+
+//          if(!visited.test(entry.node)) {
+//            uint32_t n_new = 0;
+//            for(uint32_t j=entry.node; j<entry.node+entry.size; j++) {
+//              if(!visited.test(j)) {
+//                n_new += 1;
+//                visited.set(j);
+//              }
+//            }
+//if(entry.node+entry.size >= num_chunks)
+//printf("Incorrect node and size: (%u,%u)\n", entry.node, entry.size);
+//            size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)*2 + n_new*chunk_size);
+//            uint32_t* buffer32 = (uint32_t*)(buffer_d.data() + pos);
+//            buffer32[0] = entry.node;
+//            buffer32[1] = entry.size;
+//            for(size_t j=0; j<n_new; j++) {
+//              uint32_t writesize = chunk_size;
+//              if(entry.node+j == num_chunks-1) {
+//                writesize = data.size()-(entry.node+j-num_chunks+1)*chunk_size;
+//              }
+//              memcpy((buffer_d.data()+pos+2*sizeof(uint32_t)+j*chunk_size), data.data() + (entry.node*chunk_size + j*chunk_size), writesize);
+//            }
+//          } else {
+//            size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)*2);
+//            uint32_t* buffer32 = (uint32_t*)(buffer_d.data() + pos);
+//            buffer32[0] = entry.node;
+//            buffer32[1] = entry.size;
+//          }
+//          break;
         }
       }
     }
-  }
+  });
+  Kokkos::deep_copy(num_bytes_h, num_bytes_d);
+  Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
+  Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
+  Kokkos::deep_copy(buffer_h, buffer_d);
+  file.write((const char*)(buffer_h.data()), num_bytes_h(0));
+  printf("Number of bytes written for compact incremental checkpoint: %lu\n", 7*sizeof(uint32_t) + num_bytes_h(0));
+  printf("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
+  printf("Number of bytes written for metadata: %lu\n", 7*sizeof(uint32_t) + num_bytes_metadata_h(0));
+  
   file.close();
 }
 
@@ -286,7 +493,9 @@ printf("------------------------------------------------------\n");
     // Process data from checkpoint files
     uint32_t chunk_size = static_cast<uint32_t>(strtoul(argv[1], NULL, 0));
     std::vector<std::string> chkpt_files;
+    std::vector<std::string> full_chkpt_files;
     for(int i=2; i<argc; i++) {
+      full_chkpt_files.push_back(std::string(argv[i]));
       chkpt_files.push_back(std::string(argv[i]));
     }
     uint32_t num_chkpts = argc-2;
@@ -352,6 +561,7 @@ printf("------------------------------------------------------\n");
       Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
       f.read((char*)(current_h.data()), data_len);
       Kokkos::deep_copy(current, current_h);
+printf("Size of full checkpoint: %zd\n", current.size());
 
 //      for(auto &e : region_map) {
 //        region_t region;
@@ -364,12 +574,13 @@ printf("------------------------------------------------------\n");
 //printf("Read region of size %zd\n", data_len);
 
 //        SHA1 hasher;
-        Murmur3C hasher;
+//        Murmur3C hasher;
+        MD5Hash hasher;
 
 //        uint32_t num_chunks = data_len/chunk_size;
 //        if(num_chunks*chunk_size < data_len)
 //          num_chunks += 1;
-        uint32_t num_nodes = 2*num_chunks-1;
+//        uint32_t num_nodes = 2*num_chunks-1;
         // Hash list deduplication
         {
           DistinctMap l_distinct_chunks = DistinctMap(num_chunks);
@@ -473,23 +684,25 @@ Kokkos::fence();
 //auto contiguous_regions = print_contiguous_regions(region_log, current_list.list_d, prior_list.list_d);
 //}
 
-//          uint32_t prior_idx = 0;
-//          if(idx == 0) {
-//            prior_idx = 0;
-//          } else {
-//            prior_idx = idx-1;
-//          }
-//          write_incr_chkpt_hashlist(chkpt_files[idx]+".hashlist.incr_chkpt",  current, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx);
+#ifdef WRITE_CHKPT
+          uint32_t prior_idx = 0;
+          if(idx > 0) {
+            prior_idx = idx-1;
+          }
+          write_incr_chkpt_hashlist(full_chkpt_files[idx]+".hashlist.incr_chkpt",  current, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx);
+#endif
         }
         // Merkle Tree deduplication
         {
 
-const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
-const int32_t levels = INT_MAX;
-//uint32_t num_chunks = current.size()/chunk_size;
-MerkleTree tree0 = MerkleTree(2*num_chunks-1);
+//          const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
+//          const int32_t levels = INT_MAX;
+          MerkleTree tree0 = MerkleTree(2*num_chunks-1);
           CompactTable<31> shared_updates = CompactTable<31>(2*num_chunks - 1);
           CompactTable<31> distinct_updates = CompactTable<31>(2*num_chunks - 1);
+#ifdef DEBUG
+printf("Allocated tree and tables\n");
+#endif
 
 	  Kokkos::fence();
 
@@ -506,12 +719,20 @@ if(idx == 0) {
           printf("Size of distinct updates: %u\n", distinct_updates.size());
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
           tree_fs << "\n";
-//l_shared_nodes.clear();
-Kokkos::deep_copy(first, current);
+//          Kokkos::deep_copy(first, current);
+#ifdef WRITE_CHKPT
+          uint32_t prior_idx = 0;
+          if(idx > 0)
+            prior_idx = idx-1;
+          write_incr_chkpt_hashtree(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, chunk_size, g_distinct_nodes, g_shared_nodes, prior_idx, idx);
+#endif
 } else {
 {
           DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
           SharedMap l_shared_nodes = SharedMap(2*num_chunks-1);
+#ifdef DEBUG
+printf("Allocated maps\n");
+#endif
 
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
@@ -527,22 +748,24 @@ Kokkos::deep_copy(first, current);
           printf("Size of distinct updates: %u\n", distinct_updates.size());
           tree_meta << distinct_updates.size() << "," << shared_updates.size() << std::endl;
 
-	        if(idx == 0) {
-            // Update global shared map
-            g_shared_nodes.rehash(g_shared_nodes.size()+l_shared_nodes.size());
-            Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
-          }
+//	        if(idx == 0) {
+//            // Update global shared map
+//            g_shared_nodes.rehash(g_shared_nodes.size()+l_shared_nodes.size());
+//            Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
+//          }
           tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
 //          tree_fs << ",";
 //          tree_fs << std::chrono::duration_cast<std::chrono::duration<double>>(end_compare1 - start_compare1).count();
           tree_fs << "\n";
 
-//if(idx > 0) {
-//          uint32_t prior_idx = 0;
-//          if(idx > 0)
-//            prior_idx = idx-1;
-//          write_incr_chkpt_hashtree(chkpt_files[idx]+".hashtree.incr_chkpt", current, chunk_size, distinct_updates, shared_updates, prior_idx, idx);
-//}
+#ifdef WRITE_CHKPT
+          uint32_t prior_idx = 0;
+          if(idx > 0)
+            prior_idx = idx-1;
+if(idx > 0) {
+          write_incr_chkpt_hashtree(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, chunk_size, distinct_updates, shared_updates, prior_idx, idx);
+}
+#endif
 }
           Kokkos::fence();
 //          Kokkos::View<uint8_t*> restart_data("Restart data", current.size());

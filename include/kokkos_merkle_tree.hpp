@@ -7,7 +7,7 @@
 #include "map_helpers.hpp"
 #include "kokkos_queue.hpp"
 
-//#define STATS
+#define STATS
 
 //template<uint32_t N>
 class MerkleTree {
@@ -105,23 +105,23 @@ MerkleTree create_merkle_tree(Hasher& hasher, Kokkos::View<uint8_t*>& data, cons
 }
 
 template <class Hasher>
-void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size, uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map, int32_t n_levels=UINT_MAX) {
-  uint32_t num_chunks = data.size()/chunk_size;
+void create_merkle_tree(Hasher& hasher, MerkleTree& tree, Kokkos::View<uint8_t*>& data, const uint32_t chunk_size, uint32_t tree_id, DistinctMap& distinct_map, SharedMap& shared_map, uint32_t n_levels=UINT_MAX) {
+  uint32_t num_chunks = static_cast<uint32_t>(data.size()/chunk_size);
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
   const uint32_t num_nodes = 2*num_chunks-1;
   const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
-  int32_t stop_level = 0;
+  uint32_t stop_level = 0;
   if(n_levels < num_levels)
     stop_level = num_levels-n_levels;
   const uint32_t leaf_start = num_chunks-1;
-  for(int32_t level=num_levels-1; level>=stop_level; level--) {
+  for(uint32_t level=num_levels-1; level>=stop_level; level--) {
     uint32_t nhashes = 1 << level;
     uint32_t start_offset = nhashes-1;
     if(start_offset + nhashes > num_nodes)
       nhashes = num_nodes - start_offset;
     auto range_policy = Kokkos::RangePolicy<>(start_offset, start_offset+nhashes);
-    Kokkos::parallel_for("Build tree", range_policy, KOKKOS_LAMBDA(const int i) {
+    Kokkos::parallel_for("Build tree", range_policy, KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t num_bytes = chunk_size;
       if((i-leaf_start) == num_chunks-1)
         num_bytes = data.size()-((i-leaf_start)*chunk_size);
@@ -336,231 +336,29 @@ KOKKOS_INLINE_FUNCTION uint32_t rightmost_leaf(uint32_t node, uint32_t num_nodes
   return static_cast<uint32_t>(rightmost);
 }
 
-template<class Hasher, uint32_t N>
-void deduplicate_data(Kokkos::View<uint8_t*>& data, 
-                      const uint32_t chunk_size, 
-                      const Hasher hasher, 
-                      MerkleTree& tree, 
-                      const uint32_t tree_id, 
-                      const SharedMap& prior_shared_map, 
-                      const DistinctMap& prior_distinct_map, 
-                      SharedMap& shared_map, 
-                      DistinctMap& distinct_map, 
-                      CompactTable<N>& updates) {
-  uint32_t num_chunks = data.size()/chunk_size;
-  if(num_chunks*chunk_size < data.size())
-    num_chunks += 1;
-  const uint32_t num_nodes = 2*num_chunks-1;
-  const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
-  const uint32_t leaf_start = num_chunks-1;
-
-  uint32_t prev_leftover = UINT32_MAX;
-  uint32_t num_nodes_left = num_chunks;
-  uint32_t num_threads = num_chunks;
-  uint32_t start_offset = leaf_start;
-  Kokkos::View<uint32_t[1]> nodes_leftover("Leftover nodes to process");
-  Kokkos::View<uint32_t[1]>::HostMirror nodes_leftover_h = Kokkos::create_mirror_view(nodes_leftover);
-  Kokkos::deep_copy(nodes_leftover, 0);
-  nodes_leftover_h(0) = 0;
-#ifdef STATS
-  Kokkos::View<uint32_t[1]> num_same("Number of chunks that remain the same");
-  Kokkos::View<uint32_t[1]> num_new("Number of chunks that are new");
-  Kokkos::View<uint32_t[1]> num_shift("Number of chunks that exist but in different spaces");
-  Kokkos::View<uint32_t[1]> num_comp("Number of compressed nodes");
-  Kokkos::View<uint32_t[1]> num_dupl("Number of new duplicate nodes");
-  Kokkos::View<uint32_t[1]>::HostMirror num_same_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_new_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_shift_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_comp_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::View<uint32_t[1]>::HostMirror num_dupl_h = Kokkos::create_mirror_view(num_same);
-  Kokkos::deep_copy(num_same, 0);
-  Kokkos::deep_copy(num_new, 0);
-  Kokkos::deep_copy(num_shift, 0);
-  Kokkos::deep_copy(num_comp, 0);
-  Kokkos::deep_copy(num_dupl, 0);
-#endif
-
-  while(nodes_leftover_h(0) != prev_leftover) {
-    prev_leftover = nodes_leftover_h(0);
-    Kokkos::parallel_for("Insert/compare hashes", Kokkos::RangePolicy<>(0,num_threads), KOKKOS_LAMBDA(const uint32_t i) {
-      uint32_t node = i+start_offset;
-      if(start_offset == leaf_start) {
-        uint32_t num_bytes = chunk_size;
-        if(i == num_chunks-1)
-          num_bytes = data.size()-i*chunk_size;
-        hasher.hash(data.data()+(i*chunk_size), num_bytes, tree(node).digest);
-        if(tree_id == 0) {
-          NodeInfo info(node, node, tree_id);
-          auto result = prior_distinct_map.insert(tree(node), info);
-          if(result.existing()) {
-            NodeInfo& old = prior_distinct_map.value_at(result.index());
-            uint32_t prev = Kokkos::atomic_fetch_min(&old.node, node);
-            if(prev > node) {
-              old.src = node;
-              NodeInfo new_info(prev, prev, old.tree);
-              shared_map.insert(prev, result.index());
-            } else {
-              shared_map.insert(node, result.index());
-            }
-#ifdef STATS
-            Kokkos::atomic_add(&(num_shift(0)), 1);
-          } else if(result.success()) {
-            Kokkos::atomic_add(&(num_new(0)), 1);
-          } else if(result.failed()) {
-            printf("Failed to insert node into distinct or shared map (tree 0). Shouldn't happen.");
-#endif
-          }
-        } else {
-          NodeInfo info = NodeInfo(node, node, tree_id);
-          uint32_t index = prior_distinct_map.find(tree(node));
-          if(!prior_distinct_map.valid_at(index)) { // New chunk 
-            auto result = distinct_map.insert(tree(node), info);
-            if(result.success()) {
-Kokkos::atomic_exchange(&tree.distinct_children_d(node) , 2);
-#ifdef STATS
-              Kokkos::atomic_add(&(num_new(0)), 1);
-#endif
-              Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
-              Kokkos::atomic_add(&nodes_leftover(0), 1);
-            } else if(result.existing()) {
-              NodeInfo& existing_info = distinct_map.value_at(result.index());
-              uint32_t existing_node = Kokkos::atomic_fetch_min(&existing_info.node, node);
-              if(existing_node > node) {
-Kokkos::atomic_exchange(&tree.distinct_children_d(node) , 2);
-Kokkos::atomic_exchange(&tree.distinct_children_d(existing_node) , 0);
-                Kokkos::atomic_sub(&(tree.distinct_children_d((existing_node-1)/2)), 1);
-                Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
-                existing_info.src = node;
-                shared_map.insert(existing_node, result.index());
-              } else {
-Kokkos::atomic_exchange(&tree.distinct_children_d(node) , 0);
-                shared_map.insert(node, result.index());
-              }
-#ifdef STATS
-              Kokkos::atomic_add(&num_dupl(0), 1);
-#endif
-            } else if(result.failed()) {
-              printf("Failed to insert new chunk into distinct or shared map (tree %u). Shouldn't happen.", tree_id);
-            }
-          } else { // Chunk already exists
-            NodeInfo old_distinct = prior_distinct_map.value_at(index);
-            if(node != old_distinct.node) { // Chunk exists but at a different offset
-              uint32_t prior_shared_idx = prior_shared_map.find(node);
-              if(prior_shared_map.valid_at(prior_shared_idx)) { // Node is in prior shared map
-                uint32_t prior_node = prior_distinct_map.value_at(prior_shared_map.value_at(prior_shared_idx)).node;
-                if(prior_node != node) { // Chunk has changed since prior checkpoint
-                  shared_map.insert(node, index);
-#ifdef STATS
-                  Kokkos::atomic_add(&(num_shift(0)), 1);
-                } else {
-                  Kokkos::atomic_add(&(num_same(0)), 1);
-#endif
-                }
-              } else { // Node not in prior shared map
-                shared_map.insert(node, index);
-#ifdef STATS
-                Kokkos::atomic_add(&(num_shift(0)), 1);
-#endif
-              }
-#ifdef STATS
-            } else { // Chunk exists and hasn't changed node
-              Kokkos::atomic_add(&(num_same(0)), 1);
-#endif
-            }
-          }
-        }
-      } else if(tree.distinct_children_d(node) == 2) {
-        hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
-        Kokkos::atomic_add(&(tree.distinct_children_d((node-1)/2)), 1);
-        Kokkos::atomic_add(&nodes_leftover(0), 1);
-      } else if(tree.distinct_children_d(node) == 1) {
-        uint32_t child_l = 2*(node)+1;
-        uint32_t child_r = 2*(node)+2;
-        if((tree.distinct_children_d(child_l) == 2)) {
-          uint32_t size = num_leaf_descendents(child_l, num_nodes);
-          CompactNodeInfo info(child_l, size);
-          uint32_t existing_idx = updates.find(info);
-          if(updates.valid_at(existing_idx)) {
-            auto& old = updates.value_at(existing_idx);
-            old.push(tree_id);
-          } else {
-            auto insert_res = updates.insert(info);
-            Array<N>& vec = updates.value_at(insert_res.index());
-            vec.push(tree_id);
-#ifdef STATS
-            Kokkos::atomic_add(&(num_comp(0)), 1);
-#endif
-          }
-        } else if((tree.distinct_children_d(child_r) == 2)) {
-          uint32_t size = num_leaf_descendents(child_r, num_nodes);
-          CompactNodeInfo info(child_r, size);
-          uint32_t existing_idx = updates.find(info);
-          if(updates.valid_at(existing_idx)) {
-            auto& old = updates.value_at(existing_idx);
-            old.push(tree_id);
-          } else {
-            auto insert_res = updates.insert(info);
-            Array<N>& vec = updates.value_at(insert_res.index());
-            vec.push(tree_id);
-#ifdef STATS
-            Kokkos::atomic_add(&(num_comp(0)), 1);
-#endif
-          }
-        }
-      }
-    });
-    Kokkos::deep_copy(nodes_leftover_h, nodes_leftover);
-//    printf("Found %u nodes to process\n", nodes_leftover_h(0));
-    num_threads /= 2;
-    start_offset -= num_threads;
-  }
-  Kokkos::fence();
-#ifdef STATS
-  Kokkos::deep_copy(num_same_h, num_same);
-  Kokkos::deep_copy(num_new_h, num_new);
-  Kokkos::deep_copy(num_shift_h, num_shift);
-  Kokkos::deep_copy(num_comp_h, num_comp);
-  Kokkos::deep_copy(num_dupl_h, num_dupl);
-  printf("Number of chunks: %u\n", num_chunks);
-  printf("Number of new chunks: %u\n", num_new_h(0));
-  printf("Number of same chunks: %u\n", num_same_h(0));
-  printf("Number of shift chunks: %u\n", num_shift_h(0));
-  printf("Number of comp nodes: %u\n", num_comp_h(0));
-  printf("Number of dupl nodes: %u\n", num_dupl_h(0));
-#endif
-}
-
-//template<uint32_t N>
-//KOKKOS_INLINE_FUNCTION
-//void insert_entry(const CompactTable<N>& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const Kokkos::View<uint32_t[1]>& num_comp) {
-//if(node > num_nodes)
-//printf("Something very wrong happened.\n");
-//  uint32_t size = num_leaf_descendents(node, num_nodes);
-//  uint32_t leaf = leftmost_leaf(node, num_nodes);
-////for(uint32_t n = leaf; n<leaf+size; n++) {
-////  printf("Insert entry %u\n", n);
-////}
-//  CompactNodeInfo info(leaf, size);
-//  auto result = updates.insert(info);
-//  auto& update = updates.value_at(result.index());
-//  update.push(tree_id);
-//  if(result.success()) {
-//    Kokkos::atomic_add(&(num_comp(0)), 1);
-//  } else if(result.existing()) {
-//    printf("Tried to insert existing node %u: (%u,%u)\n", node, leaf, size);
-//  } else if(result.failed()) {
-//    printf("Failed to update compact represntation.\n");
-//  }
-//}
-
 template<uint32_t N>
 KOKKOS_INLINE_FUNCTION
 void insert_entry(const CompactTable<N>& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id) {
 if(node > num_nodes)
 printf("Something very wrong happened.\n");
+  uint32_t num_chunks = (num_nodes+1)/2;
   uint32_t size = num_leaf_descendents(node, num_nodes);
   uint32_t leaf = leftmost_leaf(node, num_nodes);
-  CompactNodeInfo info(leaf, size);
+  CompactNodeInfo info(leaf-(num_chunks-1), size);
+  auto result = updates.insert(info);
+  auto& update = updates.value_at(result.index());
+  update.push(tree_id);
+}
+
+template<uint32_t N>
+KOKKOS_INLINE_FUNCTION
+void insert_entry(const CompactTable<N>& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const uint32_t prior_node) {
+if(node > num_nodes)
+printf("Something very wrong happened.\n");
+//  uint32_t num_chunks = (num_nodes+1)/2;
+//  uint32_t size = num_leaf_descendents(node, num_nodes);
+//  uint32_t leaf = leftmost_leaf(node, num_nodes);
+  CompactNodeInfo info(node, prior_node);
   auto result = updates.insert(info);
   auto& update = updates.value_at(result.index());
   update.push(tree_id);
@@ -586,10 +384,10 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
   const uint32_t leaf_start = num_chunks-1;
 
   uint32_t prev_leftover = UINT32_MAX;
-  uint32_t num_nodes_left = num_chunks;
-  uint32_t num_threads = num_chunks;
+//  uint32_t num_nodes_left = num_chunks;
+//  uint32_t num_threads = num_chunks;
   uint32_t current_level = num_levels-1;
-  uint32_t start_offset = (1 << num_levels-1)-1;
+  uint32_t start_offset = (1 << (num_levels-1))-1;
   uint32_t end_offset = (1 << num_levels)-1;
   if(end_offset > num_nodes)
     end_offset = num_nodes;
@@ -664,7 +462,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 #endif
               Kokkos::atomic_add(&nodes_leftover(0), 1);
             } else if(result.existing()) { // Chunk already exists locally
-              NodeInfo& existing_info = distinct_map.value_at(result.index());
+//              NodeInfo& existing_info = distinct_map.value_at(result.index());
 //              uint32_t prev = Kokkos::atomic_fetch_min(&existing_info.node, node);
 //              if(prev > node) {
 //                existing_info.src = node;
@@ -739,23 +537,29 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
             uint32_t child_l = 2*(node)+1;
             uint32_t child_r = 2*(node)+2;
             if(prior_distinct_map.exists(tree(child_l))) {
-              insert_entry(shared_updates, child_l, num_nodes, tree_id);
+              NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_l)));
+              insert_entry(shared_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
             } else if(shared_map.exists(child_l)) {
-              insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+//              insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+              NodeInfo info = distinct_map.value_at(shared_map.value_at(child_l));
+              insert_entry(distinct_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
             }
             if(prior_distinct_map.exists(tree(child_r))) {
-              insert_entry(shared_updates, child_r, num_nodes, tree_id);
+              NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_r)));
+              insert_entry(shared_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
             } else if(shared_map.exists(child_r)) {
-              insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+//              insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+              NodeInfo info = distinct_map.value_at(shared_map.value_at(child_r));
+              insert_entry(distinct_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
@@ -767,18 +571,21 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           uint32_t child_r = 2*(node)+2;
           if(child_l < num_nodes) {
             if((tree.distinct_children_d(child_l) == 2)) {
-              insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+              insert_entry(distinct_updates, child_l, num_nodes, tree_id, child_l);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
             } else if((tree.distinct_children_d(child_l) == 8)) {
               if(prior_distinct_map.exists(tree(child_l))) {
-                insert_entry(shared_updates, child_l, num_nodes, tree_id);
+                NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_l)));
+                insert_entry(shared_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
               } else if(shared_map.exists(child_l)) {
-                insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+//                insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+                NodeInfo info = distinct_map.value_at(shared_map.value_at(child_l));
+                insert_entry(distinct_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
@@ -787,18 +594,21 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           }
           if(child_r < num_nodes) {
             if((tree.distinct_children_d(child_r) == 2)) {
-              insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+              insert_entry(distinct_updates, child_r, num_nodes, tree_id, child_r);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
             } else if((tree.distinct_children_d(child_r) == 8)) {
               if(prior_distinct_map.exists(tree(child_r))) {
-                insert_entry(shared_updates, child_r, num_nodes, tree_id);
+                NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_r)));
+                insert_entry(shared_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
               } else if(shared_map.exists(child_r)) {
-                insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+//                insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+                NodeInfo info = distinct_map.value_at(shared_map.value_at(child_r));
+                insert_entry(distinct_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
@@ -811,24 +621,30 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           uint32_t child_r = 2*(node)+2;
           if((child_l < num_nodes) && (tree.distinct_children_d(child_l) == 8)) {
             if(prior_distinct_map.exists(tree(child_l))) {
-              insert_entry(shared_updates, child_l, num_nodes, tree_id);
+              NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_l)));
+              insert_entry(shared_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
             } else if(shared_map.exists(child_l)) {
-              insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+//              insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+                NodeInfo info = distinct_map.value_at(shared_map.value_at(child_l));
+                insert_entry(distinct_updates, child_l, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
             }
           } else if((child_r < num_nodes) && (tree.distinct_children_d(child_r) == 8)) {
             if(prior_distinct_map.exists(tree(child_r))) {
-              insert_entry(shared_updates, child_r, num_nodes, tree_id);
+              NodeInfo info = prior_distinct_map.value_at(prior_distinct_map.find(tree(child_r)));
+              insert_entry(shared_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_s(0)), 1);
 #endif
             } else if(shared_map.exists(child_r)) {
-              insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+//              insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+                NodeInfo info = distinct_map.value_at(shared_map.value_at(child_r));
+                insert_entry(distinct_updates, child_r, num_nodes, tree_id, info.node);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
@@ -839,12 +655,12 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           uint32_t child_l = 2*(node)+1;
           uint32_t child_r = 2*(node)+2;
           if((child_l < num_nodes) && (tree.distinct_children_d(child_l) == 2)) {
-            insert_entry(distinct_updates, child_l, num_nodes, tree_id);
+            insert_entry(distinct_updates, child_l, num_nodes, tree_id, child_l);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
           } else if((child_r < num_nodes) && (tree.distinct_children_d(child_r) == 2)) {
-            insert_entry(distinct_updates, child_r, num_nodes, tree_id);
+            insert_entry(distinct_updates, child_r, num_nodes, tree_id, child_r);
 #ifdef STATS
               Kokkos::atomic_add(&(num_comp_d(0)), 1);
 #endif
@@ -855,6 +671,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
     });
 #ifdef STATS
 if(start_offset >= leaf_start-(num_chunks/2)) {
+Kokkos::fence();
 printf("------------------------------\n");
 uint32_t n_distinct = 0;
 Kokkos::parallel_reduce("Count number of distinct", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
@@ -862,49 +679,56 @@ Kokkos::parallel_reduce("Count number of distinct", Kokkos::RangePolicy<>(start_
     update += 1;
   }
 }, n_distinct);
-printf("Count number of distinct chunks: %u\n", n_distinct);
 uint32_t n_same = 0;
 Kokkos::parallel_reduce("Count number of same", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
   if(tree.distinct_children_d(start_offset+i) == 0) {
     update += 1;
   }
 }, n_same);
-printf("Count number of same chunks: %u\n", n_same);
 uint32_t n_shared = 0;
 Kokkos::parallel_reduce("Count number of shared", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
   if(tree.distinct_children_d(start_offset+i) == 8) {
     update += 1;
   }
 }, n_shared);
-printf("Count number of shared chunks: %u\n", n_shared);
 uint32_t n_distinct_shared = 0;
 Kokkos::parallel_reduce("Count number of distinct shared", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
   if(tree.distinct_children_d(start_offset+i) == 5) {
     update += 1;
   }
 }, n_distinct_shared);
-printf("Count number of distinct shared chunks: %u\n", n_distinct_shared);
 uint32_t n_distinct_same = 0;
 Kokkos::parallel_reduce("Count number of distinct_same", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
   if(tree.distinct_children_d(start_offset+i) == 1) {
     update += 1;
   }
 }, n_distinct_same);
-printf("Count number of distinct_same chunks: %u\n", n_distinct_same);
 uint32_t n_shared_same = 0;
 Kokkos::parallel_reduce("Count number of shared_same", Kokkos::RangePolicy<>(start_offset, end_offset), KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
   if(tree.distinct_children_d(start_offset+i) == 4) {
     update += 1;
   }
 }, n_shared_same);
-printf("Count number of shared_same chunks: %u\n", n_shared_same);
+Kokkos::fence();
+//printf("Count number of distinct chunks: %u\n", n_distinct);
+//printf("Count number of same chunks: %u\n", n_same);
+//printf("Count number of shared chunks: %u\n", n_shared);
+//printf("Count number of distinct shared chunks: %u\n", n_distinct_shared);
+//printf("Count number of distinct_same chunks: %u\n", n_distinct_same);
+//printf("Count number of shared_same chunks: %u\n", n_shared_same);
+std::cout << "Count number of distinct chunks: " << n_distinct << std::endl;
+std::cout << "Count number of same chunks: " << n_same << std::endl;
+std::cout << "Count number of shared chunks: " << n_shared << std::endl;
+std::cout << "Count number of distinct shared chunks: " << n_distinct_shared << std::endl;
+std::cout << "Count number of distinct_same chunks: " << n_distinct_same << std::endl;
+std::cout << "Count number of shared_same chunks: " << n_shared_same << std::endl;
 printf("------------------------------\n");
 }
 #endif
     Kokkos::deep_copy(nodes_leftover_h, nodes_leftover);
     current_level -= 1;
     start_offset = (1 << current_level) - 1;
-    end_offset = (1 << current_level+1) - 1;
+    end_offset = (1 << (current_level+1)) - 1;
   }
   Kokkos::fence();
 #ifdef STATS
@@ -1284,7 +1108,7 @@ void count_distinct_nodes(const MerkleTree& tree, Queue& queue, const uint32_t t
   }
   Kokkos::deep_copy(n_distinct_h, n_distinct);
   Kokkos::fence();
-  printf("Number of distinct nodes: %u out of %u\n", n_distinct_h(0), tree.tree_d.extent(0));
+  printf("Number of distinct nodes: %u out of %lu\n", n_distinct_h(0), tree.tree_d.extent(0));
 }
 
 void print_nodes(const MerkleTree& tree, const uint32_t tree_id, const DistinctMap& distinct) {
@@ -1321,7 +1145,7 @@ void print_nodes(const MerkleTree& tree, const uint32_t tree_id, const DistinctM
   }
   Kokkos::deep_copy(n_distinct_h, n_distinct);
   Kokkos::fence();
-  printf("Number of distinct nodes: %u out of %u\n", n_distinct_h(0), tree.tree_d.extent(0));
+  printf("Number of distinct nodes: %u out of %lu\n", n_distinct_h(0), tree.tree_d.extent(0));
 }
 
 #endif // KOKKOS_MERKLE_TREE_HPP

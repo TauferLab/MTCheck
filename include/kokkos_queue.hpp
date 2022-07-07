@@ -62,7 +62,7 @@ class Queue {
     }
 
     void fill(uint32_t start, uint32_t end) const {
-      for(int i=start; i<end; i++) {
+      for(uint32_t i=start; i<end; i++) {
         queue_h(i-start) = i;
       }
       len_h(0) = end-start;
