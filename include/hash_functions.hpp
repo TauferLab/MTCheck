@@ -45,6 +45,7 @@ public:
   using DIGEST_TYPE = uint8_t;
   static constexpr uint32_t DIGEST_SIZE = 20;
 
+  KOKKOS_FORCEINLINE_FUNCTION
   SHA1() {}
 
   class Digest {
@@ -337,6 +338,9 @@ public:
     return std::string("Murmur3");
   }
 
+  KOKKOS_FORCEINLINE_FUNCTION
+  Murmur3A() {}
+
   // MurmurHash3 was written by Austin Appleby, and is placed in the public
   // domain. The author hereby disclaims copyright to this source code.
   KOKKOS_FORCEINLINE_FUNCTION
@@ -498,6 +502,9 @@ public:
       }
     }
   };
+
+  KOKKOS_FORCEINLINE_FUNCTION
+  Murmur3C() {}
 
   std::string hash_name() {
     return std::string("Murmur3");
@@ -900,6 +907,7 @@ public:
   using DIGEST_TYPE = uint8_t;
   static constexpr uint32_t DIGEST_SIZE = 16;
 
+  KOKKOS_FORCEINLINE_FUNCTION
   MD5Hash() {}
 
   class Digest {
