@@ -181,6 +181,149 @@ void copy_memory(void* dst, void* src, size_t len) {
 #endif
 }
 
+void dump_tree_metadata(const std::string& filename, 
+                        const DistinctMap& distinct, 
+                        const SharedMap& shared,
+                        const uint32_t num_chunks,
+                        const uint32_t output_chunks) {
+  uint32_t num_nodes = 2*num_chunks - 1;
+  Kokkos::View<uint32_t*> offset("Offset list", num_chunks);
+  Kokkos::View<char*>     labels("Label list", num_chunks);
+  Kokkos::deep_copy(offset, 0);
+  Kokkos::deep_copy(labels, 'I');
+  DEBUG_PRINT("Setup offset and label views\n");
+//  DEBUG_PRINT("Need to scan %u entries for %u valid entries\n", shared.capacity(), shared.size());
+  DistinctHostMap distinct_h;
+  SharedHostMap shared_h;
+  Kokkos::deep_copy(distinct_h, distinct);
+  Kokkos::deep_copy(shared_h, shared);
+  DEBUG_PRINT("Copied tables to host\n");
+  printf("Copied tables to host\n");
+  Kokkos::fence();
+  Kokkos::parallel_for("Update repeat entries", Kokkos::RangePolicy<>(0,shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(shared.valid_at(i)) {
+      uint32_t node = shared.key_at(i);
+      uint32_t prev = shared.value_at(i);
+      uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
+      uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
+      for(uint32_t j=start; j<=end; j++) {
+        offset(j) = prev;
+        labels(j) = 'R';
+      }
+    }
+  });
+  DEBUG_PRINT("Update repeat chunks\n");
+
+  Kokkos::parallel_for("Update distinct entries", Kokkos::RangePolicy<>(0,distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(distinct.valid_at(i)) {
+//printf("Found Distinct entry at %u\n", i);
+      NodeInfo info = distinct.value_at(i);
+      if(info.node >= num_chunks-1) {
+        uint32_t node = info.node;
+        uint32_t prev = info.src;
+        uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
+        uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
+        for(uint32_t j=start; j<=end; j++) {
+          offset(j) = prev;
+          if(node == prev) {
+            labels(j) = 'D';
+          } else {
+            labels(j) = 'R';
+          }
+        }
+      }
+    }
+  });
+  DEBUG_PRINT("Update distinct chunks\n");
+  auto offset_h = Kokkos::create_mirror_view(offset);
+  auto labels_h = Kokkos::create_mirror_view(labels);
+  Kokkos::deep_copy(offset_h, offset);
+  Kokkos::deep_copy(labels_h, labels);
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(filename, std::ofstream::out);
+  std::cout << "Opened log file: " << filename << std::endl;
+  file << "Position: Offset: Label\n";
+  for(size_t i=0; i<output_chunks; i++) {
+    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
+  }
+  file.close();
+  STDOUT_PRINT("Wrote log\n");
+}
+
+void dump_tree_metadata(const std::string& filename, 
+                        const CompactTable<10>& distinct, 
+                        const CompactTable<10>& shared,
+                        const uint32_t num_chunks,
+                        const uint32_t output_chunks) {
+  uint32_t num_nodes = 2*num_chunks - 1;
+  Kokkos::View<uint32_t*> offset("Offset list", num_chunks);
+  Kokkos::View<char*>     labels("Label list", num_chunks);
+  Kokkos::deep_copy(offset, 0);
+  Kokkos::deep_copy(labels, 'I');
+  DEBUG_PRINT("Setup offset and label views\n");
+//  DEBUG_PRINT("Need to scan %u entries for %u valid entries\n", shared.capacity(), shared.size());
+  CompactHostTable<10> distinct_h, shared_h;
+  Kokkos::deep_copy(distinct_h, distinct);
+  Kokkos::deep_copy(shared_h, shared);
+  DEBUG_PRINT("Copied tables to host\n");
+  printf("Copied tables to host\n");
+  Kokkos::fence();
+  Kokkos::parallel_for("Update repeat entries", Kokkos::RangePolicy<>(0,shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+//  for(uint32_t i=0; i<shared_h.capacity(); i++) {
+    if(shared.valid_at(i)) {
+//printf("Found Repeat entry at %u\n", i);
+      CompactNodeInfo info = shared.key_at(i);
+      uint32_t node = info.node;
+      uint32_t prev = info.size;
+      uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
+      uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
+//printf("Setting Repeat entries: (%u,%u), [%u,%u]\n", node, prev, start, end);
+      for(uint32_t j=start; j<=end; j++) {
+        offset(j) = prev;
+        labels(j) = 'R';
+      }
+    }
+//  }
+  });
+  DEBUG_PRINT("Update repeat chunks\n");
+
+  Kokkos::parallel_for("Update distinct entries", Kokkos::RangePolicy<>(0,distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+    if(distinct.valid_at(i)) {
+//printf("Found Distinct entry at %u\n", i);
+      CompactNodeInfo info = distinct.key_at(i);
+      uint32_t node = info.node;
+      uint32_t prev = info.size;
+      uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
+      uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
+//printf("Setting Distinct entries: (%u,%u), [%u,%u]\n", node, prev, start, end);
+      for(uint32_t j=start; j<=end; j++) {
+        offset(j) = prev;
+        if(node == prev) {
+          labels(j) = 'D';
+        } else {
+          labels(j) = 'R';
+        }
+      }
+    }
+  });
+  DEBUG_PRINT("Update distinct chunks\n");
+  auto offset_h = Kokkos::create_mirror_view(offset);
+  auto labels_h = Kokkos::create_mirror_view(labels);
+  Kokkos::deep_copy(offset_h, offset);
+  Kokkos::deep_copy(labels_h, labels);
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(filename, std::ofstream::out);
+  std::cout << "Opened log file: " << filename << std::endl;
+  file << "Position: Offset: Label\n";
+  for(size_t i=0; i<output_chunks; i++) {
+    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
+  }
+  file.close();
+  STDOUT_PRINT("Wrote log\n");
+}
+
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
   Kokkos::initialize(argc, argv);
@@ -195,7 +338,7 @@ int main(int argc, char** argv) {
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
     std::vector<std::string> chkpt_files;
     std::vector<std::string> full_chkpt_files;
-    for(int i=0; i<num_chkpts; i++) {
+    for(uint32_t i=0; i<num_chkpts; i++) {
       full_chkpt_files.push_back(std::string(argv[3+i]));
       chkpt_files.push_back(std::string(argv[3+i]));
     }
@@ -207,7 +350,7 @@ int main(int argc, char** argv) {
     DistinctMap g_distinct_nodes  = DistinctMap(1);
     SharedMap g_shared_nodes = SharedMap(1);
 
-    HashList prior_list(0), current_list(0);
+//    HashList prior_list(0), current_list(0);
 
     for(uint32_t idx=0; idx<num_chkpts; idx++) {
       DEBUG_PRINT("Processing checkpoint %u\n", idx);
@@ -226,6 +369,7 @@ int main(int argc, char** argv) {
       uint32_t num_chunks = data_len/chunk_size;
       if(num_chunks*chunk_size < data_len)
         num_chunks += 1;
+      DEBUG_PRINT("Number of chunks: %u\n", num_chunks);
       if(idx == 0) {
         g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
         g_shared_chunks.rehash(g_shared_chunks.size()+num_chunks);
@@ -239,7 +383,7 @@ int main(int argc, char** argv) {
       std::fstream result_data;
       result_data.open(chkpt_files[idx]+".chunk_size."+std::to_string(chunk_size)+".csv", std::fstream::out | std::fstream::app);
 
-      Kokkos::View<uint8_t*> first("First region", data_len);
+//      Kokkos::View<uint8_t*> first("First region", data_len);
       Kokkos::View<uint8_t*> current("Current region", data_len);
       Kokkos::View<uint8_t*>::HostMirror current_h = Kokkos::create_mirror_view(current);
       f.read((char*)(current_h.data()), data_len);
@@ -288,7 +432,6 @@ int main(int argc, char** argv) {
 
         Kokkos::fence();
 
-//        count_distinct_nodes(list0, idx, l_distinct_chunks, g_distinct_chunks);
         STDOUT_PRINT("Size of distinct map: %u\n", l_distinct_chunks.size());
         STDOUT_PRINT("Size of shared map:   %u\n", l_shared_chunks.size());
 
@@ -301,10 +444,11 @@ int main(int argc, char** argv) {
           // Update global shared map
           g_shared_chunks.rehash(g_shared_chunks.size()+l_shared_chunks.size());
           Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
+DEBUG_PRINT("Updated global lists\n");
         }
 
-	    prior_list = current_list;
-	    current_list = list0;
+//	    prior_list = current_list;
+//	    current_list = list0;
 //      if(idx > 0) {
 //      //	  Kokkos::deep_copy(prior_list.list_h, prior_list.list_d);
 //      //	  Kokkos::deep_copy(current_list.list_h, current_list.list_d);
@@ -328,6 +472,7 @@ int main(int argc, char** argv) {
         Kokkos::Profiling::popRegion();
         Timer::time_point end_collect = Timer::now();
         auto collect_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_collect - start_collect).count();
+printf("Time spect collecting updates: %f\n", collect_time);
 
         Timer::time_point start_write = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
@@ -337,13 +482,14 @@ int main(int argc, char** argv) {
         Kokkos::Profiling::popRegion();
         Timer::time_point end_write = Timer::now();
         auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
+printf("Time spect copying updates: %f\n", write_time);
         result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << ',';
 #endif
       }
       // Merkle Tree deduplication
       {
 
-        MerkleTree tree0 = MerkleTree(2*num_chunks-1);
+        MerkleTree tree0 = MerkleTree(num_chunks);
         CompactTable<10> shared_updates = CompactTable<10>(num_chunks);
         CompactTable<10> distinct_updates = CompactTable<10>(num_chunks);
         DEBUG_PRINT("Allocated tree and tables\n");
@@ -367,6 +513,8 @@ int main(int argc, char** argv) {
           if(idx > 0)
             prior_idx = idx-1;
           Kokkos::fence();
+//tree0.print();
+//          dump_tree_metadata(chkpt_files[idx]+".chunk_size."+std::to_string(chunk_size)+".incr_chkpt.log", g_distinct_nodes, g_shared_nodes, num_chunks, num_chunks);
           Kokkos::View<uint8_t*> buffer_d;
           Timer::time_point start_collect = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
@@ -383,7 +531,7 @@ int main(int argc, char** argv) {
           Kokkos::Profiling::popRegion();
           Timer::time_point end_write = Timer::now();
           auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
-          result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << ',';
+          result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << std::endl;
 #endif
         } else {
           DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
@@ -415,6 +563,10 @@ int main(int argc, char** argv) {
           if(idx > 0) {
             prior_idx = idx-1;
             Kokkos::fence();
+
+//tree0.print();
+//            dump_tree_metadata(chkpt_files[idx]+".chunk_size."+std::to_string(chunk_size)+".incr_chkpt.log", distinct_updates, shared_updates, num_chunks, num_chunks);
+
             Kokkos::View<uint8_t*> buffer_d;
             Timer::time_point start_collect = Timer::now();
             Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
@@ -431,7 +583,8 @@ int main(int argc, char** argv) {
             Kokkos::Profiling::popRegion();
             Timer::time_point end_write = Timer::now();
             auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
-            result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << ',';
+            result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << std::endl;
+
           }
 #endif
         }

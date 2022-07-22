@@ -15,6 +15,7 @@ enum HashFunc {
 class Hasher {
   public:
   
+  KOKKOS_FORCEINLINE_FUNCTION
   Hasher() {}
 
   virtual std::string hash_name() = 0;

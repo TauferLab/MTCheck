@@ -1,7 +1,7 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-//#define STDOUT
+#define STDOUT
 //#define DEBUG
 
 #ifdef DEBUG
@@ -11,7 +11,7 @@
 #endif
 
 #ifdef STDOUT
-#define STDOUT_PRINT(...) do{ fprintf( stdout, __VA_ARGS__ ); } while( false )
+#define STDOUT_PRINT(...) do{ printf( __VA_ARGS__ ); } while( false )
 #else
 #define STDOUT_PRINT(...) do{ } while ( false )
 #endif
