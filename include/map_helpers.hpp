@@ -123,6 +123,7 @@ using SharedHostMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHo
 //using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 using DistinctMap = Kokkos::UnorderedMap<HashDigest, 
                                          NodeInfo, 
+//                                         Kokkos::CudaUVMSpace, 
                                          Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;

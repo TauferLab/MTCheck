@@ -187,10 +187,12 @@ void dump_tree_metadata(const std::string& filename,
                         const uint32_t num_chunks,
                         const uint32_t output_chunks) {
   uint32_t num_nodes = 2*num_chunks - 1;
-  Kokkos::View<uint32_t*> offset("Offset list", num_chunks);
-  Kokkos::View<char*>     labels("Label list", num_chunks);
+  Kokkos::View<uint32_t*> reg_size("size of region list", num_nodes);
+  Kokkos::View<uint32_t*> offset("Offset list", num_nodes);
+  Kokkos::View<char*>     labels("Label list", num_nodes);
   Kokkos::deep_copy(offset, 0);
   Kokkos::deep_copy(labels, 'I');
+  Kokkos::deep_copy(reg_size, 0);
   DEBUG_PRINT("Setup offset and label views\n");
   DistinctHostMap distinct_h;
   SharedHostMap shared_h;
@@ -205,10 +207,13 @@ void dump_tree_metadata(const std::string& filename,
       uint32_t prev = shared.value_at(i);
       uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
       uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
-      for(uint32_t j=start; j<=end; j++) {
-        offset(j) = prev;
-        labels(j) = 'R';
-      }
+      offset(node) = prev;
+      labels(node) = 'R';
+      reg_size(node) = num_leaf_descendents(node, num_nodes);
+//      for(uint32_t j=start; j<=end; j++) {
+//        offset(j) = prev;
+//        labels(j) = 'R';
+//      }
     }
   });
   DEBUG_PRINT("Update repeat chunks\n");
@@ -221,28 +226,39 @@ void dump_tree_metadata(const std::string& filename,
         uint32_t prev = info.src;
         uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
         uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
-        char l = 'r';
-        if(node == prev)
-          l = 'd';
-        for(uint32_t j=start; j<=end; j++) {
-          offset(j) = prev;
-          labels(j) = l;
-        }
+      offset(node) = prev;
+      if(node == prev) {
+        labels(node) = 'd';
+      } else {
+        labels(node) = 'r';
+      }
+      reg_size(node) = num_leaf_descendents(node, num_nodes);
+//        char l = 'r';
+//        if(node == prev)
+//          l = 'd';
+//        for(uint32_t j=start; j<=end; j++) {
+//          offset(j) = prev;
+//          labels(j) = l;
+//        }
       }
     }
   });
   DEBUG_PRINT("Update distinct chunks\n");
   auto offset_h = Kokkos::create_mirror_view(offset);
   auto labels_h = Kokkos::create_mirror_view(labels);
+  auto reg_size_h = Kokkos::create_mirror_view(reg_size);
   Kokkos::deep_copy(offset_h, offset);
   Kokkos::deep_copy(labels_h, labels);
+  Kokkos::deep_copy(reg_size_h, reg_size);
   std::ofstream file;
   file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
   file.open(filename, std::ofstream::out);
   std::cout << "Opened log file: " << filename << std::endl;
   file << "Position: Offset: Label\n";
-  for(size_t i=0; i<output_chunks; i++) {
-    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
+  for(size_t i=0; i<num_nodes; i++) {
+if(labels_h(i) != 'I') 
+    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << reg_size_h(i) << "\t: " << labels_h(i) << std::endl;
+//    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
   }
   file.close();
   STDOUT_PRINT("Wrote log\n");
@@ -274,13 +290,13 @@ void dump_tree_metadata(const std::string& filename,
       uint32_t prev = info.size;
       uint32_t start = leftmost_leaf(node, num_nodes);
       uint32_t end   = rightmost_leaf(node, num_nodes);
-//      offset(node) = prev;
-//      labels(node) = 'R';
-//      reg_size(node) = num_leaf_descendents(node, num_nodes);
-      for(uint32_t j=start; j<=end; j++) {
-        offset(j) = prev;
-        labels(j) = 'R';
-      }
+      offset(node) = prev;
+      labels(node) = 'R';
+      reg_size(node) = num_leaf_descendents(node, num_nodes);
+//      for(uint32_t j=start; j<=end; j++) {
+//        offset(j) = prev;
+//        labels(j) = 'R';
+//      }
     }
   });
   DEBUG_PRINT("Update repeat chunks\n");
@@ -292,20 +308,20 @@ void dump_tree_metadata(const std::string& filename,
       uint32_t prev = info.size;
       uint32_t start = leftmost_leaf(node, num_nodes);
       uint32_t end = rightmost_leaf(node, num_nodes);
-//      offset(node) = prev;
-//      if(node == prev) {
-//        labels(node) = 'd';
-//      } else {
-//        labels(node) = 'r';
-//      }
-//      reg_size(node) = num_leaf_descendents(node, num_nodes);
-      char l = 'r';
-      if(node == prev)
-        l = 'd';
-      for(uint32_t j=start; j<=end; j++) {
-        offset(j) = prev;
-        labels(j) = l;
+      offset(node) = prev;
+      if(node == prev) {
+        labels(node) = 'd';
+      } else {
+        labels(node) = 'r';
       }
+      reg_size(node) = num_leaf_descendents(node, num_nodes);
+//      char l = 'r';
+//      if(node == prev)
+//        l = 'd';
+//      for(uint32_t j=start; j<=end; j++) {
+//        offset(j) = prev;
+//        labels(j) = l;
+//      }
     }
   });
   DEBUG_PRINT("Update distinct chunks\n");
@@ -321,10 +337,9 @@ void dump_tree_metadata(const std::string& filename,
   std::cout << "Opened log file: " << filename << std::endl;
   file << "Position: Offset: Label\n";
   for(size_t i=0; i<num_nodes; i++) {
-//if((labels_h(i) == 'R') || (labels_h(i) == 'r') || (labels_h(i) == 'd')) 
-//if(labels_h(i) != 'I') 
-//    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << reg_size_h(i) << "\t: " << labels_h(i) << std::endl;
-    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
+if(labels_h(i) != 'I') 
+    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << reg_size_h(i) << "\t: " << labels_h(i) << std::endl;
+//    file << i << "(" << i+num_chunks-1 << ")" << "\t: " << offset_h(i) << "\t: " << labels_h(i) << std::endl;
   }
   file.close();
   STDOUT_PRINT("Wrote log\n");
@@ -377,10 +392,22 @@ int main(int argc, char** argv) {
         num_chunks += 1;
       DEBUG_PRINT("Number of chunks: %u\n", num_chunks);
       if(idx == 0) {
-        g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
-        g_shared_chunks.rehash(g_shared_chunks.size()+num_chunks);
-        g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks + 1);
-        g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks + 1);
+//        g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
+//        g_shared_chunks.rehash(g_shared_chunks.size()+num_chunks);
+//        g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks + 1);
+//        g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks + 1);
+        g_distinct_chunks.rehash(num_chunks);
+        g_shared_chunks.rehash(num_chunks);
+uint32_t nentries=0;
+for(uint32_t sz=128; sz<8192; sz*=2) {
+  uint32_t n = data_len/sz;
+  if(n*sz < data_len)
+    n += 1;
+  nentries += n;
+}
+        g_distinct_nodes.rehash(nentries);
+        g_shared_nodes.rehash(  nentries);
+//        g_shared_nodes.rehash(2*num_chunks + 1);
       }
 
       size_t name_start = chkpt_files[idx].rfind('/') + 1;
@@ -494,8 +521,13 @@ printf("Time spect copying updates: %f\n", write_time);
       }
       // Merkle Tree deduplication
       {
+//if(idx > 0 && idx%2 == 0)
+//chunk_size *= 2;
 
-        MerkleTree tree0 = MerkleTree(num_chunks);
+        uint32_t n_chunks = data_len/128;
+        if(n_chunks*128 < data_len)
+          n_chunks += 1;
+        MerkleTree tree0 = MerkleTree(n_chunks);
         CompactTable<10> shared_updates = CompactTable<10>(num_chunks);
         CompactTable<10> distinct_updates = CompactTable<10>(num_chunks);
         DEBUG_PRINT("Allocated tree and tables\n");
@@ -590,7 +622,6 @@ printf("Time spect copying updates: %f\n", write_time);
             Timer::time_point end_write = Timer::now();
             auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
             result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << std::endl;
-
           }
 #endif
         }

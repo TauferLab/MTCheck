@@ -2,7 +2,7 @@
 #define UTILS_HPP
 
 #define STDOUT
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
