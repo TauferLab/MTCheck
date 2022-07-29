@@ -16,6 +16,11 @@ struct alignas(16) HashDigest {
 //  uint32_t digest[5];
 };
 
+struct NodeID {
+  uint32_t node;
+  uint32_t tree;
+};
+
 struct NodeInfo {
   uint32_t node;
   uint32_t src;
@@ -123,8 +128,8 @@ using SharedHostMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHo
 //using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
 using DistinctMap = Kokkos::UnorderedMap<HashDigest, 
                                          NodeInfo, 
-//                                         Kokkos::CudaUVMSpace, 
-                                         Kokkos::DefaultExecutionSpace, 
+                                         Kokkos::CudaUVMSpace, 
+//                                         Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
 using DistinctHostMap = Kokkos::UnorderedMap<HashDigest, 

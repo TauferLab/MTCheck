@@ -574,6 +574,8 @@ printf("Time spect copying updates: %f\n", write_time);
         } else {
           DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
           SharedMap l_shared_nodes = SharedMap(2*num_chunks-1);
+//g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks-1);
+//g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks-1);
           DEBUG_PRINT("Allocated maps\n");
 
           Timer::time_point start_create_tree0 = Timer::now();

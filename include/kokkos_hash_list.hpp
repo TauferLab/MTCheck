@@ -440,6 +440,30 @@ DEBUG_PRINT("Copied counters to host\n");
 //        copy_memory(buffer_d.data()+pos+sizeof(uint32_t), data.data()+chunk_size*(info.node), writesize);
       }
     });
+//  Kokkos::parallel_for("Write distinct bytes", Kokkos::TeamPolicy<>(distinct.capacity(), Kokkos::AUTO) , 
+//                       KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+////    uint32_t i=team_member.league_rank()*team_member.team_size()+team_member.team_rank();
+//    uint32_t i=team_member.league_rank();
+//    if(distinct.valid_at(i)) {
+//      auto info = distinct.value_at(i);
+//size_t pos;
+//if(team_member.team_rank() == 0) {
+//      Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
+//      Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
+//      pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + chunk_size);
+//      memcpy(buffer_d.data()+pos, &info.node, sizeof(uint32_t));
+//}
+//      uint32_t writesize = chunk_size;
+//      if(info.node == num_chunks-1) {
+//        writesize = data.size()-info.node*chunk_size;
+//      }
+//team_member.team_barrier();
+//team_member.team_broadcast(pos, 0);
+//Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&](const uint32_t& j) {
+//            buffer_d(pos+sizeof(uint32_t)+j) = data(chunk_size*(info.node)+j);
+//});
+//    }
+//  });
     Kokkos::fence();
     Kokkos::deep_copy(num_bytes_h, num_bytes_d);
     Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
