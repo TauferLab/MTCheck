@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
     DistinctMap g_distinct_chunks = DistinctMap(1);
     SharedMap g_shared_chunks = SharedMap(1);
     DistinctMap g_distinct_nodes  = DistinctMap(1);
-    SharedMap g_shared_nodes = SharedMap(1);
+    SharedTreeMap g_shared_nodes = SharedTreeMap(1);
 
     HashList prior_list(0), current_list(0);
 
@@ -446,14 +446,13 @@ int main(int argc, char** argv) {
 #endif
           } else {
             DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
-            SharedMap l_shared_nodes = SharedMap(2*num_chunks-1);
+            SharedTreeMap l_shared_nodes = SharedTreeMap(2*num_chunks-1);
             DEBUG_PRINT("Allocated maps\n");
 
             Timer::time_point start_create_tree0 = Timer::now();
             Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-//            deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, distinct_updates);
-            deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
-//            deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+//            deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
+            deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
             Kokkos::Profiling::popRegion();
             Timer::time_point end_create_tree0 = Timer::now();
 
@@ -461,6 +460,7 @@ int main(int argc, char** argv) {
             STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
             STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
             STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
+Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 //            tree_meta << distinct_updates.size() << "," << shared_updates.size() << std::endl;
 
 //	          if(idx == 0) {

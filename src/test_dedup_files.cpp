@@ -183,7 +183,7 @@ void copy_memory(void* dst, void* src, size_t len) {
 
 void dump_tree_metadata(const std::string& filename, 
                         const DistinctMap& distinct, 
-                        const SharedMap& shared,
+                        const SharedTreeMap& shared,
                         const uint32_t num_chunks,
                         const uint32_t output_chunks) {
   uint32_t num_nodes = 2*num_chunks - 1;
@@ -195,7 +195,7 @@ void dump_tree_metadata(const std::string& filename,
   Kokkos::deep_copy(reg_size, 0);
   DEBUG_PRINT("Setup offset and label views\n");
   DistinctHostMap distinct_h;
-  SharedHostMap shared_h;
+  SharedHostTreeMap shared_h;
   Kokkos::deep_copy(distinct_h, distinct);
   Kokkos::deep_copy(shared_h, shared);
   DEBUG_PRINT("Copied tables to host\n");
@@ -204,7 +204,7 @@ void dump_tree_metadata(const std::string& filename,
   Kokkos::parallel_for("Update repeat entries", Kokkos::RangePolicy<>(0,shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t node = shared.key_at(i);
-      uint32_t prev = shared.value_at(i);
+      uint32_t prev = shared.value_at(i).node;
       uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
       uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
       offset(node) = prev;
@@ -220,18 +220,19 @@ void dump_tree_metadata(const std::string& filename,
 
   Kokkos::parallel_for("Update distinct entries", Kokkos::RangePolicy<>(0,distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(distinct.valid_at(i)) {
-      NodeInfo info = distinct.value_at(i);
+      NodeID info = distinct.value_at(i);
       if(info.node >= num_chunks-1) {
         uint32_t node = info.node;
-        uint32_t prev = info.src;
+//        uint32_t prev = info.src;
         uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
         uint32_t end = rightmost_leaf(node, num_nodes) - (num_chunks-1);
-      offset(node) = prev;
-      if(node == prev) {
+        offset(node) = node;
+//      offset(node) = prev;
+//      if(node == prev) {
         labels(node) = 'd';
-      } else {
-        labels(node) = 'r';
-      }
+//      } else {
+//        labels(node) = 'r';
+//      }
       reg_size(node) = num_leaf_descendents(node, num_nodes);
 //        char l = 'r';
 //        if(node == prev)
@@ -369,7 +370,9 @@ int main(int argc, char** argv) {
     DistinctMap g_distinct_chunks = DistinctMap(1);
     SharedMap g_shared_chunks = SharedMap(1);
     DistinctMap g_distinct_nodes  = DistinctMap(1);
-    SharedMap g_shared_nodes = SharedMap(1);
+    SharedTreeMap g_shared_nodes = SharedTreeMap(1);
+        CompactTable<10> shared_updates = CompactTable<10>(1);
+        CompactTable<10> distinct_updates = CompactTable<10>(1);
 
 //    HashList prior_list(0), current_list(0);
 
@@ -398,6 +401,8 @@ int main(int argc, char** argv) {
 //        g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks + 1);
         g_distinct_chunks.rehash(num_chunks);
         g_shared_chunks.rehash(num_chunks);
+distinct_updates.rehash(distinct_updates.size()+num_chunks);
+shared_updates.rehash(shared_updates.size()+num_chunks);
 uint32_t nentries=0;
 for(uint32_t sz=128; sz<8192; sz*=2) {
   uint32_t n = data_len/sz;
@@ -524,12 +529,12 @@ printf("Time spect copying updates: %f\n", write_time);
 //if(idx > 0 && idx%2 == 0)
 //chunk_size *= 2;
 
-        uint32_t n_chunks = data_len/128;
-        if(n_chunks*128 < data_len)
-          n_chunks += 1;
-        MerkleTree tree0 = MerkleTree(n_chunks);
-        CompactTable<10> shared_updates = CompactTable<10>(num_chunks);
-        CompactTable<10> distinct_updates = CompactTable<10>(num_chunks);
+//        uint32_t n_chunks = data_len/128;
+//        if(n_chunks*128 < data_len)
+//          n_chunks += 1;
+        MerkleTree tree0 = MerkleTree(num_chunks);
+//        CompactTable<10> shared_updates = CompactTable<10>(num_chunks);
+//        CompactTable<10> distinct_updates = CompactTable<10>(num_chunks);
         DEBUG_PRINT("Allocated tree and tables\n");
 
         Kokkos::fence();
@@ -573,23 +578,22 @@ printf("Time spect copying updates: %f\n", write_time);
 #endif
         } else {
           DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
-          SharedMap l_shared_nodes = SharedMap(2*num_chunks-1);
+          SharedTreeMap l_shared_nodes = SharedTreeMap(2*num_chunks-1);
 //g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks-1);
 //g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks-1);
           DEBUG_PRINT("Allocated maps\n");
 
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, distinct_updates);
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
-//          deduplicate_data_team(current, chunk_size, hasher, 128, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
           STDOUT_PRINT("Size of shared entries: %u\n", l_shared_nodes.size());
-          STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
+          STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
           STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
           STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
+Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 
 //	        if(idx == 0) {
 //            // Update global shared map

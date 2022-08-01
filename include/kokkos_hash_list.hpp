@@ -77,10 +77,10 @@ HashList create_hash_list(Hasher& hasher, Kokkos::View<uint8_t*>& data, const ui
 void find_distinct_chunks(const HashList& list, const uint32_t list_id, DistinctMap& distinct_map, SharedMap& shared_map, DistinctMap& prior_map) {
   Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
     HashDigest digest = list.list_d(i);
-    NodeInfo info(i, i, list_id);
+    NodeID info(i, list_id);
     auto result = distinct_map.insert(digest, info);
     if(result.failed()) 
-      printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
+      printf("Warning: Failed to insert (%u,%u) into map for hashlist.\n", info.node, info.tree);
 
 //    if(prior_map.exists(digest)) {
 //      auto old_res = prior_map.find(digest);
@@ -135,17 +135,17 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
                 num_bytes, 
                 list(i).digest);
     HashDigest digest = list.list_d(i);
-    NodeInfo info(i, i, list_id);
+    NodeID info(i, list_id);
     uint32_t old_idx = prior_distinct_map.find(digest); // Search for digest in prior distinct map
     if(!prior_distinct_map.valid_at(old_idx)) { // Chunk not in prior chkpt
       auto result = distinct_map.insert(digest, info);
       if(result.existing()) {
-        NodeInfo& old = distinct_map.value_at(result.index());
+        NodeID& old = distinct_map.value_at(result.index());
 //        uint32_t old_node = old.node;
         uint32_t old_node = Kokkos::atomic_fetch_min(&old.node, static_cast<uint32_t>(i));
         if(i < old_node) {
 //          old.node = i;
-          old.src = i;
+//          old.src = i;
 //          shared_map.insert(old_node, i);
           auto shared_result = shared_map.insert(old_node, result.index());
           if(shared_result.existing()) {
@@ -166,14 +166,14 @@ void compare_lists(Hasher& hasher, const HashList& list, const uint32_t list_id,
 Kokkos::atomic_add(&num_dupl(0), static_cast<uint32_t>(1));
 #endif
       } else if(result.failed())  {
-        printf("Warning: Failed to insert (%u,%u,%u) into map for hashlist.\n", info.node, info.src, info.tree);
+        printf("Warning: Failed to insert (%u,%u) into map for hashlist.\n", info.node, info.tree);
 #ifdef STATS
       } else if(result.success()) {
 Kokkos::atomic_add(&num_new(0), static_cast<uint32_t>(1));
 #endif
       }
     } else { // Chunk is in prior chkpt
-      NodeInfo old_distinct = prior_distinct_map.value_at(old_idx);
+      NodeID old_distinct = prior_distinct_map.value_at(old_idx);
       if(i != old_distinct.node) {
         uint32_t old_shared_idx = prior_shared_map.find(i);
         if(prior_shared_map.valid_at(old_shared_idx)) {
@@ -227,7 +227,7 @@ void print_distinct_nodes(const HashList& list, const uint32_t id, const Distinc
       HashDigest digest = list(i);
       if(distinct.exists(digest)) {
         uint32_t item = distinct.find(digest);
-        NodeInfo info = distinct.value_at(item);
+        NodeID info = distinct.value_at(item);
         if(info.tree == id) {
           num_distinct += 1;
 //          printf("Node (%u): (%u,%u,%u)\n", i, info.node, info.src, info.tree);
@@ -247,7 +247,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
     HashDigest digest = list(chunk);
     uint32_t idx = distinct.find(digest);
     if(distinct.exists(digest)) {
-      NodeInfo info = distinct.value_at(idx);
+      NodeID info = distinct.value_at(idx);
       if((info.tree == tree_id) || ((info.tree != tree_id) && (info.node != chunk)) ) {
 //      if(info.tree == tree_id) {
         Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
@@ -278,7 +278,7 @@ void count_distinct_nodes(const HashList& list, const uint32_t tree_id, const Di
     if(distinct.valid_at(idx)) {
       Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
     } else if(prior.valid_at(prior_idx)) {
-      NodeInfo info = prior.value_at(idx);
+      NodeID info = prior.value_at(idx);
       if(info.node != chunk) {
         Kokkos::atomic_add(&counter(0), static_cast<uint32_t>(1));
       }

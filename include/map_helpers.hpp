@@ -19,30 +19,47 @@ struct alignas(16) HashDigest {
 struct NodeID {
   uint32_t node;
   uint32_t tree;
-};
-
-struct NodeInfo {
-  uint32_t node;
-  uint32_t src;
-  uint32_t tree;
-
+ 
   KOKKOS_INLINE_FUNCTION
-  NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
+  NodeID() {
+    node = UINT_MAX;
+    tree = UINT_MAX;
+  }
+ 
+  KOKKOS_INLINE_FUNCTION
+  NodeID(uint32_t n, uint32_t t) {
     node = n;
-    src = s;
     tree = t;
   }
 
   KOKKOS_INLINE_FUNCTION
+  bool operator==(const NodeID& other) const {
+    return !(other.node != node || other.tree != tree);
+  }
+};
+
+struct NodeInfo {
+  uint32_t curr_node;
+  uint32_t prev_node;
+  uint32_t prev_tree;
+
+  KOKKOS_INLINE_FUNCTION
+  NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
+    curr_node = n;
+    prev_node = s;
+    prev_tree = t;
+  }
+
+  KOKKOS_INLINE_FUNCTION
   NodeInfo() {
-    node = UINT_MAX;
-    src = UINT_MAX;
-    tree = UINT_MAX;
+    curr_node = UINT_MAX;
+    prev_node = UINT_MAX;
+    prev_tree = UINT_MAX;
   }
 
   KOKKOS_INLINE_FUNCTION
   bool operator==(const NodeInfo &other) const {
-    if(other.node != node || other.src != src || other.tree != tree)
+    if(other.curr_node != curr_node || other.prev_node != prev_node || other.prev_tree != prev_tree)
       return false;
     return true;
   }
@@ -123,17 +140,16 @@ struct digest_equal_to {
 
 using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
 using SharedHostMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
-//using SharedMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
-//using DistinctMap = Kokkos::UnorderedMap<HashDigest, NodeInfo>;
-//using DistinctMap = Kokkos::UnorderedMap<uint32_t, NodeInfo>;
+using SharedTreeMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using SharedHostTreeMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 using DistinctMap = Kokkos::UnorderedMap<HashDigest, 
-                                         NodeInfo, 
+                                         NodeID, 
                                          Kokkos::CudaUVMSpace, 
 //                                         Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
 using DistinctHostMap = Kokkos::UnorderedMap<HashDigest, 
-                                             NodeInfo, 
+                                             NodeID, 
                                              Kokkos::DefaultHostExecutionSpace, 
                                              digest_hash, 
                                              digest_equal_to>;
