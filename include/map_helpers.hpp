@@ -66,24 +66,24 @@ struct NodeInfo {
 };
 
 struct CompactNodeInfo {
-  uint32_t node;
-  uint32_t size;
+  uint32_t curr_node;
+  uint32_t prev_node;
 
   KOKKOS_INLINE_FUNCTION
   CompactNodeInfo(uint32_t n, uint32_t s) {
-    node = n;
-    size = s;
+    curr_node = n;
+    prev_node = s;
   }
 
   KOKKOS_INLINE_FUNCTION
   CompactNodeInfo() {
-    node = UINT_MAX;
-    size = UINT_MAX;
+    curr_node = UINT_MAX;
+    prev_node = UINT_MAX;
   }
 
   KOKKOS_INLINE_FUNCTION
   bool operator==(const CompactNodeInfo &other) const {
-    if(other.node != node || other.size != size)
+    if(other.curr_node != curr_node || other.prev_node != prev_node)
       return false;
     return true;
   }
@@ -153,10 +153,13 @@ using DistinctHostMap = Kokkos::UnorderedMap<HashDigest,
                                              Kokkos::DefaultHostExecutionSpace, 
                                              digest_hash, 
                                              digest_equal_to>;
-template<uint32_t N>
-using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
-template<uint32_t N>
-using CompactHostTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> , Kokkos::DefaultHostExecutionSpace>;
+//template<uint32_t N>
+//using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
+//template<uint32_t N>
+//using CompactHostTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> , Kokkos::DefaultHostExecutionSpace>;
+
+using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 
 #endif
 

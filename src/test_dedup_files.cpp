@@ -266,8 +266,10 @@ if(labels_h(i) != 'I')
 }
 
 void dump_tree_metadata(const std::string& filename, 
-                        const CompactTable<10>& distinct, 
-                        const CompactTable<10>& shared,
+//                        const CompactTable<10>& distinct, 
+//                        const CompactTable<10>& shared,
+                        const CompactTable& distinct, 
+                        const CompactTable& shared,
                         const uint32_t num_chunks,
                         const uint32_t output_chunks) {
   uint32_t num_nodes = 2*num_chunks - 1;
@@ -278,7 +280,8 @@ void dump_tree_metadata(const std::string& filename,
   Kokkos::deep_copy(labels, 'I');
   Kokkos::deep_copy(reg_size, 0);
   DEBUG_PRINT("Setup offset and label views\n");
-  CompactHostTable<10> distinct_h, shared_h;
+//  CompactHostTable<10> distinct_h, shared_h;
+  CompactHostTable distinct_h, shared_h;
   Kokkos::deep_copy(distinct_h, distinct);
   Kokkos::deep_copy(shared_h, shared);
   DEBUG_PRINT("Copied tables to host\n");
@@ -286,12 +289,15 @@ void dump_tree_metadata(const std::string& filename,
   Kokkos::fence();
   Kokkos::parallel_for("Update repeat entries", Kokkos::RangePolicy<>(0,shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
-      CompactNodeInfo info = shared.key_at(i);
-      uint32_t node = info.node;
-      uint32_t prev = info.size;
+//      CompactNodeInfo info = shared.key_at(i);
+//      uint32_t node = info.curr_node;
+//      uint32_t prev = info.prev_node;
+      uint32_t node = shared.key_at(i);
+      NodeID prev = shared.value_at(i);
       uint32_t start = leftmost_leaf(node, num_nodes);
       uint32_t end   = rightmost_leaf(node, num_nodes);
-      offset(node) = prev;
+//      offset(node) = prev;
+      offset(node) = prev.node;
       labels(node) = 'R';
       reg_size(node) = num_leaf_descendents(node, num_nodes);
 //      for(uint32_t j=start; j<=end; j++) {
@@ -304,13 +310,17 @@ void dump_tree_metadata(const std::string& filename,
 
   Kokkos::parallel_for("Update distinct entries", Kokkos::RangePolicy<>(0,distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(distinct.valid_at(i)) {
-      CompactNodeInfo info = distinct.key_at(i);
-      uint32_t node = info.node;
-      uint32_t prev = info.size;
+//      CompactNodeInfo info = distinct.key_at(i);
+//      uint32_t node = info.curr_node;
+//      uint32_t prev = info.prev_node;
+      uint32_t node = distinct.key_at(i);
+      NodeID prev = distinct.value_at(i);
       uint32_t start = leftmost_leaf(node, num_nodes);
       uint32_t end = rightmost_leaf(node, num_nodes);
-      offset(node) = prev;
-      if(node == prev) {
+//      offset(node) = prev;
+//      if(node == prev) {
+      offset(node) = prev.node;
+      if(node == prev.node) {
         labels(node) = 'd';
       } else {
         labels(node) = 'r';
@@ -371,8 +381,10 @@ int main(int argc, char** argv) {
     SharedMap g_shared_chunks = SharedMap(1);
     DistinctMap g_distinct_nodes  = DistinctMap(1);
     SharedTreeMap g_shared_nodes = SharedTreeMap(1);
-        CompactTable<10> shared_updates = CompactTable<10>(1);
-        CompactTable<10> distinct_updates = CompactTable<10>(1);
+//        CompactTable<10> shared_updates = CompactTable<10>(1);
+//        CompactTable<10> distinct_updates = CompactTable<10>(1);
+//        CompactTable shared_updates   = CompactTable(1);
+//        CompactTable distinct_updates = CompactTable(1);
 
 //    HashList prior_list(0), current_list(0);
 
@@ -401,8 +413,8 @@ int main(int argc, char** argv) {
 //        g_shared_nodes.rehash(g_shared_nodes.size()+2*num_chunks + 1);
         g_distinct_chunks.rehash(num_chunks);
         g_shared_chunks.rehash(num_chunks);
-distinct_updates.rehash(distinct_updates.size()+num_chunks);
-shared_updates.rehash(shared_updates.size()+num_chunks);
+//distinct_updates.rehash(distinct_updates.size()+num_chunks);
+//shared_updates.rehash(shared_updates.size()+num_chunks);
 uint32_t nentries=0;
 for(uint32_t sz=128; sz<8192; sz*=2) {
   uint32_t n = data_len/sz;
@@ -535,6 +547,8 @@ printf("Time spect copying updates: %f\n", write_time);
         MerkleTree tree0 = MerkleTree(num_chunks);
 //        CompactTable<10> shared_updates = CompactTable<10>(num_chunks);
 //        CompactTable<10> distinct_updates = CompactTable<10>(num_chunks);
+        CompactTable shared_updates   = CompactTable(num_chunks);
+        CompactTable distinct_updates = CompactTable(num_chunks);
         DEBUG_PRINT("Allocated tree and tables\n");
 
         Kokkos::fence();
@@ -575,6 +589,24 @@ printf("Time spect copying updates: %f\n", write_time);
           Timer::time_point end_write = Timer::now();
           auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
           result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << std::endl;
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(full_chkpt_files[idx]+".hashtree.incr_chkpt", std::ofstream::out | std::ofstream::binary);
+printf("%u,%u,%lu,%u,%u,%u\n", prior_idx, idx, current.size(), chunk_size, g_shared_nodes.size(), g_distinct_nodes.size());
+  uint64_t dlen = current.size();
+  uint32_t repeatlen = g_shared_nodes.size();
+  uint32_t distinctlen = g_distinct_nodes.size();
+  uint32_t pad = 0;
+  file.write((char*)(&prior_idx), sizeof(uint32_t));
+  file.write((char*)(&idx), sizeof(uint32_t));
+  file.write((char*)(&dlen), sizeof(uint64_t));
+  file.write((char*)(&chunk_size), sizeof(uint32_t));
+  file.write((char*)(&repeatlen), sizeof(uint32_t));
+  file.write((char*)(&distinctlen), sizeof(uint32_t));
+  file.write((char*)(&pad), sizeof(uint32_t));
+  file.write((const char*)(buffer_h.data()), buffer_h.size());
+  file.flush();
+  file.close();
 #endif
         } else {
           DistinctMap l_distinct_nodes(g_distinct_nodes.capacity());
@@ -585,12 +617,12 @@ printf("Time spect copying updates: %f\n", write_time);
 
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, g_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
           STDOUT_PRINT("Size of shared entries: %u\n", l_shared_nodes.size());
-          STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
+          STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
           STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
           STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
@@ -605,7 +637,7 @@ Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 #ifdef WRITE_CHKPT
           uint32_t prior_idx = 0;
           if(idx > 0) {
-            prior_idx = idx-1;
+//            prior_idx = idx-1;
             Kokkos::fence();
 
 //tree0.print();
@@ -628,6 +660,24 @@ Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
             Timer::time_point end_write = Timer::now();
             auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
             result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << std::endl;
+
+  std::ofstream file;
+  file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+  file.open(full_chkpt_files[idx]+".hashtree.incr_chkpt", std::ofstream::out | std::ofstream::binary);
+  uint64_t dlen = current.size();
+  uint32_t repeatlen = shared_updates.size();
+  uint32_t distinctlen = distinct_updates.size();
+  uint32_t pad = 0;
+  file.write((char*)(&prior_idx), sizeof(uint32_t));
+  file.write((char*)(&idx), sizeof(uint32_t));
+  file.write((char*)(&dlen), sizeof(uint64_t));
+  file.write((char*)(&chunk_size), sizeof(uint32_t));
+  file.write((char*)(&repeatlen), sizeof(uint32_t));
+  file.write((char*)(&distinctlen), sizeof(uint32_t));
+  file.write((char*)(&pad), sizeof(uint32_t));
+  file.write((const char*)(buffer_h.data()), buffer_h.size());
+  file.flush();
+  file.close();
           }
 #endif
         }
