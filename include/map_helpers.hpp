@@ -138,17 +138,29 @@ struct digest_equal_to {
   }
 };
 
-using SharedMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
-using SharedHostMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
-using SharedTreeMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
-using SharedHostTreeMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
-using DistinctMap = Kokkos::UnorderedMap<HashDigest, 
+using SharedNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
+using SharedHostNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
+using DistinctNodeMap = Kokkos::UnorderedMap<HashDigest, 
+                                         uint32_t, 
+                                         Kokkos::CudaUVMSpace, 
+//                                         Kokkos::DefaultExecutionSpace, 
+                                         digest_hash, 
+                                         digest_equal_to>;
+using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest, 
+                                             uint32_t, 
+                                             Kokkos::DefaultHostExecutionSpace, 
+                                             digest_hash, 
+                                             digest_equal_to>;
+
+using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
+using DistinctNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
                                          NodeID, 
                                          Kokkos::CudaUVMSpace, 
 //                                         Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
-using DistinctHostMap = Kokkos::UnorderedMap<HashDigest, 
+using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
                                              NodeID, 
                                              Kokkos::DefaultHostExecutionSpace, 
                                              digest_hash, 
