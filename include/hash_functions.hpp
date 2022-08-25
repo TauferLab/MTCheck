@@ -5,7 +5,27 @@
 //#include <cuda.h>
 #include <string>
 #include <openssl/md5.h>
+#include "map_helpers.hpp"
 
+void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
+  HashDigest correct;
+  auto data_h = Kokkos::create_mirror_view(data_d);
+  Kokkos::deep_copy(data_h, data_d);
+  MD5((uint8_t*)(data_h.data()), data_d.size(), correct.digest);
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string ref_digest;
+  for(int k=0; k<16; k++) {
+    unsigned char b = correct.digest[k];
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    ref_digest.append(hex);
+    if(k%4 == 3)
+      ref_digest.append(" ");
+  }
+  std::cout << "Reference digest:  " << ref_digest << std::endl;
+}
 
 enum HashFunc {
   SHA1Hash=0,
@@ -48,19 +68,6 @@ public:
 
   KOKKOS_FORCEINLINE_FUNCTION
   SHA1() {}
-
-  class Digest {
-  public:
-    uint8_t digest[20];
-    friend bool operator<(const Digest& l, const Digest& r) {
-      int result = memcmp(l.digest, r.digest, 20);
-      if(result < 0) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
 
   std::string hash_name() {
     return std::string("SHA1");
@@ -323,18 +330,6 @@ class Murmur3A : Hasher {
 public:
   using DIGEST_TYPE = uint32_t;
 
-  class Digest {
-  public:
-    uint32_t digest[1];
-    friend bool operator<(const Digest& l, const Digest& r) {
-      if(*l.digest < *r.digest) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
-
   std::string hash_name() {
     return std::string("Murmur3");
   }
@@ -491,18 +486,6 @@ public:
 class Murmur3C : Hasher {
 public:
   using DIGEST_TYPE = uint32_t;
-
-  class Digest {
-  public:
-    uint32_t digest[1];
-    friend bool operator<(const Digest& l, const Digest& r) {
-      if(*l.digest < *r.digest) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
 
   KOKKOS_FORCEINLINE_FUNCTION
   Murmur3C() {}
@@ -712,18 +695,6 @@ class Murmur3F : Hasher {
 public:
   using DIGEST_TYPE = uint32_t;
 
-  class Digest {
-  public:
-    uint32_t digest[1];
-    friend bool operator<(const Digest& l, const Digest& r) {
-      if(*l.digest < *r.digest) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
-
   std::string hash_name() {
     return std::string("Murmur3F");
   }
@@ -910,19 +881,6 @@ public:
 
   KOKKOS_FORCEINLINE_FUNCTION
   MD5Hash() {}
-
-  class Digest {
-  public:
-    uint8_t digest[16];
-    friend bool operator<(const Digest& l, const Digest& r) {
-      int result = memcmp(l.digest, r.digest, 16);
-      if(result < 0) {
-        return true;
-      } else {
-        return false;
-      }
-    }
-  };
 
   std::string hash_name() {
     return std::string("MD5");
@@ -1184,7 +1142,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void digest_to_hex(const uint8_t digest[MD5_DIGEST_SIZE], char* output) {
+  void digest_to_hex(const uint8_t digest[MD5_DIGEST_SIZE], char* output) const {
     int i,j;
     char* c = output;
     for(i=0; i<MD5_DIGEST_SIZE/4; i++) {

@@ -101,6 +101,7 @@ set_target_properties(checkpoint_generator PROPERTIES
 add_executable(test_restart src/test_restart.cpp)
 target_include_directories(test_restart PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_restart PRIVATE Kokkos::kokkos)
+target_link_libraries(test_restart PRIVATE OpenSSL::SSL)
 
 set_target_properties(test_restart PROPERTIES
     CXX_STANDARD 14
