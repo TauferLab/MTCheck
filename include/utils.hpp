@@ -4,7 +4,7 @@
 #define STDOUT
 //#define DEBUG
 //#define STATS
-#define GLOBAL_TABLE
+//#define GLOBAL_TABLE
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )

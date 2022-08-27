@@ -574,7 +574,7 @@ uint32_t num_distinct = g_distinct_chunks.size();
         file.open(full_chkpt_files[idx]+".hashlist.incr_chkpt", std::ofstream::out | std::ofstream::binary);
         uint64_t dlen = current.size();
         uint32_t repeatlen = l_shared_chunks.size();
-//        uint32_t distinctlen = l_distinct_chunks.size();
+        uint32_t distinctlen = l_distinct_chunks.size();
 #ifdef GLOBAL_TABLE
         distinctlen = g_distinct_chunks.size();
 #endif
