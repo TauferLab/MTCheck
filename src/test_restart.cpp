@@ -17,6 +17,8 @@
 #include <openssl/md5.h>
 #include "utils.hpp"
 
+#define VERIFY_OUTPUT
+
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
   Kokkos::initialize(argc, argv);
@@ -84,6 +86,7 @@ int main(int argc, char** argv) {
 
           file.close();
 
+#ifdef VERIFY_OUTPUT
           HashDigest correct;
           MD5((uint8_t*)(reference_h.data()), filesize, correct.digest);
           static const char hexchars[] = "0123456789ABCDEF";
@@ -98,6 +101,7 @@ int main(int argc, char** argv) {
             if(k%4 == 3)
               ref_digest.append(" ");
           }
+#endif
           
           Kokkos::deep_copy(reference_d, 0);
           Kokkos::deep_copy(reference_h, 0);
@@ -108,6 +112,7 @@ int main(int argc, char** argv) {
           std::chrono::high_resolution_clock::time_point l2 = std::chrono::high_resolution_clock::now();
           times[num_timers*i+3] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(l2-l1).count());
 
+#ifdef VERIFY_OUTPUT
           printf("Memory size: %lu\n", reference_d.size());
           reference_h = Kokkos::create_mirror_view(reference_d);
           Kokkos::deep_copy(reference_h, reference_d);
@@ -124,6 +129,7 @@ int main(int argc, char** argv) {
             if(k%4 == 3)
               list_digest.append(" ");
           }
+#endif
 
           // Incremental checkpoint (Hash tree)
           Kokkos::deep_copy(reference_d, 0);
@@ -132,6 +138,7 @@ int main(int argc, char** argv) {
           std::chrono::high_resolution_clock::time_point m2 = std::chrono::high_resolution_clock::now();
           times[num_timers*i+4] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(m2-m1).count());
 
+#ifdef VERIFY_OUTPUT
           printf("Memory size: %lu\n", reference_d.size());
           Kokkos::deep_copy(reference_h, reference_d);
           HashDigest hashtree;
@@ -150,6 +157,7 @@ int main(int argc, char** argv) {
           std::cout << "Correct digest:  " << ref_digest << std::endl;
           std::cout << "Hashlist digest: " << list_digest << std::endl;
           std::cout << "Hashtree digest: " << tree_digest << std::endl;
+#endif
         } else {
           CompactHostTable distinct_map;
           CompactHostTable repeat_map;

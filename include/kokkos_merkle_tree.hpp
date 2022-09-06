@@ -616,7 +616,7 @@ restart_incr_chkpt_hashtree(std::vector<std::string>& chkpt_files,
   size_t filesize = file.tellg();
   file.seekg(0);
 
-  DEBUG_PRINT("File size: %zd\n", filesize);
+//  DEBUG_PRINT("File size: %zd\n", filesize);
   header_t header;
   file.read((char*)&header, sizeof(header_t));
   STDOUT_PRINT("Ref ID: %u\n",               header.ref_id);
@@ -995,6 +995,8 @@ printf("Setup data buffers\n");
 //    Kokkos::deep_copy(counter_d, 0);
 
     Kokkos::View<uint32_t*> repeat_region_sizes("Repeat entires per chkpt", cur_id+1);
+    auto repeat_region_sizes_h = Kokkos::create_mirror_view(repeat_region_sizes);
+    Kokkos::deep_copy(repeat_region_sizes, 0);
     // Read map of repeats for each checkpoint
     Kokkos::parallel_for("Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t chkpt;
@@ -1002,6 +1004,7 @@ printf("Setup data buffers\n");
       memcpy(&repeat_region_sizes(chkpt), buffer_d.data()+curr_repeat_offset+i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
       DEBUG_PRINT("Chkpt: %u, region size: %u\n", chkpt, repeat_region_sizes(chkpt));
     });
+    Kokkos::deep_copy(repeat_region_sizes_h, repeat_region_sizes);
     // Perform exclusive scan to determine where regions start/stop
     Kokkos::parallel_scan("Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       partial_sum += repeat_region_sizes(i);
@@ -1079,7 +1082,7 @@ printf("Setup data buffers\n");
 //});
 
     for(int idx=static_cast<int>(file_idx)-1; idx>static_cast<int>(ref_id); idx--) {
-      STDOUT_PRINT("Processing checkpoint %u\n", idx);
+//      STDOUT_PRINT("Processing checkpoint %u\n", idx);
       file.open(chkpt_files[idx], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
       size_t chkpt_size = file.tellg();
       STDOUT_PRINT("Checkpoint size: %zd\n", chkpt_size);
