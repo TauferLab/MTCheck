@@ -17,7 +17,7 @@
 #include <openssl/md5.h>
 #include "utils.hpp"
 
-#define VERIFY_OUTPUT
+//#define VERIFY_OUTPUT
 
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
@@ -29,9 +29,10 @@ int main(int argc, char** argv) {
     // Process data from checkpoint files
     uint32_t restart_id = static_cast<uint32_t>(atoi(argv[1]));
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
+    uint32_t num_tests = static_cast<uint32_t>(atoi(argv[3]));
     std::vector<std::string> chkpt_files;
     for(uint32_t i=0; i<num_chkpts; i++) {
-      chkpt_files.push_back(std::string(argv[3+i]));
+      chkpt_files.push_back(std::string(argv[4+i]));
     }
     std::vector<std::string> full_chkpt_files;
     for(uint32_t i=0; i<num_chkpts; i++) {
@@ -48,7 +49,7 @@ int main(int argc, char** argv) {
     STDOUT_PRINT("Read checkpoint files\n");
     STDOUT_PRINT("Number of checkpoints: %u\n", num_chkpts);
 
-    uint32_t num_tests = 1;
+//    uint32_t num_tests = 5;
     num_chkpts=1;
     uint32_t num_timers = (3+1+1);
     uint32_t select_chkpt = restart_id;

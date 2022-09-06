@@ -640,7 +640,6 @@ restart_incr_chkpt_hashtree(std::vector<std::string>& chkpt_files,
   }
   uint32_t num_nodes = 2*num_chunks-1;
   Kokkos::resize(data, header.datalen);
-printf("Setup data buffers\n");
 
   if(header.window_size == 0) {
     // Main checkpoint
