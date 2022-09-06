@@ -1,10 +1,10 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-#define STDOUT
+//#define STDOUT
 //#define DEBUG
 //#define STATS
-//#define GLOBAL_TABLE
+#define GLOBAL_TABLE
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
@@ -27,7 +27,8 @@ typedef struct header_t {
   uint32_t distinct_size;    // Number of distinct entries
   uint32_t curr_repeat_size; // Number of repeat entries from current checkpoint
   uint32_t prev_repeat_size; // Number of repeat entries from prior checkpoints
-  uint32_t pad;
+  uint32_t num_prior_chkpts;
+//  uint32_t repeat_size;      // Number of repeat entries
 } header_t;
 
 #endif

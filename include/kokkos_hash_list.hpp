@@ -326,14 +326,14 @@ restart_incr_chkpt_hashlist( std::vector<std::string>& chkpt_files,
   DEBUG_PRINT("File size: %zd\n", filesize);
   header_t header;
   file.read((char*)&header, sizeof(header_t));
-  DEBUG_PRINT("Ref ID: %u\n",               header.ref_id);
-  DEBUG_PRINT("Chkpt ID: %u\n",             header.chkpt_id);
-  DEBUG_PRINT("Data len: %lu\n",            header.datalen);
-  DEBUG_PRINT("Chunk size: %u\n",           header.chunk_size);
-  DEBUG_PRINT("Window size: %u\n",          header.window_size);
-  DEBUG_PRINT("Distinct size: %u\n",        header.distinct_size);
-  DEBUG_PRINT("Current Repeat size: %u\n",  header.curr_repeat_size);
-  DEBUG_PRINT("Previous Repeat size: %u\n", header.prev_repeat_size);
+  STDOUT_PRINT("Ref ID: %u\n",               header.ref_id);
+  STDOUT_PRINT("Chkpt ID: %u\n",             header.chkpt_id);
+  STDOUT_PRINT("Data len: %lu\n",            header.datalen);
+  STDOUT_PRINT("Chunk size: %u\n",           header.chunk_size);
+  STDOUT_PRINT("Window size: %u\n",          header.window_size);
+  STDOUT_PRINT("Distinct size: %u\n",        header.distinct_size);
+  STDOUT_PRINT("Current Repeat size: %u\n",  header.curr_repeat_size);
+  STDOUT_PRINT("Previous Repeat size: %u\n", header.prev_repeat_size);
 
   Kokkos::View<uint8_t*> buffer_d("Buffer", filesize);
   Kokkos::deep_copy(buffer_d, 0);

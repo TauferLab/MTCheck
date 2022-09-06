@@ -2,6 +2,7 @@
 #define KOKKOS_MERKLE_TREE_HPP
 #include <Kokkos_Core.hpp>
 #include <Kokkos_UnorderedMap.hpp>
+#include <Kokkos_ScatterView.hpp>
 #include <climits>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
@@ -651,11 +652,6 @@ printf("Setup data buffers\n");
     Kokkos::deep_copy(node_list, NodeID());
     uint32_t ref_id = header.ref_id;
     uint32_t cur_id = header.chkpt_id;
-//    size_t prev_repeat_offset = filesize - header.prev_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
-//    size_t curr_repeat_offset = prev_repeat_offset - header.curr_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
-//    auto curr_repeat   = Kokkos::subview(buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-//    auto prev_repeat   = Kokkos::subview(buffer_d, std::make_pair(prev_repeat_offset, filesize));
-//    auto distinct = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
 
     size_t curr_repeat_offset = sizeof(header_t) + header.distinct_size*sizeof(uint32_t);
     size_t prev_repeat_offset = curr_repeat_offset + header.curr_repeat_size*2*sizeof(uint32_t);
@@ -664,12 +660,12 @@ printf("Setup data buffers\n");
     auto prev_repeat   = Kokkos::subview(buffer_d, std::make_pair(prev_repeat_offset, data_offset));
     auto distinct = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
     auto data_subview = Kokkos::subview(buffer_d, std::make_pair(data_offset, filesize));
-STDOUT_PRINT("Checkpoint %u\n", header.chkpt_id);
-STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
-STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
-STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
-STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
-STDOUT_PRINT("Data offset: %lu\n", data_offset);
+    STDOUT_PRINT("Checkpoint %u\n", header.chkpt_id);
+    STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
+    STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
+    STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
+    STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
+    STDOUT_PRINT("Data offset: %lu\n", data_offset);
 
     uint32_t chunk_size = header.chunk_size;
     size_t datalen = header.datalen;
@@ -684,16 +680,13 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       distinct_nodes(i) = node;
       chunk_len(i) = len;
     });
+
     Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       const uint32_t len = chunk_len(i);
       if(is_final) chunk_len(i) = partial_sum;
       partial_sum += len;
     });
-//    Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t idx) {
-//      for(uint32_t i=0; i<num_distinct; i++) {
-//        printf("Chunk len(%u): %u\n", i, chunk_len(i));
-//      }
-//    });
+
     Kokkos::parallel_for("Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node = distinct_nodes(i);
       distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
@@ -702,14 +695,14 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       uint32_t end = start+len-1;
       uint32_t left = 2*node+1;
       uint32_t right = 2*node+2;
-//STDOUT_PRINT("Reading region: (%u,%u) at %lu: %lu\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size);
+      DEBUG_PRINT("Reading region: (%u,%u) at %lu: %lu\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size);
       while(left < num_nodes) {
         if(right >= num_nodes)
           right = num_nodes;
         for(uint32_t u=left; u<=right; u++) {
           uint32_t leaf = leftmost_leaf(u, num_nodes);
           auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
-          //printf("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
+          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
           if(result.failed())
             printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
         }
@@ -725,44 +718,7 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
       memcpy(data.data()+chunk_size*(start-num_chunks+1), data_subview.data()+chunk_len(i)*chunk_size, datasize);
     });
-//    Kokkos::parallel_for("Restart Hashtree distinct", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(const uint32_t index) {
-//      size_t read_offset = 0;
-//      for(uint32_t i=0; i<num_distinct; i++) {
-//        uint32_t node;
-//        memcpy(&node, distinct.data() + read_offset,  sizeof(uint32_t));
-//        DEBUG_PRINT("%u: %c, %lu\n", node, *((const char*)(distinct.data()+read_offset+sizeof(uint32_t))), read_offset+sizeof(uint32_t));
-//        auto result_d = distinct_map.insert(NodeID(node,cur_id),  read_offset + sizeof(uint32_t));
-//        if(result_d.failed())
-//          STDOUT_PRINT("Failed to insert distinct entry (%u,%u): %lu\n", node, cur_id, read_offset+sizeof(uint32_t));
-//        uint32_t start = leftmost_leaf(node, num_nodes);
-//        uint32_t len = num_leaf_descendents(node, num_nodes);
-//        uint32_t end = start+len-1;
-//        uint32_t left = 2*node+1;
-//        uint32_t right = 2*node+2;
-//        while(left < num_nodes) {
-//          if(right >= num_nodes)
-//            right = num_nodes;
-//          for(uint32_t u=left; u<=right; u++) {
-//            uint32_t leaf = leftmost_leaf(u, num_nodes);
-//            auto result = distinct_map.insert(NodeID(u, cur_id), read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//            //printf("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//            if(result.failed())
-//              printf("Failed to insert (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//          }
-//          left = 2*left+1;
-//          right = 2*right+2;
-//        }
-//        for(uint32_t j=0; j<len; j++) {
-//          node_list(start-num_chunks+1+j) = NodeID(start-num_chunks+1+j, UINT32_MAX);
-//        }
-//        uint32_t datasize = len*chunk_size;
-//        if(end == num_nodes-1)
-//          datasize = datalen - (start-num_chunks+1)*chunk_size;
-//        DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
-//        memcpy(data.data()+chunk_size*(start-num_chunks+1), distinct.data()+read_offset+sizeof(uint32_t), datasize);
-//        read_offset += sizeof(uint32_t) + chunk_size*len;
-//      }
-//    });
+
     Kokkos::parallel_for("Restart Hashtree current repeat", Kokkos::RangePolicy<>(0, header.curr_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
       uint32_t prev;
@@ -779,10 +735,10 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       uint32_t copysize = chunk_size;
       if(node == num_nodes-1)
         copysize = data.size() - chunk_size*(num_chunks-1);
-//      memcpy(data.data()+chunk_size*(node_start-num_chunks+1), distinct.data()+offset, copysize);
       memcpy(data.data()+chunk_size*(node_start-num_chunks+1), data_subview.data()+offset, copysize);
       DEBUG_PRINT("Duplicated (%u) %c%c to %u (offset %lu)\n", node_start-num_chunks+1, *((char*)(distinct.data()+offset)), *((char*)(distinct.data()+offset+1)),  (node_start-num_chunks+1)*chunk_size, offset);
     });
+
     Kokkos::parallel_for("Restart Hashtree previous repeat", Kokkos::RangePolicy<>(0, header.prev_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
       uint32_t prev;
@@ -797,6 +753,7 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
         DEBUG_PRINT("Entry %u updated: (%u,%u) (previous repeat node %u, prev %u)\n", node_start-num_chunks+1, prev_start+j, ref_id, node, prev);
       }
     });
+
     Kokkos::fence();
     DEBUG_PRINT("Restarted previous repeats\n");
     Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
@@ -806,13 +763,6 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       }
     });
     Kokkos::fence();
-//auto node_list_h = Kokkos::create_mirror_view(node_list);
-//Kokkos::deep_copy(node_list_h, node_list);
-//for(uint32_t i=0; i<node_list.size(); i++) {
-//  printf("Node: %u: (%u,%u)\n", i, node_list_h(i).node, node_list_h(i).tree);
-//}
-//auto data_h = Kokkos::create_mirror_view(data);
-//printf("Done setting up the restart\n");
 
     if(header.ref_id != header.chkpt_id) {
       // Reference
@@ -832,11 +782,6 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
       Kokkos::deep_copy(chkpt_buffer_d, chkpt_buffer_h);
       cur_id = chkpt_header.chkpt_id;
       ref_id = chkpt_header.ref_id;
-//      prev_repeat_offset = chkpt_size - chkpt_header.prev_repeat_size*(2*sizeof(uint32_t));
-//      curr_repeat_offset = prev_repeat_offset - chkpt_header.curr_repeat_size*(2*sizeof(uint32_t));
-//      curr_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-//      prev_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(prev_repeat_offset, chkpt_size));
-//      distinct = Kokkos::subview(chkpt_buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
 
       curr_repeat_offset = sizeof(header_t) + chkpt_header.distinct_size*sizeof(uint32_t);
       prev_repeat_offset = curr_repeat_offset + chkpt_header.curr_repeat_size*2*sizeof(uint32_t);
@@ -875,17 +820,7 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
         uint32_t node = distinct_nodes(i);
         distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
       });
-//      Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(const uint32_t j) {
-//        size_t read_offset = 0;
-//        for(uint32_t i=0; i<num_distinct; i++) {
-//          uint32_t node;
-//          memcpy(&node, distinct.data() + read_offset,  sizeof(uint32_t));
-//          distinct_map.insert(NodeID(node,cur_id),  read_offset + sizeof(uint32_t));
-////STDOUT_PRINT("Inserting distinct node (%u,%u): %lu\n", node, cur_id, read_offset+sizeof(uint32_t));
-//          uint32_t len = num_leaf_descendents(node, num_nodes);
-//          read_offset += sizeof(uint32_t) + chunk_size*len;
-//        }
-//      });
+
       uint32_t num_repeat = chkpt_header.curr_repeat_size + chkpt_header.prev_repeat_size;
       Kokkos::parallel_for("Fill repeat map", Kokkos::RangePolicy<>(0, num_repeat), KOKKOS_LAMBDA(const uint32_t i) {
         uint32_t node;
@@ -893,14 +828,14 @@ STDOUT_PRINT("Data offset: %lu\n", data_offset);
         memcpy(&node, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
         memcpy(&prev, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t), sizeof(uint32_t));
         repeat_map.insert(node, NodeID(prev, ref_id));
-//STDOUT_PRINT("Inserting repeat node %u: (%u,%u)\n", node, prev, ref_id);
+        DEBUG_PRINT("Inserting repeat node %u: (%u,%u)\n", node, prev, ref_id);
       });
       Kokkos::parallel_for("Fill data", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
         if(node_list(i).tree == current_id) {
           NodeID id = node_list(i);
           if(distinct_map.exists(id)) {
-if(!distinct_map.valid_at(distinct_map.find(id)))
-  STDOUT_PRINT("Entry (%u,%u) not in distinct map\n", id.node, id.tree);
+            if(!distinct_map.valid_at(distinct_map.find(id)))
+              DEBUG_PRINT("Entry (%u,%u) not in distinct map\n", id.node, id.tree);
             size_t offset = distinct_map.value_at(distinct_map.find(id));
             uint32_t start = leftmost_leaf(id.node, num_nodes);
             uint32_t len = num_leaf_descendents(id.node, num_nodes);
@@ -908,24 +843,22 @@ if(!distinct_map.valid_at(distinct_map.find(id)))
             uint32_t writesize = chunk_size*len;
             if(end == num_nodes-1)
               writesize = datalen-(start-num_chunks+1)*chunk_size;
-//            memcpy(data.data()+chunk_size*(i), distinct.data()+offset, writesize);
             memcpy(data.data()+chunk_size*(i), data_subview.data()+offset, writesize);
-//STDOUT_PRINT("Updating distinct node %u with (%u,%u). Start: %u, Len: %u, End: %u, writesize: %u, %c\n", i, id.node, id.tree, start, len, end, writesize, *((char*)(data.data()+chunk_size*i)));
+            DEBUG_PRINT("Updating distinct node %u with (%u,%u). Start: %u, Len: %u, End: %u, writesize: %u, %c\n", i, id.node, id.tree, start, len, end, writesize, *((char*)(data.data()+chunk_size*i)));
           } else if(repeat_map.exists(id.node)) {
             NodeID prev = repeat_map.value_at(repeat_map.find(id.node));
-//printf("Found repeat node: %u: (%u,%u)\n", id.node, prev.node, prev.tree);
+            DEBUG_PRINT("Found repeat node: %u: (%u,%u)\n", id.node, prev.node, prev.tree);
             if(prev.tree == current_id) {
               size_t offset = distinct_map.value_at(distinct_map.find(prev));
-if(!distinct_map.valid_at(distinct_map.find(prev)))
-  STDOUT_PRINT("Repeated entry (%u,%u) not in distinct map\n", prev.node, prev.tree);
+              if(!distinct_map.valid_at(distinct_map.find(prev)))
+                DEBUG_PRINT("Repeated entry (%u,%u) not in distinct map\n", prev.node, prev.tree);
               uint32_t start = leftmost_leaf(prev.node, num_nodes);
               uint32_t len = num_leaf_descendents(prev.node, num_nodes);
               uint32_t writesize = chunk_size*len;
               if(datalen <= (start-num_chunks+1)*chunk_size+len*chunk_size)
                 writesize = datalen-(start-num_chunks+1)*chunk_size;
-//              memcpy(data.data()+chunk_size*(i), distinct.data()+offset, writesize); 
               memcpy(data.data()+chunk_size*(i), data_subview.data()+offset, writesize); 
-//STDOUT_PRINT("Updating repeat node %u with (%u,%u). Start: %u, Len: %u, writesize: %u, %c\n", i, id.node, id.tree, start, len, writesize, *((char*)(data.data()+chunk_size*i)));
+              DEBUG_PRINT("Updating repeat node %u with (%u,%u). Start: %u, Len: %u, writesize: %u, %c\n", i, id.node, id.tree, start, len, writesize, *((char*)(data.data()+chunk_size*i)));
             } else {
               node_list(i) = prev;
             }
@@ -936,14 +869,9 @@ if(!distinct_map.valid_at(distinct_map.find(prev)))
       });
     }
     Kokkos::fence();
-//Kokkos::deep_copy(data_h, data);
-//for(uint32_t idx=0; idx<data_h.size()/2; idx++) {
-//  printf("\"%c%c\"", *((char*)(data_h.data()+chunk_size*idx)), *((char*)(data_h.data()+chunk_size*idx+1)));
-//}
-//printf("\n");
   } else {
     // Main checkpoint
-printf("Global checkpoint\n");
+    DEBUG_PRINT("Global checkpoint\n");
     file.open(chkpt_files[file_idx], std::ifstream::in | std::ifstream::binary);
     file.read((char*)(buffer_h.data()), filesize);
     file.close();
@@ -952,30 +880,33 @@ printf("Global checkpoint\n");
     Kokkos::deep_copy(node_list, NodeID());
     uint32_t ref_id = header.ref_id;
     uint32_t cur_id = header.chkpt_id;
-//    size_t prev_repeat_offset = filesize - header.prev_repeat_size*(sizeof(NodeID)+sizeof(uint32_t));
-//    size_t curr_repeat_offset = prev_repeat_offset - header.curr_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
-//    auto curr_repeat   = Kokkos::subview(buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-//    auto prev_repeat   = Kokkos::subview(buffer_d, std::make_pair(prev_repeat_offset, filesize));
-//    auto distinct = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
-//printf("Read file and setup subviews\n");
 
     size_t curr_repeat_offset = sizeof(header_t) + header.distinct_size*sizeof(uint32_t);
-    size_t prev_repeat_offset = curr_repeat_offset + header.curr_repeat_size*2*sizeof(uint32_t);
-    size_t data_offset = prev_repeat_offset + header.prev_repeat_size*(sizeof(uint32_t)+sizeof(NodeID));
+    size_t prev_repeat_offset = header.num_prior_chkpts*2*sizeof(uint32_t) + curr_repeat_offset + header.curr_repeat_size*2*sizeof(uint32_t);
+    size_t data_offset = prev_repeat_offset + header.prev_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
     auto curr_repeat   = Kokkos::subview(buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
     auto prev_repeat   = Kokkos::subview(buffer_d, std::make_pair(prev_repeat_offset, data_offset));
     auto distinct      = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
     auto data_subview  = Kokkos::subview(buffer_d, std::make_pair(data_offset, filesize));
-STDOUT_PRINT("Checkpoint %u\n", header.chkpt_id);
-STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
-STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
-STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
-STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
-STDOUT_PRINT("Data offset: %lu\n", data_offset);
+    STDOUT_PRINT("Checkpoint %u\n", header.chkpt_id);
+    STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
+    STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
+    STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
+    STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
+    STDOUT_PRINT("Data offset: %lu\n", data_offset);
 
-Kokkos::View<uint64_t[1]> counter_d("Write counter");
-auto counter_h = Kokkos::create_mirror_view(counter_d);
-Kokkos::deep_copy(counter_d, 0);
+    uint32_t num_prior_chkpts = header.num_prior_chkpts;
+    DEBUG_PRINT("Num prior checkpoints to read: %u at %lu\n", num_prior_chkpts, curr_repeat_offset);
+//for(uint32_t i=0; i<num_prior_chkpts; i++) {
+//  uint32_t chkpt,size;
+//  memcpy(&chkpt, buffer_h.data()+curr_repeat_offset+i*2*sizeof(uint32_t), sizeof(uint32_t));
+//  memcpy(&size, buffer_h.data()+curr_repeat_offset +i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+//  STDOUT_PRINT("%u: %u, offset %lu\n", chkpt, size, curr_repeat_offset+i*sizeof(uint32_t));
+//}
+
+    Kokkos::View<uint64_t[1]> counter_d("Write counter");
+    auto counter_h = Kokkos::create_mirror_view(counter_d);
+    Kokkos::deep_copy(counter_d, 0);
 
     uint32_t chunk_size = header.chunk_size;
     size_t datalen = header.datalen;
@@ -983,14 +914,16 @@ Kokkos::deep_copy(counter_d, 0);
     uint32_t num_distinct = header.distinct_size;
     Kokkos::View<uint32_t*> distinct_nodes("Nodes", num_distinct);
     Kokkos::View<uint32_t*> chunk_len("Num chunks for node", num_distinct);
+    // Calculate sizes of each distinct region
     Kokkos::parallel_for("Calculate num chunks", Kokkos::RangePolicy<>(0, num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
       uint32_t len = num_leaf_descendents(node, num_nodes);
       distinct_nodes(i) = node;
       chunk_len(i) = len;
-//STDOUT_PRINT("Region %u, node %u with length %u\n", i, node, len);
+      DEBUG_PRINT("Region %u, node %u with length %u\n", i, node, len);
     });
+    // Perform exclusive prefix scan to determine where to write chunks for each region
     Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       const uint32_t len = chunk_len(i);
       if(is_final) chunk_len(i) = partial_sum;
@@ -1001,6 +934,8 @@ Kokkos::deep_copy(counter_d, 0);
 //    STDOUT_PRINT("Index: %u, node: %u, region offset: %u\n", i, distinct_nodes(i), chunk_len(i));
 //  }
 //});
+
+    // Restart distinct entries by reading and inserting full tree into distinct map
     Kokkos::parallel_for("Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node = distinct_nodes(i);
       distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
@@ -1009,133 +944,30 @@ Kokkos::deep_copy(counter_d, 0);
       uint32_t end = start+len-1;
       uint32_t left = 2*node+1;
       uint32_t right = 2*node+2;
-//STDOUT_PRINT("Reading region: (%u,%u) at %lu: %lu with region offset %u\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size, chunk_len(i));
+      DEBUG_PRINT("Reading region: (%u,%u) at %lu: %lu with region offset %u\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size, chunk_len(i));
       while(left < num_nodes) {
         if(right >= num_nodes)
           right = num_nodes;
         for(uint32_t u=left; u<=right; u++) {
           uint32_t leaf = leftmost_leaf(u, num_nodes);
           auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
-          //printf("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
+          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
           if(result.failed())
             printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
         }
         left = 2*left+1;
         right = 2*right+2;
       }
+      // Update chunk metadata list
       for(uint32_t j=0; j<len; j++) {
-        node_list(start-num_chunks+1+j) = NodeID(start-num_chunks+1+j, UINT32_MAX);
+        node_list(start-num_chunks+1+j) = NodeID(start-num_chunks+1+j, cur_id);
       }
       uint32_t datasize = len*chunk_size;
       if(end == num_nodes-1)
         datasize = datalen - (start-num_chunks+1)*chunk_size;
-      DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
+//      DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(data_subview.data()+chunk_len(i)*chunk_size)), chunk_size*(start-num_chunks+1), datasize);
       memcpy(data.data()+chunk_size*(start-num_chunks+1), data_subview.data()+chunk_len(i)*chunk_size, datasize);
     });
-
-//    Kokkos::parallel_for("Restart distinct", Kokkos::RangePolicy<>(0,1), KOKKOS_LAMBDA(const uint32_t index) {
-//      size_t read_offset = 0;
-//      for(uint32_t i=0; i<num_distinct; i++) {
-//        uint32_t node;
-//        memcpy(&node, distinct.data() + read_offset,  sizeof(uint32_t));
-//        distinct_map.insert(NodeID(node,cur_id),  read_offset + sizeof(uint32_t));
-//        uint32_t start = leftmost_leaf(node, num_nodes);
-//        uint32_t len = num_leaf_descendents(node, num_nodes);
-//        uint32_t end = start+len-1;
-////STDOUT_PRINT("Inserting node %u with length %u\n", node, len);
-//        uint32_t left = 2*node+1;
-//        uint32_t right = 2*node+2;
-//        while(left < num_nodes) {
-//          if(right > num_nodes)
-//            right = num_nodes;
-//          for(uint32_t u=left; u<=right; u++) {
-//            uint32_t leaf = leftmost_leaf(u, num_nodes);
-//            auto result = distinct_map.insert(NodeID(u, cur_id), read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//            if(result.failed())
-//              printf("Distinct: Failed to insert (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//          }
-//          left = 2*left+1;
-//          right = 2*right+2;
-//        }
-//        for(uint32_t j=0; j<len; j++) {
-////          node_list(start-num_chunks+1+j) = NodeID(start-num_chunks+1+j, cur_id);
-//          node_list(start-num_chunks+1+j) = NodeID(start+j, cur_id);
-//        }
-//        uint32_t datasize = len*chunk_size;
-//Kokkos::atomic_add(&counter_d(0), datasize);
-//        if(end == num_nodes-1)
-//          datasize = datalen - (start-num_chunks+1)*chunk_size;
-////        STDOUT_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
-//        memcpy(data.data()+chunk_size*(start-num_chunks+1), distinct.data()+read_offset+sizeof(uint32_t), datasize);
-////STDOUT_PRINT("Replacing %u chunks for distinct node %u. %lu to %u (%u bytes)\n", len, node, read_offset+sizeof(uint32_t), chunk_size*(start-num_chunks+1), datasize);
-//        read_offset += sizeof(uint32_t) + chunk_size*len;
-//      }
-//    });
-//Kokkos::parallel_for("Find non leaf entries", Kokkos::RangePolicy<>(0,node_list.size()), KOKKOS_LAMBDA(const uint32_t i) {
-//  if(node_list(i).node < num_chunks-1) {
-//    STDOUT_PRINT("Found non leaf entry %u: (%u,%u)\n", i, node_list(i).node, node_list(i).tree);
-//  }
-//});
-    Kokkos::fence();
-Kokkos::deep_copy(counter_h, counter_d);
-printf("Bytes written for distinct: %lu\n", counter_h(0));
-Kokkos::deep_copy(counter_d, 0);
-    Kokkos::parallel_for("Restart Hashlist current repeat", Kokkos::RangePolicy<>(0, header.curr_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
-      uint32_t node;
-      uint32_t prev;
-      memcpy(&node, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
-      memcpy(&prev, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t), sizeof(uint32_t));
-//STDOUT_PRINT("Current repeat: %u:%u\n", node, prev);
-if(!distinct_map.exists(NodeID(prev, cur_id)))
-STDOUT_PRINT("Couldn't find repeat node %u: (%u,%u)\n", node, prev, cur_id);
-      uint32_t idx = distinct_map.find(NodeID(prev, cur_id));
-      if(!distinct_map.valid_at(idx))
-        STDOUT_PRINT("Main: Failed to find (%u,%u) in distinct map\n", prev, cur_id);
-      size_t offset = distinct_map.value_at(distinct_map.find(NodeID(prev, cur_id)));
-      uint32_t node_start = leftmost_leaf(node, num_nodes);
-      uint32_t prev_start = leftmost_leaf(prev, num_nodes);
-      uint32_t len = num_leaf_descendents(prev, num_nodes);
-      for(uint32_t j=0; j<len; j++) {
-//        node_list(node_start+j-num_chunks+1) = NodeID(prev_start-num_chunks+1+j, cur_id);
-        node_list(node_start+j-num_chunks+1) = NodeID(prev_start+j, cur_id);
-//        STDOUT_PRINT("Entry %u updated: (%u,%u) (current repeat node %u prev %u)\n", node_start-num_chunks+1+j, prev_start+j, cur_id, node, prev);
-      }
-      uint32_t copysize = chunk_size*len;
-Kokkos::atomic_add(&counter_d(0), copysize);
-      if(node_start+len-1 == num_nodes-1)
-        copysize = data.size() - chunk_size*(node_start-num_chunks+1);
-//      memcpy(data.data()+chunk_size*(node_start-num_chunks+1), distinct.data()+offset, copysize);
-      memcpy(data.data()+chunk_size*(node_start-num_chunks+1), data_subview.data()+offset, copysize);
-//STDOUT_PRINT("Replacing %u chunks for current node %u with %u. %lu to %u (%u bytes)\n", len, node, prev, offset, chunk_size*(node_start-num_chunks+1), copysize);
-//      STDOUT_PRINT("Duplicated (%u) %c%c to %u (offset %lu)\n", node_start-num_chunks+1, *((char*)(distinct.data()+offset)), *((char*)(distinct.data()+offset+1)),  (node_start-num_chunks+1)*chunk_size, offset);
-    });
-    Kokkos::fence();
-Kokkos::deep_copy(counter_h, counter_d);
-printf("Bytes written for current repeats: %lu\n", counter_h(0));
-Kokkos::deep_copy(counter_d, 0);
-    Kokkos::parallel_for("Restart Hashlist previous repeat", Kokkos::RangePolicy<>(0, header.prev_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
-      uint32_t node;
-      NodeID prev;
-      memcpy(&node, prev_repeat.data()+i*(sizeof(uint32_t)+sizeof(NodeID)), sizeof(uint32_t));
-      memcpy(&prev, prev_repeat.data()+i*(sizeof(uint32_t)+sizeof(NodeID)) +sizeof(uint32_t), sizeof(NodeID));
-//      STDOUT_PRINT("Node: %u, Prev: (%u,%u)\n", node, prev.node, prev.tree);
-      uint32_t node_start = leftmost_leaf(node, num_nodes);
-      uint32_t prev_start = leftmost_leaf(prev.node, num_nodes);
-      uint32_t len = num_leaf_descendents(prev.node, num_nodes);
-      for(uint32_t j=0; j<len; j++) {
-        node_list(node_start-num_chunks+1+j) = NodeID(prev_start+j, prev.tree);
-if(prev.tree > 9)
-  STDOUT_PRINT("Restart Prior repeat (main): Problematic entry for checkpoint %u. Chunk %u: (%u,%u)\n", cur_id, node_start-num_chunks+1+j, prev_start+j, prev.tree);
-//        STDOUT_PRINT("Entry %u updated: (%u,%u) (previous repeat node %u, prev %u)\n", node_start-num_chunks+1, prev_start+j, ref_id, node, prev.node);
-      }
-    });
-    Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-      NodeID entry = node_list(i);
-      if(entry.node == UINT_MAX) {
-        node_list(i) = NodeID(i+num_chunks-1, cur_id-1);
-      }
-    });
-    Kokkos::fence();
 //auto node_list_h = Kokkos::create_mirror_view(node_list);
 //Kokkos::deep_copy(node_list_h, node_list);
 //for(uint32_t i=0; i<node_list_h.size(); i++) {
@@ -1143,15 +975,103 @@ if(prev.tree > 9)
 //}
 //auto data_h = Kokkos::create_mirror_view(data);
 //Kokkos::deep_copy(data_h, data);
-//for(uint32_t i=0; i<data_h.size(); i++) {
+//for(uint32_t i=0; i<data_h.size(); i+=2) {
 //  if(node_list_h(i).tree == cur_id) {
-//    printf("%c", *((char*)(data_h.data()+i)));
+//    printf("%c%c|", *((char*)(data_h.data()+i)), *((char*)(data_h.data()+i+1)));
 //  } else {
-//    printf("\"*\"");
+//    printf("**|");
 //  }
 //}
 //printf("\n");
-STDOUT_PRINT("Post main pre history\n");
+//STDOUT_PRINT("Post main pre history\n");
+//Kokkos::parallel_for("Find non leaf entries", Kokkos::RangePolicy<>(0,node_list.size()), KOKKOS_LAMBDA(const uint32_t i) {
+//  if(node_list(i).node < num_chunks-1) {
+//    STDOUT_PRINT("Found non leaf entry %u: (%u,%u)\n", i, node_list(i).node, node_list(i).tree);
+//  }
+//});
+
+//    Kokkos::deep_copy(counter_h, counter_d);
+//    DEBUG_PRINT("Bytes written for distinct: %lu\n", counter_h(0));
+//    Kokkos::deep_copy(counter_d, 0);
+
+    Kokkos::View<uint32_t*> repeat_region_sizes("Repeat entires per chkpt", cur_id+1);
+    // Read map of repeats for each checkpoint
+    Kokkos::parallel_for("Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+      uint32_t chkpt;
+      memcpy(&chkpt, buffer_d.data()+curr_repeat_offset+i*2*sizeof(uint32_t), sizeof(uint32_t));
+      memcpy(&repeat_region_sizes(chkpt), buffer_d.data()+curr_repeat_offset+i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+      DEBUG_PRINT("Chkpt: %u, region size: %u\n", chkpt, repeat_region_sizes(chkpt));
+    });
+    // Perform exclusive scan to determine where regions start/stop
+    Kokkos::parallel_scan("Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+      partial_sum += repeat_region_sizes(i);
+      if(is_final) repeat_region_sizes(i) = partial_sum;
+    });
+
+//Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+//  STDOUT_PRINT("Checkpoint %u: end offset %u\n", i, repeat_region_sizes(i));
+//});
+//Kokkos::fence();
+
+    DEBUG_PRINT("Num repeats: %u\n", header.curr_repeat_size+header.prev_repeat_size);
+    // Load repeat entries and fill in metadata for chunks
+    Kokkos::parallel_for("Restart Hash tree repeats", Kokkos::RangePolicy<>(0, header.curr_repeat_size+header.prev_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
+      uint32_t node;
+      uint32_t prev;
+      uint32_t tree = 0;
+      memcpy(&node, curr_repeat.data()+(num_prior_chkpts)*2*sizeof(uint32_t)+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
+      memcpy(&prev, curr_repeat.data()+(num_prior_chkpts)*2*sizeof(uint32_t)+i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t), sizeof(uint32_t));
+      // Determine ID 
+      for(uint32_t j=repeat_region_sizes.size()-1; j>=0 && j<repeat_region_sizes.size(); j--) {
+        if(i < repeat_region_sizes(j)) {
+          tree = j;
+        }
+      }
+      uint32_t idx = distinct_map.find(NodeID(prev, tree));
+      size_t offset = distinct_map.value_at(distinct_map.find(NodeID(prev, tree)));
+      uint32_t node_start = leftmost_leaf(node, num_nodes);
+      uint32_t prev_start = leftmost_leaf(prev, num_nodes);
+      uint32_t len = num_leaf_descendents(prev, num_nodes);
+      for(uint32_t j=0; j<len; j++) {
+        node_list(node_start+j-num_chunks+1) = NodeID(prev_start+j, tree);
+      }
+      if(tree == cur_id) {
+        uint32_t copysize = chunk_size*len;
+        if(node_start+len-1 == num_nodes-1)
+          copysize = data.size() - chunk_size*(node_start-num_chunks+1);
+        memcpy(data.data()+chunk_size*(node_start-num_chunks+1), data_subview.data()+offset, copysize);
+//DEBUG_PRINT("Replacing %u chunks for current node %u with %u. %lu to %u (%u bytes)\n", len, node, prev, offset, chunk_size*(node_start-num_chunks+1), copysize);
+//      DEBUG_PRINT("Duplicated (%u) %c%c to %u (offset %lu)\n", node_start-num_chunks+1, *((char*)(distinct.data()+offset)), *((char*)(distinct.data()+offset+1)),  (node_start-num_chunks+1)*chunk_size, offset);
+      }
+    });
+//Kokkos::fence();
+//DEBUG_PRINT("Finished loading repeats\n");
+
+    // All remaining entries are identical 
+    Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+      NodeID entry = node_list(i);
+      if(entry.node == UINT_MAX) {
+        node_list(i) = NodeID(i+num_chunks-1, cur_id-1);
+      }
+    });
+    Kokkos::fence();
+
+//auto node_list_h = Kokkos::create_mirror_view(node_list);
+//Kokkos::deep_copy(node_list_h, node_list);
+//for(uint32_t i=0; i<node_list_h.size(); i++) {
+//  printf("Node %u: (%u,%u)\n", i, node_list_h(i).node, node_list_h(i).tree);
+//}
+////auto data_h = Kokkos::create_mirror_view(data);
+//Kokkos::deep_copy(data_h, data);
+//for(uint32_t i=0; i<data_h.size(); i+=2) {
+//  if(node_list_h(i).tree == cur_id) {
+//    printf("%c%c|", *((char*)(data_h.data()+i)), *((char*)(data_h.data()+i+1)));
+//  } else {
+//    printf("**|");
+//  }
+//}
+//printf("\n");
+//STDOUT_PRINT("Post main pre history\n");
 //Kokkos::parallel_for("Find non missing entries", Kokkos::RangePolicy<>(0,node_list.size()), KOKKOS_LAMBDA(const uint32_t i) {
 //  if(node_list(i).tree < UINT32_MAX-1 && node_list(i).tree > 9) {
 //    STDOUT_PRINT("Found skipped entry %u: (%u,%u)\n", i, node_list(i).node, node_list(i).tree);
@@ -1159,7 +1079,7 @@ STDOUT_PRINT("Post main pre history\n");
 //});
 
     for(int idx=static_cast<int>(file_idx)-1; idx>static_cast<int>(ref_id); idx--) {
-      printf("Processing checkpoint %u\n", idx);
+      STDOUT_PRINT("Processing checkpoint %u\n", idx);
       file.open(chkpt_files[idx], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
       size_t chkpt_size = file.tellg();
       STDOUT_PRINT("Checkpoint size: %zd\n", chkpt_size);
@@ -1181,149 +1101,123 @@ STDOUT_PRINT("Post main pre history\n");
       STDOUT_PRINT("Num distinct: %u\n", chkpt_header.distinct_size);
       STDOUT_PRINT("Num current: %u\n", chkpt_header.curr_repeat_size);
       STDOUT_PRINT("Num previous: %u\n", chkpt_header.prev_repeat_size);
-//      prev_repeat_offset = chkpt_size - chkpt_header.prev_repeat_size*(sizeof(uint32_t)+sizeof(NodeID));
-//      curr_repeat_offset = prev_repeat_offset - chkpt_header.curr_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
-//      curr_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-//      prev_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(prev_repeat_offset, chkpt_size));
-//      distinct = Kokkos::subview(chkpt_buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
       num_distinct = chkpt_header.distinct_size;
-      
+
       distinct_map.clear();
       distinct_map.rehash(num_nodes);
-//      Kokkos::UnorderedMap<uint32_t, NodeID> repeat_map(chkpt_header.curr_repeat_size + chkpt_header.prev_repeat_size);
       Kokkos::UnorderedMap<uint32_t, NodeID> repeat_map(2*num_nodes-1);
 
-    curr_repeat_offset = sizeof(header_t) + chkpt_header.distinct_size*sizeof(uint32_t);
-    prev_repeat_offset = curr_repeat_offset + chkpt_header.curr_repeat_size*2*sizeof(uint32_t);
-    data_offset = prev_repeat_offset + chkpt_header.prev_repeat_size*(sizeof(uint32_t)+sizeof(NodeID));
-    curr_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-    prev_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(prev_repeat_offset, data_offset));
-    distinct      = Kokkos::subview(chkpt_buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
-    data_subview  = Kokkos::subview(chkpt_buffer_d, std::make_pair(data_offset, filesize));
-    STDOUT_PRINT("Checkpoint %u\n", chkpt_header.chkpt_id);
-    STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
-    STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
-    STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
-    STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
-    STDOUT_PRINT("Data offset: %lu\n", data_offset);
+      curr_repeat_offset = sizeof(header_t) + chkpt_header.distinct_size*sizeof(uint32_t);
+      prev_repeat_offset = chkpt_header.num_prior_chkpts*2*sizeof(uint32_t) + curr_repeat_offset + chkpt_header.curr_repeat_size*2*sizeof(uint32_t);
+      data_offset = prev_repeat_offset + chkpt_header.prev_repeat_size*(sizeof(uint32_t)+sizeof(uint32_t));
+      curr_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
+      prev_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(prev_repeat_offset, data_offset));
+      distinct      = Kokkos::subview(chkpt_buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
+      data_subview  = Kokkos::subview(chkpt_buffer_d, std::make_pair(data_offset, filesize));
+      STDOUT_PRINT("Checkpoint %u\n", chkpt_header.chkpt_id);
+      STDOUT_PRINT("Checkpoint size: %lu\n", filesize);
+      STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
+      STDOUT_PRINT("Curr repeat offset: %lu\n", curr_repeat_offset);
+      STDOUT_PRINT("Prev repeat offset: %lu\n", prev_repeat_offset);
+      STDOUT_PRINT("Data offset: %lu\n", data_offset);
 
-    Kokkos::View<uint64_t[1]> counter_d("Write counter");
-    auto counter_h = Kokkos::create_mirror_view(counter_d);
-    Kokkos::deep_copy(counter_d, 0);
-
-    Kokkos::resize(distinct_nodes, num_distinct);
-    Kokkos::resize(chunk_len, num_distinct);
-    Kokkos::parallel_for("Calculate num chunks", Kokkos::RangePolicy<>(0, num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
-      uint32_t node;
-      memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
-      uint32_t len = num_leaf_descendents(node, num_nodes);
-      distinct_nodes(i) = node;
-      chunk_len(i) = len;
-//STDOUT_PRINT("Region %u, node %u with length %u\n", i, node, len);
-    });
-    Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
-      const uint32_t len = chunk_len(i);
-      if(is_final) chunk_len(i) = partial_sum;
-      partial_sum += len;
-    });
-    Kokkos::parallel_for("Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
-      uint32_t node = distinct_nodes(i);
-      distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
-      uint32_t start = leftmost_leaf(node, num_nodes);
-      uint32_t len = num_leaf_descendents(node, num_nodes);
-      uint32_t end = start+len-1;
-      uint32_t left = 2*node+1;
-      uint32_t right = 2*node+2;
-//STDOUT_PRINT("Reading region: (%u,%u) at %lu: %lu with region offset %u\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size, chunk_len(i));
-      while(left < num_nodes) {
-        if(right >= num_nodes)
-          right = num_nodes;
-        for(uint32_t u=left; u<=right; u++) {
-          uint32_t leaf = leftmost_leaf(u, num_nodes);
-          auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
-          //printf("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-          if(result.failed())
-            printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
-        }
-        left = 2*left+1;
-        right = 2*right+2;
-      }
-//      for(uint32_t j=0; j<len; j++) {
-//        node_list(start-num_chunks+1+j) = NodeID(start-num_chunks+1+j, UINT32_MAX);
-//      }
-//      uint32_t datasize = len*chunk_size;
-//      if(end == num_nodes-1)
-//        datasize = datalen - (start-num_chunks+1)*chunk_size;
-//      DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
-//      memcpy(data.data()+chunk_size*(start-num_chunks+1), data_subview.data()+chunk_len(i)*chunk_size, datasize);
-    });
-//      Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0,1), KOKKOS_LAMBDA(const uint32_t index) {
-//        size_t read_offset = 0;
-//        for(uint32_t i=0; i<num_distinct; i++) {
-//          uint32_t node;
-//          memcpy(&node, distinct.data() + read_offset,  sizeof(uint32_t));
-//          uint32_t start = leftmost_leaf(node, num_nodes);
-//          uint32_t len = num_leaf_descendents(node, num_nodes);
-//          uint32_t end = rightmost_leaf(node, num_nodes);
-//          uint32_t left = 2*node+1;
-//          uint32_t right = 2*node+2;
-//          distinct_map.insert(NodeID(node,cur_id),  read_offset + sizeof(uint32_t));
-////STDOUT_PRINT("Found distinct node %u with length %u\n", node, len);
-//          while(left < num_nodes) {
-//            if(right >= num_nodes)
-//              right = num_nodes;
-//            for(uint32_t u=left; u<=right; u++) {
-//              uint32_t leaf = leftmost_leaf(u, num_nodes);
-//              auto result = distinct_map.insert(NodeID(u, cur_id), read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//              if(result.failed())
-//                printf("Failed to insert (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
-//            }
-//            left = 2*left+1;
-//            right = 2*right+2;
-//          }
-//          read_offset += sizeof(uint32_t) + chunk_size*len;
-//        }
-//      });
-      Kokkos::parallel_for("Fill current repeat map", Kokkos::RangePolicy<>(0, chkpt_header.curr_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
+      uint32_t num_prior_chkpts = chkpt_header.num_prior_chkpts;
+//DEBUG_PRINT("Num prior checkpoints to read: %u at %lu\n", num_prior_chkpts, curr_repeat_offset);
+//for(uint32_t i=0; i<num_prior_chkpts; i++) {
+//  uint32_t chkpt,size;
+//  memcpy(&chkpt, chkpt_buffer_h.data()+curr_repeat_offset+i*2*sizeof(uint32_t), sizeof(uint32_t));
+//  memcpy(&size, chkpt_buffer_h.data()+curr_repeat_offset +i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+//  STDOUT_PRINT("%u: %u, offset %lu\n", chkpt, size, curr_repeat_offset+i*sizeof(uint32_t));
+//}
+      
+      Kokkos::View<uint64_t[1]> counter_d("Write counter");
+      auto counter_h = Kokkos::create_mirror_view(counter_d);
+      Kokkos::deep_copy(counter_d, 0);
+  
+      Kokkos::resize(distinct_nodes, num_distinct);
+      Kokkos::resize(chunk_len, num_distinct);
+      Kokkos::parallel_for("Calculate num chunks", Kokkos::RangePolicy<>(0, num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
         uint32_t node;
-        uint32_t prev;
-        memcpy(&node, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
-        memcpy(&prev, curr_repeat.data()+i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t), sizeof(uint32_t));
-        auto result = repeat_map.insert(node, NodeID(prev, cur_id));
+        memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
+        uint32_t len = num_leaf_descendents(node, num_nodes);
+        distinct_nodes(i) = node;
+        chunk_len(i) = len;
+      });
+      Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+        const uint32_t len = chunk_len(i);
+        if(is_final) chunk_len(i) = partial_sum;
+        partial_sum += len;
+      });
+//Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t idx) {
+//  for(uint32_t i=0; i<num_distinct; i++) {
+//    STDOUT_PRINT("Index: %u, node: %u, region offset: %u\n", i, distinct_nodes(i), chunk_len(i));
+//  }
+//});
+      Kokkos::parallel_for("Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
+        uint32_t node = distinct_nodes(i);
+        distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
+        uint32_t start = leftmost_leaf(node, num_nodes);
+        uint32_t len = num_leaf_descendents(node, num_nodes);
+        uint32_t end = start+len-1;
+        uint32_t left = 2*node+1;
+        uint32_t right = 2*node+2;
+        DEBUG_PRINT("Reading region: (%u,%u) at %lu: %lu with region offset %u\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size, chunk_len(i));
+        while(left < num_nodes) {
+          if(right >= num_nodes)
+            right = num_nodes;
+          for(uint32_t u=left; u<=right; u++) {
+            uint32_t leaf = leftmost_leaf(u, num_nodes);
+            auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
+            //printf("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
+            if(result.failed())
+              printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
+          }
+          left = 2*left+1;
+          right = 2*right+2;
+        }
+      });
+  
+      Kokkos::View<uint32_t*> repeat_region_sizes("Repeat entires per chkpt", cur_id+1);
+      Kokkos::parallel_for("Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+        uint32_t chkpt;
+        memcpy(&chkpt, chkpt_buffer_d.data()+curr_repeat_offset+i*2*sizeof(uint32_t), sizeof(uint32_t));
+        memcpy(&repeat_region_sizes(chkpt), chkpt_buffer_d.data()+curr_repeat_offset+i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+        DEBUG_PRINT("Chkpt: %u, region size: %u\n", chkpt, repeat_region_sizes(chkpt));
+      });
+      Kokkos::parallel_scan("Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+        partial_sum += repeat_region_sizes(i);
+        if(is_final) repeat_region_sizes(i) = partial_sum;
+      });
+
+//Kokkos::fence();
+//Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+//  STDOUT_PRINT("Checkpoint %u: end offset %u\n", i, repeat_region_sizes(i));
+//});
+//Kokkos::fence();
+
+      DEBUG_PRINT("Num repeats: %u\n", chkpt_header.curr_repeat_size+chkpt_header.prev_repeat_size);
+  
+      uint32_t num_repeat_entries = chkpt_header.curr_repeat_size + chkpt_header.prev_repeat_size;
+      Kokkos::parallel_for("Restart Hash tree repeats", Kokkos::RangePolicy<>(0, num_repeat_entries), KOKKOS_LAMBDA(const uint32_t i) {
+        uint32_t node, prev, tree = 0;
+        memcpy(&node, curr_repeat.data()+(num_prior_chkpts)*2*sizeof(uint32_t)+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
+        memcpy(&prev, curr_repeat.data()+(num_prior_chkpts)*2*sizeof(uint32_t)+i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t), sizeof(uint32_t));
+        for(uint32_t j=repeat_region_sizes.size()-1; j>=0 && j<repeat_region_sizes.size(); j--) {
+          if(i < repeat_region_sizes(j)) {
+            tree = j;
+          }
+        }
+        auto result = repeat_map.insert(node, NodeID(prev,tree));
+        if(result.failed())
+          STDOUT_PRINT("Failed to insert previous repeat %u: (%u,%u) into repeat map\n", node, prev, tree);
         uint32_t curr_start = leftmost_leaf(node, num_nodes);
         uint32_t prev_start = leftmost_leaf(prev, num_nodes);
         uint32_t len = num_leaf_descendents(node, num_nodes);
         for(uint32_t u=0; u<len; u++) {
-          repeat_map.insert(curr_start+u, NodeID(prev_start+u, cur_id));
+          repeat_map.insert(curr_start+u, NodeID(prev_start+u, tree));
         }
-//        uint32_t left = 2*node+1;
-//        uint32_t right = 2*node+2;
-//        while(left < num_nodes) {
-//          if(right >= num_nodes)
-//            right = num_nodes;
-//          for(uint32_t u=left; u<=right; u++) {
-//          }
-//        }
-        if(result.failed())
-          STDOUT_PRINT("Failed to insert current repeat %u: (%u,%u) into repeat map\n", node, prev, cur_id);
-//STDOUT_PRINT("Found current repeat %u: (%u,%u)\n", node, prev, cur_id);
       });
-      Kokkos::parallel_for("Fill previous repeat map", Kokkos::RangePolicy<>(0, chkpt_header.prev_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
-        uint32_t node;
-        NodeID prev;
-        memcpy(&node, prev_repeat.data()+i*(sizeof(uint32_t)+sizeof(NodeID)), sizeof(uint32_t));
-        memcpy(&prev, prev_repeat.data()+i*(sizeof(uint32_t)+sizeof(NodeID))+sizeof(uint32_t), sizeof(NodeID));
-        auto result = repeat_map.insert(node, prev);
-        if(result.failed())
-          STDOUT_PRINT("Failed to insert previous repeat %u: (%u,%u) into repeat map\n", node, prev.node, prev.tree);
-        uint32_t curr_start = leftmost_leaf(node, num_nodes);
-        uint32_t prev_start = leftmost_leaf(prev.node, num_nodes);
-        uint32_t len = num_leaf_descendents(node, num_nodes);
-        for(uint32_t u=0; u<len; u++) {
-          repeat_map.insert(curr_start+u, NodeID(prev_start+u, prev.tree));
-        }
-//STDOUT_PRINT("Found prior repeat %u: (%u,%u)\n", node, prev.node, prev.tree);
-      });
+
       Kokkos::parallel_for("Fill data", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
         if(node_list(i).tree == current_id) {
           NodeID id = node_list(i);
@@ -1335,59 +1229,43 @@ STDOUT_PRINT("Post main pre history\n");
             uint32_t writesize = chunk_size;
             if(i*chunk_size+writesize > datalen) 
               writesize = datalen-i*chunk_size;
-//            memcpy(data.data()+chunk_size*i, distinct.data()+offset, writesize);
             memcpy(data.data()+chunk_size*i, data_subview.data()+offset, writesize);
 Kokkos::atomic_add(&counter_d(0), writesize);
           } else if(repeat_map.exists(id.node)) {
             NodeID prev = repeat_map.value_at(repeat_map.find(id.node));
-//printf("Repaeat value: %u: (%u,%u)\n", id.node, prev.node, prev.tree);
+            DEBUG_PRINT("Repaeat value: %u: (%u,%u)\n", id.node, prev.node, prev.tree);
             if(prev.tree == current_id) {
-if(!repeat_map.exists(id.node))
-printf("Failed to find repeat chunk %u\n", id.node);
+              if(!repeat_map.exists(id.node))
+                printf("Failed to find repeat chunk %u\n", id.node);
               size_t offset = distinct_map.value_at(distinct_map.find(prev));
               uint32_t len = num_leaf_descendents(prev.node, num_nodes);
               uint32_t start = leftmost_leaf(prev.node, num_nodes);
               uint32_t writesize = chunk_size;
               if(i*chunk_size+writesize > datalen) 
                 writesize = datalen-i*chunk_size;
-//              memcpy(data.data()+chunk_size*i, distinct.data()+offset, writesize);
               memcpy(data.data()+chunk_size*i, data_subview.data()+offset, writesize);
-Kokkos::atomic_add(&counter_d(0), writesize);
-//node_list(i) = NodeID(id.node, UINT32_MAX-1);
-//              uint32_t writesize = chunk_size*len;
-//Kokkos::atomic_add(&counter_d(0), writesize);
-//              if((start+len-1-num_chunks+1)*chunk_size >= datalen)
-//                writesize = datalen-(start-num_chunks+1)*chunk_size;
-//              memcpy(data.data()+chunk_size*i, distinct.data()+offset, writesize); 
+              Kokkos::atomic_add(&counter_d(0), writesize);
             } else {
               node_list(i) = prev;
-if(node_list(i).tree > 9 && node_list(i).tree < UINT32_MAX)
-  STDOUT_PRINT("Restart Prior repeat (main): Problematic entry for checkpoint %u. Chunk %u: (%u,%u) (update prior) \n", cur_id, i, node_list(i).node, node_list(i).tree);
             }
           } else {
             node_list(i) = NodeID(node_list(i).node, current_id-1);
-if(node_list(i).tree > 9 && node_list(i).tree < UINT32_MAX)
-  STDOUT_PRINT("Restart Prior repeat (main): Problematic entry for checkpoint %u. Chunk %u: (%u,%u) (update identical)\n", cur_id, i, node_list(i).node, node_list(i).tree);
           }
-        } else if(node_list(i).tree > 9 && node_list(i).tree < UINT32_MAX-1) {
-  STDOUT_PRINT("Restart Prior repeat (main): Problematic entry for checkpoint %u. Chunk %u: (%u,%u)\n", cur_id, i, node_list(i).node, node_list(i).tree);
         }
       });
-    Kokkos::fence();
-Kokkos::deep_copy(counter_h, counter_d);
-printf("Bytes written for checkpoint %u: %lu\n", cur_id, counter_h(0));
-Kokkos::deep_copy(counter_d, 0);
+//Kokkos::deep_copy(counter_h, counter_d);
+//DEBUG_PRINT("Bytes written for checkpoint %u: %lu\n", cur_id, counter_h(0));
+//Kokkos::deep_copy(counter_d, 0);
+//Kokkos::deep_copy(node_list_h, node_list);
+//for(uint32_t i=0; i<node_list_h.size(); i++) {
+//  printf("Node %u: (%u,%u)\n", i, node_list_h(i).node, node_list_h(i).tree);
+//}
 //Kokkos::deep_copy(node_list_h, node_list);
 //for(uint32_t i=0; i<node_list_h.size(); i++) {
 //  printf("Node %u: (%u,%u)\n", i, node_list_h(i).node, node_list_h(i).tree);
 //}
     }
-STDOUT_PRINT("Post history pre baseline\n");
-//Kokkos::parallel_for("Find non missing entries", Kokkos::RangePolicy<>(0,node_list.size()), KOKKOS_LAMBDA(const uint32_t i) {
-//  if(node_list(i).tree != UINT32_MAX-1 && node_list(i).tree > 9) {
-//    STDOUT_PRINT("Found skipped entry %u: (%u,%u)\n", i, node_list(i).node, node_list(i).tree);
-//  }
-//});
+//DEBUG_PRINT("Post history pre baseline\n");
 
     // Reference
     file.open(chkpt_files[header.ref_id], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
@@ -1405,11 +1283,6 @@ STDOUT_PRINT("Post history pre baseline\n");
     Kokkos::deep_copy(chkpt_buffer_d, chkpt_buffer_h);
     ref_id = chkpt_header.ref_id;
     cur_id = chkpt_header.chkpt_id;
-//    prev_repeat_offset = chkpt_size - chkpt_header.prev_repeat_size*(2*sizeof(uint32_t));
-//    curr_repeat_offset = prev_repeat_offset - chkpt_header.curr_repeat_size*(2*sizeof(uint32_t));
-//    curr_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(curr_repeat_offset, prev_repeat_offset));
-//    prev_repeat   = Kokkos::subview(chkpt_buffer_d, std::make_pair(prev_repeat_offset, chkpt_size));
-//    distinct = Kokkos::subview(chkpt_buffer_d, std::make_pair(sizeof(header_t), curr_repeat_offset));
 
     curr_repeat_offset = sizeof(header_t) + chkpt_header.distinct_size*sizeof(uint32_t);
     prev_repeat_offset = curr_repeat_offset + chkpt_header.curr_repeat_size*2*sizeof(uint32_t);
@@ -1448,17 +1321,9 @@ STDOUT_PRINT("Post history pre baseline\n");
     Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node = distinct_nodes(i);
       distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
-//STDOUT_PRINT("Reading region: (%u,%u) at %lu: %lu\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size);
+      DEBUG_PRINT("Reading region: (%u,%u) at %lu: %lu\n", node, cur_id, i*sizeof(uint32_t), data_offset+chunk_len(i)*chunk_size);
     });
 
-//    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.distinct_size), KOKKOS_LAMBDA(const uint32_t i) {
-//      uint32_t node;
-//      memcpy(&node, distinct.data()+i*(sizeof(uint32_t)+chunk_size), sizeof(uint32_t));
-//      auto result = distinct_map.insert(NodeID(node, current_id), i*(sizeof(uint32_t)+chunk_size)+sizeof(uint32_t));
-//      if(result.failed())
-//        STDOUT_PRINT("Reference: Failed to insert distinct node (%u,%u): %lu\n", node, cur_id, i*(sizeof(uint32_t)+chunk_size)+sizeof(uint32_t));
-////STDOUT_PRINT("Reference: Inserted distinct node (%u,%u): %lu\n", node, current_id, i*(sizeof(uint32_t)+chunk_size)+sizeof(uint32_t));
-//    });
     uint32_t num_repeat = chkpt_header.curr_repeat_size + chkpt_header.prev_repeat_size;
     Kokkos::parallel_for("Fill repeat map", Kokkos::RangePolicy<>(0, num_repeat), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
@@ -1468,7 +1333,7 @@ STDOUT_PRINT("Post history pre baseline\n");
       auto result = repeat_map.insert(node, NodeID(prev, ref_id));
       if(result.failed())
         STDOUT_PRINT("Reference: Failed to insert repeat node %u: (%u,%u)\n", node, prev, ref_id);
-//STDOUT_PRINT("Reference: Inserted repeat node %u: (%u,%u): %lu\n", node, prev, ref_id, i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t));
+      DEBUG_PRINT("Reference: Inserted repeat node %u: (%u,%u): %lu\n", node, prev, ref_id, i*(sizeof(uint32_t)+sizeof(uint32_t))+sizeof(uint32_t));
     });
     Kokkos::parallel_for("Fill data", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
       if(node_list(i).tree == current_id) {
@@ -1478,13 +1343,10 @@ STDOUT_PRINT("Post history pre baseline\n");
           uint32_t start = leftmost_leaf(id.node, num_nodes);
           size_t offset = distinct_map.value_at(distinct_map.find(id));
           uint32_t writesize = chunk_size*len;
-Kokkos::atomic_add(&counter_d(0), writesize);
+          Kokkos::atomic_add(&counter_d(0), writesize);
           if((start+len-1-num_chunks+1)*chunk_size >= datalen)
             writesize = datalen-(start-num_chunks+1)*chunk_size;
-//          memcpy(data.data()+chunk_size*i, distinct.data()+offset, writesize);
           memcpy(data.data()+chunk_size*i, data_subview.data()+offset, writesize);
-//node_list(i) = NodeID(id.node, UINT32_MAX-1);
-//STDOUT_PRINT("Copied distinct %u (%c) to chunk %u. %lu to %u (%u bytes)\n", id.node, *((char*)(distinct.data()+offset)), i, offset, chunk_size*i, writesize);
         } else if(repeat_map.exists(id.node)) {
           NodeID prev = repeat_map.value_at(repeat_map.find(id.node));
           if(prev.tree == current_id) {
@@ -1493,14 +1355,11 @@ Kokkos::atomic_add(&counter_d(0), writesize);
             uint32_t len = num_leaf_descendents(prev.node, num_nodes);
             uint32_t start = leftmost_leaf(prev.node, num_nodes);
             uint32_t writesize = chunk_size*len;
-Kokkos::atomic_add(&counter_d(0), writesize);
+            Kokkos::atomic_add(&counter_d(0), writesize);
             if((start+len-1-num_chunks+1)*chunk_size >= datalen)
               writesize = datalen-(start-num_chunks+1)*chunk_size;
 
-//            memcpy(data.data()+chunk_size*i, distinct.data()+offset, writesize); 
             memcpy(data.data()+chunk_size*i, data_subview.data()+offset, writesize); 
-//node_list(i) = NodeID(id.node, UINT32_MAX-1);
-//STDOUT_PRINT("Copied repeat %u,%u (%c) to chunk %u. %lu to %u (%u bytes)\n", id.node, prev.node, *((char*)(distinct.data()+offset)), i, offset, i*chunk_size, writesize);
           } else {
             node_list(i) = prev;
           }
@@ -1509,10 +1368,10 @@ Kokkos::atomic_add(&counter_d(0), writesize);
         }
       }
     });
-    Kokkos::fence();
-Kokkos::deep_copy(counter_h, counter_d);
-printf("Bytes written for checkpoint %u: %lu\n", cur_id, counter_h(0));
-Kokkos::deep_copy(counter_d, 0);
+//    Kokkos::fence();
+//Kokkos::deep_copy(counter_h, counter_d);
+//DEBUG_PRINT("Bytes written for checkpoint %u: %lu\n", cur_id, counter_h(0));
+//Kokkos::deep_copy(counter_d, 0);
 //Kokkos::parallel_for("Find non missing entries", Kokkos::RangePolicy<>(0,node_list.size()), KOKKOS_LAMBDA(const uint32_t i) {
 //  if(node_list(i).tree != UINT32_MAX-1) {
 //    STDOUT_PRINT("Found skipped entry %u: (%u,%u)\n", i, node_list(i).node, node_list(i).tree);
@@ -1526,7 +1385,7 @@ Kokkos::deep_copy(counter_d, 0);
 //STDOUT_PRINT("\n");
   }
   Kokkos::fence();
-  STDOUT_PRINT("Restarted checkpoint\n");
+  DEBUG_PRINT("Restarted checkpoint\n");
   return 0;
 }
 
@@ -2041,17 +1900,22 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_data_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);
-  STDOUT_PRINT("Setup Views\n");
 
   Kokkos::View<uint32_t[1]> max_reg("Max region size");
   Kokkos::View<uint32_t[1]>::HostMirror max_reg_h = Kokkos::create_mirror_view(max_reg);
-  max_reg_h(0) = 0;
   Kokkos::View<uint32_t*> region_nodes("Region Nodes", distinct.size());
   Kokkos::View<uint32_t*> region_len("Region lengths", distinct.size());
   Kokkos::View<uint32_t[1]> counter_d("Counter");
   Kokkos::View<uint32_t[1]>::HostMirror counter_h = Kokkos::create_mirror_view(counter_d);
   Kokkos::deep_copy(counter_d, 0);
-  Kokkos::deep_copy(max_reg, max_reg_h);
+  Kokkos::deep_copy(max_reg, 0);
+  Kokkos::View<uint64_t*> prior_counter_d("Counter for prior repeats", chkpt_id+1);
+  Kokkos::View<uint64_t*>::HostMirror prior_counter_h = Kokkos::create_mirror_view(prior_counter_d);
+  Kokkos::deep_copy(prior_counter_d, 0);
+  Kokkos::Experimental::ScatterView<uint64_t*> prior_counter_sv(prior_counter_d);
+
+  // Filter and count space used for distinct entries
+  // Calculate number of chunks each entry maps to
   Kokkos::parallel_for("Count distinct bytes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(distinct.valid_at(i)) {
       uint32_t node = distinct.key_at(i);
@@ -2062,50 +1926,69 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
         Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t) + size*chunk_size);
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_max(&max_reg(0), size);
-
         uint32_t idx = Kokkos::atomic_fetch_add(&counter_d(0), 1);
         region_nodes(idx) = node;
         region_len(idx) = size;
       } else {
-        printf("Distinct node with differint node/tree. Shouldn't happen.\n");
+        printf("Distinct node with different node/tree. Shouldn't happen.\n");
       }
     }
   });
+  // Small bitset to record which checkpoints are necessary for restart
+  Kokkos::Bitset<Kokkos::DefaultExecutionSpace> chkpts_needed(chkpt_id+1);
+  chkpts_needed.reset();
+  // Calculate space needed for repeat entries and number of entries per checkpoint
   Kokkos::parallel_for("Count repeat bytes", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t node = shared.key_at(i);
       NodeID prev = shared.value_at(i);
+      auto prior_counter_sa = prior_counter_sv.access();
       if(prev.tree == chkpt_id) {
         Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
         Kokkos::atomic_add(&num_curr_repeat_d(0), 1);
+        prior_counter_sa(prev.tree) += 1;
+        chkpts_needed.set(prev.tree);
       } else {
-        Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(NodeID));
-        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(NodeID));
+        Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
+        prior_counter_sa(prev.tree) += 1;
+        chkpts_needed.set(prev.tree);
       }
     }
   });
-
+  Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
+  prior_counter_sv.reset_except(prior_counter_d);
+  uint32_t num_prior_chkpts = chkpts_needed.count();
+//STDOUT_PRINT("Num prior checkpoints to parse: %u\n", chkpts_needed.count());
+//for(uint32_t i=prior_chkpt_id; i<=chkpt_id; i++) {
+//  STDOUT_PRINT("%lu entries from %u, index %u\n", prior_counter_h(i), i, i);
+//}
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
-  Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
   Kokkos::deep_copy(max_reg_h, max_reg);
-  size_t data_offset = num_bytes_metadata_h(0);
-  STDOUT_PRINT("Offset for data: %lu\n", data_offset);
+  Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
+  // Calculate offset for where chunks are written to in the buffer
+  size_t data_offset = num_bytes_metadata_h(0) + num_prior_chkpts*2*sizeof(uint32_t);
+  DEBUG_PRINT("Offset for data: %lu\n", data_offset);
   Kokkos::deep_copy(counter_h, counter_d);
   uint32_t num_distinct = counter_h(0);
+  // Dividers for distinct chunks. Number of chunks per region varies.
+  // Need offsets for each region so that writes can be done in parallel
   Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
     const uint32_t len = region_len(i);
     if(is_final) region_len(i) = partial_sum;
     partial_sum += len;
   });
 
-  DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0));
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", num_bytes_h(0));
+  DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t));
 
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);
 
   DEBUG_PRINT("Largest region: %u\n", max_reg_h(0));
+  // Write distinct entries
+  // Use memcpy for small regions and custom copy for larger regions
   if(max_reg_h(0) < 2048) {
     Kokkos::parallel_for("Write distinct bytes", Kokkos::RangePolicy<>(0, num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node = region_nodes(i);
@@ -2114,8 +1997,10 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
       Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
+      // Write metadata for region
       memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
       DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
+      // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
@@ -2129,6 +2014,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       uint32_t size = num_leaf_descendents(node, num_nodes);
       uint32_t start = leftmost_leaf(node, num_nodes) - (num_chunks-1);
       size_t pos;
+      // Write metadata
       if(team_member.team_rank() == 0) {
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
@@ -2136,6 +2022,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
         memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
       }
       team_member.team_barrier();
+      // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
@@ -2144,33 +2031,79 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       });
     });
   }
-  DEBUG_PRINT("Start writing shared metadata\n");
-  Kokkos::parallel_for("Write curr repeat bytes", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
-    if(shared.valid_at(i)) {
-      uint32_t node = shared.key_at(i);
-      NodeID prev = shared.value_at(i);
-      if(prev.tree == chkpt_id) {
-        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
-        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos, &node, sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
-        DEBUG_PRINT("Writing current repeat: %u: %u\n", node, prev.node);
-      }
+
+  uint32_t num_prior = chkpts_needed.count();
+//  Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+//    num_bytes_metadata_d(0) += sizeof(uint32_t);
+////    num_bytes_d(0) += sizeof(uint32_t);
+//    size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
+////    Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t));
+//    uint32_t num_prior_chkpts = num_prior;
+//    memcpy(buffer_d.data()+pos, &num_prior_chkpts, sizeof(uint32_t));
+//    STDOUT_PRINT("Num prior checkpoints: %u, offset %lu\n", num_prior_chkpts, pos);
+//  });
+
+  // Write Repeat map for recording how many entries per checkpoint
+  // (Checkpoint ID, # of entries)
+  Kokkos::parallel_for("Write size map", prior_counter_d.size(), KOKKOS_LAMBDA(const uint32_t i) {
+    if(prior_counter_d(i) > 0) {
+      uint32_t num_repeats_i = static_cast<uint32_t>(prior_counter_d(i));
+      Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
+      size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
+      memcpy(buffer_d.data()+pos, &i, sizeof(uint32_t));
+      memcpy(buffer_d.data()+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
+      DEBUG_PRINT("Wrote table entry (%u,%u) at offset %lu\n", i, num_repeats_i, pos);
     }
   });
+//  Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t num_prior;
+//    memcpy(&num_prior, buffer_d.data()+num_distinct*sizeof(uint32_t), sizeof(uint32_t));
+//    STDOUT_PRINT("Must search %u prior checkpoints, offset %lu\n", num_prior, num_distinct*sizeof(uint32_t));
+//    for(uint32_t j=0; j<num_prior; j++) {
+//      uint32_t chkpt,size;
+//      memcpy(&chkpt, buffer_d.data()+num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t), sizeof(uint32_t));
+//      memcpy(&size,  buffer_d.data()+num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+//      STDOUT_PRINT("Found entry %u, %u at offset %lu\n", chkpt, size, num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t));
+//    }
+//  });
+
+  // Calculate repeat indices so that we can separate entries by source ID
+  Kokkos::parallel_scan("Calc repeat end indices", prior_counter_d.size(), KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+    partial_sum += prior_counter_d(i);
+    if(is_final) prior_counter_d(i) = partial_sum;
+  });
+//  Kokkos::deep_copy(prior_counter_h, prior_counter_d);
+//  for(uint32_t i=prior_chkpt_id; i<=chkpt_id; i++) {
+//    STDOUT_PRINT("Need to copy %lu entries from %u\n", prior_counter_h(i), i);
+//  }
+
+  size_t prior_start = num_distinct*sizeof(uint32_t)+num_prior*2*sizeof(uint32_t);
+  DEBUG_PRINT("Prior start offset: %lu\n", prior_start);
+
+  // Write repeat entries
   Kokkos::parallel_for("Write prior repeat bytes", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t node = shared.key_at(i);
       NodeID prev = shared.value_at(i);
-      if(prev.tree != chkpt_id) {
-        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(NodeID));
-        size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(NodeID));
-        memcpy(buffer_d.data()+pos, &node, sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos+sizeof(uint32_t), &prev, sizeof(NodeID));
-        DEBUG_PRINT("Writing previous repeat: %u: (%u,%u)\n", node, prev.node, prev.tree);
-      }
+      Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
+      Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
+      size_t pos = Kokkos::atomic_sub_fetch(&prior_counter_d(prev.tree), 1);
+      memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t), &node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
     }
   });
+//  Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t num_prior;
+//    memcpy(&num_prior, buffer_d.data()+num_distinct*sizeof(uint32_t), sizeof(uint32_t));
+//    STDOUT_PRINT("Must search %u prior checkpoints, offset %lu\n", num_prior, num_distinct*sizeof(uint32_t));
+//    for(uint32_t j=0; j<num_prior; j++) {
+//      uint32_t chkpt,size;
+//      memcpy(&chkpt, buffer_d.data()+num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t), sizeof(uint32_t));
+//      memcpy(&size,  buffer_d.data()+num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
+//      STDOUT_PRINT("Found entry %u, %u at offset %lu\n", chkpt, size, num_distinct*sizeof(uint32_t)+j*2*sizeof(uint32_t));
+//    }
+//  });
+
   DEBUG_PRINT("Wrote shared metadata\n");
   Kokkos::fence();
   DEBUG_PRINT("Finished collecting data\n");
@@ -2187,6 +2120,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   header.distinct_size = distinct.size();
   header.curr_repeat_size = num_curr_repeat_h(0);
   header.prev_repeat_size = shared.size() - num_curr_repeat_h(0);
+  header.num_prior_chkpts = chkpts_needed.count();
   STDOUT_PRINT("Ref ID: %u\n"          , header.ref_id);
   STDOUT_PRINT("Chkpt ID: %u\n"        , header.chkpt_id);
   STDOUT_PRINT("Data len: %lu\n"       , header.datalen);
@@ -2195,7 +2129,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   STDOUT_PRINT("Distinct size: %u\n"   , header.distinct_size);
   STDOUT_PRINT("Curr repeat size: %u\n", header.curr_repeat_size);
   STDOUT_PRINT("prev repeat size: %u\n", header.prev_repeat_size);
-  STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_h(0));
+  STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_data_h(0) + num_bytes_metadata_h(0));
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
   DEBUG_PRINT("Closed file\n");
