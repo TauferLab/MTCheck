@@ -17,7 +17,7 @@
 #include <openssl/md5.h>
 #include "utils.hpp"
 
-//#define VERIFY_OUTPUT
+#define VERIFY_OUTPUT
 
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");

@@ -473,15 +473,10 @@ int main(int argc, char** argv) {
       }
       // Hash list deduplication
       {
-//#ifdef GLOBAL_TABLE
         DistinctNodeIDMap l_distinct_chunks = DistinctNodeIDMap(num_chunks);
         SharedNodeIDMap l_shared_chunks     = SharedNodeIDMap(num_chunks);
         g_distinct_chunks.rehash(num_chunks);
         g_shared_chunks.rehash(num_chunks);
-//#else
-//        DistinctNodeMap l_distinct_chunks = DistinctNodeMap(num_chunks);
-//        SharedNodeMap l_shared_chunks     = SharedNodeMap(num_chunks);
-//#endif
 
         HashList list0 = HashList(num_chunks);
         DEBUG_PRINT("initialized local maps and list\n");
