@@ -605,7 +605,8 @@ for(int i=0; i<10; i++) {
 #endif
 }
 
-void restart_chkpt_local(std::vector<std::string>& chkpt_files, 
+std::pair<double,double>
+restart_chkpt_local(std::vector<std::string>& chkpt_files, 
                              const int file_idx, 
                              std::ifstream& file,
                              Kokkos::View<uint8_t*>& data,
@@ -620,7 +621,11 @@ void restart_chkpt_local(std::vector<std::string>& chkpt_files,
     file.open(chkpt_files[file_idx], std::ifstream::in | std::ifstream::binary);
     file.read((char*)(buffer_h.data()), filesize);
     file.close();
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c1 = std::chrono::high_resolution_clock::now();
     Kokkos::deep_copy(buffer_d, buffer_h);
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c2 = std::chrono::high_resolution_clock::now();
     Kokkos::View<NodeID*> node_list("List of NodeIDs", num_chunks);
     Kokkos::deep_copy(node_list, NodeID());
     uint32_t ref_id = header.ref_id;
@@ -841,9 +846,14 @@ void restart_chkpt_local(std::vector<std::string>& chkpt_files,
         }
       });
     }
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c3 = std::chrono::high_resolution_clock::now();
+    double copy_time = (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c2-c1).count());
+    double restart_time = (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c3-c2).count());
+    return std::make_pair(copy_time, restart_time);
 }
 
-void restart_chkpt_global(std::vector<std::string>& chkpt_files, 
+std::pair<double,double> restart_chkpt_global(std::vector<std::string>& chkpt_files, 
                              const int file_idx, 
                              std::ifstream& file,
                              Kokkos::View<uint8_t*>& data,
@@ -862,7 +872,11 @@ void restart_chkpt_global(std::vector<std::string>& chkpt_files,
     file.close();
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     STDOUT_PRINT("Time spent reading checkpoint %u from file: %f\n", file_idx, (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(t2-t1).count()));
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c1 = std::chrono::high_resolution_clock::now();
     Kokkos::deep_copy(buffer_d, buffer_h);
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c2 = std::chrono::high_resolution_clock::now();
     Kokkos::View<NodeID*> node_list("List of NodeIDs", num_chunks);
     Kokkos::deep_copy(node_list, NodeID());
     uint32_t ref_id = header.ref_id;
@@ -1271,9 +1285,14 @@ void restart_chkpt_global(std::vector<std::string>& chkpt_files,
         }
       }
     });
+    Kokkos::fence();
+    std::chrono::high_resolution_clock::time_point c3 = std::chrono::high_resolution_clock::now();
+    double copy_time = (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c2-c1).count());
+    double restart_time = (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c3-c2).count());
+    return std::make_pair(copy_time, restart_time);
 }
 
-int 
+std::pair<double,double> 
 restart_incr_chkpt_hashtree(std::vector<std::string>& chkpt_files,
                             const int file_idx, 
                             Kokkos::View<uint8_t*>& data) {
@@ -1309,15 +1328,17 @@ restart_incr_chkpt_hashtree(std::vector<std::string>& chkpt_files,
   uint32_t num_nodes = 2*num_chunks-1;
   Kokkos::resize(data, header.datalen);
 
+  std::pair<double,double> times;
+
   // Only deduplicated with baseline checkpoint
   if(header.window_size == 0) {
-    restart_chkpt_local(chkpt_files, file_idx, file, data, filesize, num_chunks, num_nodes, header, buffer_d, buffer_h);
+    times = restart_chkpt_local(chkpt_files, file_idx, file, data, filesize, num_chunks, num_nodes, header, buffer_d, buffer_h);
   } else { // Checkpoint uses full history of checkpoints for deduplication
-    restart_chkpt_global(chkpt_files, file_idx, file, data, filesize, num_chunks, num_nodes, header, buffer_d, buffer_h);
+    times = restart_chkpt_global(chkpt_files, file_idx, file, data, filesize, num_chunks, num_nodes, header, buffer_d, buffer_h);
   }
   Kokkos::fence();
   DEBUG_PRINT("Restarted checkpoint\n");
-  return 0;
+  return times;
 }
 
 std::pair<uint64_t,uint64_t> 
