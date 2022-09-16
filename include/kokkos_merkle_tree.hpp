@@ -10,7 +10,6 @@
 #include <iostream>
 #include "utils.hpp"
 
-
 //template<uint32_t N>
 class MerkleTree {
 public:
@@ -680,7 +679,7 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
         for(uint32_t u=left; u<=right; u++) {
           uint32_t leaf = leftmost_leaf(u, num_nodes);
           auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
-          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
+//          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
           if(result.failed())
             printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
         }
@@ -693,7 +692,7 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
       uint32_t datasize = len*chunk_size;
       if(end == num_nodes-1)
         datasize = datalen - (start-num_chunks+1)*chunk_size;
-      DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
+//      DEBUG_PRINT("Copying %c to position %u, len: %u\n", (char)(*(distinct.data()+read_offset+sizeof(uint32_t))), chunk_size*(start-num_chunks+1), datasize);
       memcpy(data.data()+chunk_size*(start-num_chunks+1), data_subview.data()+chunk_len(i)*chunk_size, datasize);
     });
 
@@ -708,7 +707,7 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
       uint32_t len = num_leaf_descendents(prev, num_nodes);
       for(uint32_t j=0; j<len; j++) {
         node_list(node_start+j-num_chunks+1) = NodeID(prev_start-num_chunks+1+j, UINT32_MAX);
-        DEBUG_PRINT("Entry %u updated: (%u,%u) (current repeat node %u prev %u)\n", node_start-num_chunks+1+j, prev_start+j, UINT32_MAX, node, prev);
+//        DEBUG_PRINT("Entry %u updated: (%u,%u) (current repeat node %u prev %u)\n", node_start-num_chunks+1+j, prev_start+j, UINT32_MAX, node, prev);
       }
       uint32_t copysize = chunk_size;
       if(node == num_nodes-1)
@@ -728,7 +727,7 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
       uint32_t len = num_leaf_descendents(prev, num_nodes);
       for(uint32_t j=0; j<len; j++) {
         node_list(node_start-num_chunks+1+j) = NodeID(prev_start+j, ref_id);
-        DEBUG_PRINT("Entry %u updated: (%u,%u) (previous repeat node %u, prev %u)\n", node_start-num_chunks+1, prev_start+j, ref_id, node, prev);
+//        DEBUG_PRINT("Entry %u updated: (%u,%u) (previous repeat node %u, prev %u)\n", node_start-num_chunks+1, prev_start+j, ref_id, node, prev);
       }
     });
 
@@ -812,8 +811,8 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
         if(node_list(i).tree == current_id) {
           NodeID id = node_list(i);
           if(distinct_map.exists(id)) {
-            if(!distinct_map.valid_at(distinct_map.find(id)))
-              DEBUG_PRINT("Entry (%u,%u) not in distinct map\n", id.node, id.tree);
+//            if(!distinct_map.valid_at(distinct_map.find(id)))
+//              DEBUG_PRINT("Entry (%u,%u) not in distinct map\n", id.node, id.tree);
             size_t offset = distinct_map.value_at(distinct_map.find(id));
             uint32_t start = leftmost_leaf(id.node, num_nodes);
             uint32_t len = num_leaf_descendents(id.node, num_nodes);
@@ -853,7 +852,8 @@ restart_chkpt_local(std::vector<std::string>& chkpt_files,
     return std::make_pair(copy_time, restart_time);
 }
 
-std::pair<double,double> restart_chkpt_global(std::vector<std::string>& chkpt_files, 
+std::pair<double,double> 
+restart_chkpt_global(std::vector<std::string>& chkpt_files, 
                              const int file_idx, 
                              std::ifstream& file,
                              Kokkos::View<uint8_t*>& data,
@@ -941,7 +941,7 @@ std::pair<double,double> restart_chkpt_global(std::vector<std::string>& chkpt_fi
         for(uint32_t u=left; u<=right; u++) {
           uint32_t leaf = leftmost_leaf(u, num_nodes);
           auto result = distinct_map.insert(NodeID(u, cur_id), chunk_len(i)*chunk_size + (leaf-start)*chunk_size);
-          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
+//          DEBUG_PRINT("Inserting distinct node (%u,%u): %lu\n", u, cur_id, read_offset+sizeof(uint32_t)+(leaf-start)*chunk_size);
           if(result.failed())
             printf("Failed to insert (%u,%u): %u\n", u, cur_id, chunk_len(i)*chunk_size+(leaf-start)*chunk_size);
         }

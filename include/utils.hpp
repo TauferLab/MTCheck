@@ -4,10 +4,11 @@
 //#define STDOUT
 //#define DEBUG
 //#define STATS
-//#define GLOBAL_TABLE
+#define GLOBAL_TABLE
 
 #ifdef DEBUG
-#define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
+//#define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
+#define DEBUG_PRINT(...) do{ printf( __VA_ARGS__ ); } while( false )
 #else
 #define DEBUG_PRINT(...) do{ } while ( false )
 #endif

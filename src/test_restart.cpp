@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
 
     std::fstream result_data;
     result_data.open(chkpt_files_trim[select_chkpt]+".timings.csv", std::fstream::out | std::fstream::app);
-    result_data << "Copy full chkpt to GPU,Restart full chkpt,Copy list chkpt to GPU,Restart list chkpt,Copy tree chkpt,Restart tree chkpt\n";
+    result_data << "Copy full chkpt to GPU,Restart full chkpt,Copy list chkpt to GPU,Restart list chkpt,Copy tree chkpt to GPU,Restart tree chkpt\n";
 
     for(uint32_t j=0; j<num_tests; j++) {
 //      for(uint32_t i=0; i<num_chkpts; i++) {

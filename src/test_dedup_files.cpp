@@ -508,6 +508,7 @@ uint32_t num_distinct = g_distinct_chunks.size();
 
 #ifdef GLOBAL_TABLE
         // Update global repeat map
+if(idx == 0)
         Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
 #else
         if(idx == 0) {
@@ -670,6 +671,7 @@ printf("Wrote %lu bytes.\n", sizeof(header_t)+buffer_h.size());
           STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
           STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 #ifdef GLOBAL_TABLE
+if(idx == 0)
           Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 #endif
 
