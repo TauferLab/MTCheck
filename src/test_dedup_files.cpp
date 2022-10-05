@@ -394,6 +394,7 @@ int main(int argc, char** argv) {
 //        CompactTable distinct_updates = CompactTable(1);
 
 //    HashList prior_list(0), current_list(0);
+    HashList prev_list(0);
 
     for(uint32_t idx=0; idx<num_chkpts; idx++) {
       DEBUG_PRINT("Processing checkpoint %u\n", idx);
@@ -432,6 +433,8 @@ int main(int argc, char** argv) {
 //        g_distinct_nodes.rehash(nentries);
 //        g_shared_nodes.rehash(  nentries);
 //        g_shared_nodes.rehash(2*num_chunks + 1);
+        Kokkos::resize(prev_list.list_d, num_chunks);
+        Kokkos::resize(prev_list.list_h, num_chunks);
       }
 
       size_t name_start = chkpt_files[idx].rfind('/') + 1;
@@ -471,6 +474,62 @@ int main(int argc, char** argv) {
         result_data << "0.0" << "," << "0.0" << "," << write_time << "," << current.size() << ',' << "0" << ',';
         file.close();
       }
+      // Naive hash list deduplication
+      {
+        HashList list0 = HashList(num_chunks);
+        Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset(num_chunks);
+        DEBUG_PRINT("initialized local maps and list\n");
+        Kokkos::fence();
+
+        Kokkos::fence();
+        Timer::time_point start_compare = Timer::now();
+        Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
+        compare_lists_naive(hasher, prev_list, list0, changes_bitset, idx, current, chunk_size);
+        Kokkos::Profiling::popRegion();
+        Timer::time_point end_compare = Timer::now();
+
+        Kokkos::fence();
+
+        auto compare_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
+if(idx == 0)
+    	  Kokkos::deep_copy(prev_list.list_d, list0.list_d);
+
+
+
+#ifdef WRITE_CHKPT
+        uint32_t prior_idx = 0;
+        Kokkos::fence();
+        Timer::time_point start_collect = Timer::now();
+        Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
+        Kokkos::View<uint8_t*> buffer_d;
+        header_t header;
+        std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_naive(full_chkpt_files[idx]+".naivehashlist.incr_chkpt", current, buffer_d, chunk_size, changes_bitset, prior_idx, idx, header);
+        Kokkos::Profiling::popRegion();
+        Timer::time_point end_collect = Timer::now();
+        auto collect_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_collect - start_collect).count();
+        STDOUT_PRINT("Time spect collecting updates: %f\n", collect_time);
+
+        Timer::time_point start_write = Timer::now();
+        Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
+        auto buffer_h = Kokkos::create_mirror_view(buffer_d);
+        Kokkos::deep_copy(buffer_h, buffer_d);
+        Kokkos::fence();
+        Kokkos::Profiling::popRegion();
+        Timer::time_point end_write = Timer::now();
+        auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
+        STDOUT_PRINT("Time spect copying updates: %f\n", write_time);
+        result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << ',';
+
+        std::ofstream file;
+        file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+        file.open(full_chkpt_files[idx]+".naivehashlist.incr_chkpt", std::ofstream::out | std::ofstream::binary);
+        file.write((char*)(&header), sizeof(header_t));
+        file.write((const char*)(buffer_h.data()), buffer_h.size());
+//        file.write((const char*)(buffer_h.data()), sizeof(header_t)+datasizes.first+datasizes.second);
+        file.flush();
+        file.close();
+#endif
+      }
       // Hash list deduplication
       {
         DistinctNodeIDMap l_distinct_chunks = DistinctNodeIDMap(num_chunks);
@@ -508,7 +567,7 @@ uint32_t num_distinct = g_distinct_chunks.size();
 
 #ifdef GLOBAL_TABLE
         // Update global repeat map
-if(idx == 0)
+//if(idx == 0)
         Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
 #else
         if(idx == 0) {
@@ -545,7 +604,7 @@ if(idx == 0)
         Kokkos::View<uint8_t*> buffer_d;
         header_t header;
 #ifdef GLOBAL_TABLE
-        std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_global(full_chkpt_files[idx]+".hashlist.incr_chkpt", current, buffer_d, chunk_size, g_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
+        std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_global_new(full_chkpt_files[idx]+".hashlist.incr_chkpt", current, buffer_d, chunk_size, g_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
 #else
         std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_local(full_chkpt_files[idx]+".hashlist.incr_chkpt", current, buffer_d, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
 #endif
@@ -574,8 +633,6 @@ if(idx == 0)
 #ifdef GLOBAL_TABLE
         distinctlen = g_distinct_chunks.size();
 #endif
-printf("Sizeof header: %lu\n", sizeof(header_t));
-printf("Sizeof buffer: %lu\n", buffer_h.size());
         file.write((char*)(&header), sizeof(header_t));
         file.write((const char*)(buffer_h.data()), buffer_h.size());
 //        file.write((const char*)(buffer_h.data()), sizeof(header_t)+datasizes.first+datasizes.second);
@@ -645,7 +702,6 @@ printf("Sizeof buffer: %lu\n", buffer_h.size());
           uint32_t distinctlen = g_distinct_nodes.size();
           file.write((char*)(&header), sizeof(header_t));
           file.write((const char*)(buffer_h.data()), buffer_h.size());
-printf("Wrote %lu bytes.\n", sizeof(header_t)+buffer_h.size());
           file.flush();
           file.close();
 #endif
@@ -671,7 +727,7 @@ printf("Wrote %lu bytes.\n", sizeof(header_t)+buffer_h.size());
           STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
           STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 #ifdef GLOBAL_TABLE
-if(idx == 0)
+//if(idx == 0)
           Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 #endif
 
@@ -693,7 +749,6 @@ if(idx == 0)
 
             Kokkos::View<uint8_t*> buffer_d;
             header_t header;
-printf("Writing incremental checkpoint\n");
             Timer::time_point start_collect = Timer::now();
             Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
 #ifdef GLOBAL_TABLE

@@ -142,8 +142,7 @@ using SharedNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
 using SharedHostNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
 using DistinctNodeMap = Kokkos::UnorderedMap<HashDigest, 
                                          uint32_t, 
-                                         Kokkos::CudaUVMSpace, 
-//                                         Kokkos::DefaultExecutionSpace, 
+                                         Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
 using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest, 
@@ -152,12 +151,13 @@ using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest,
                                              digest_hash, 
                                              digest_equal_to>;
 
-using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, 
+                                             NodeID,
+                                             Kokkos::CudaUVMSpace>;
 using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 using DistinctNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
                                          NodeID, 
-                                         Kokkos::CudaUVMSpace, 
-//                                         Kokkos::DefaultExecutionSpace, 
+                                         Kokkos::DefaultExecutionSpace, 
                                          digest_hash, 
                                          digest_equal_to>;
 using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
@@ -170,7 +170,7 @@ using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest,
 //template<uint32_t N>
 //using CompactHostTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> , Kokkos::DefaultHostExecutionSpace>;
 
-using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
 using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 
 #endif

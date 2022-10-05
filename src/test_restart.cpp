@@ -43,6 +43,10 @@ int main(int argc, char** argv) {
     for(uint32_t i=0; i<num_chkpts; i++) {
       full_chkpt_files.push_back(chkpt_files[i]+".full_chkpt");
     }
+    std::vector<std::string> naivehashlist_chkpt_files;
+    for(uint32_t i=0; i<num_chkpts; i++) {
+      naivehashlist_chkpt_files.push_back(chkpt_files[i]+".naivehashlist.incr_chkpt");
+    }
     std::vector<std::string> hashlist_chkpt_files;
     for(uint32_t i=0; i<num_chkpts; i++) {
       hashlist_chkpt_files.push_back(chkpt_files[i]+".hashlist.incr_chkpt");
@@ -68,6 +72,7 @@ int main(int argc, char** argv) {
     for(uint32_t j=0; j<num_tests; j++) {
 //      for(uint32_t i=0; i<num_chkpts; i++) {
         std::pair<double,double> full_times;
+        std::pair<double,double> naive_list_times;
         std::pair<double,double> list_times;
         std::pair<double,double> tree_times;
  
@@ -77,7 +82,7 @@ int main(int argc, char** argv) {
         // Full checkpoint
         file.open(chkpt_files[select_chkpt], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
         size_t filesize = file.tellg();
-        printf("File size: %lu\n", filesize);
+//        printf("File size: %lu\n", filesize);
         file.seekg(0);
         Kokkos::View<uint8_t*> reference_d("Reference", filesize);
         Kokkos::deep_copy(reference_d, 0);
@@ -121,6 +126,31 @@ int main(int argc, char** argv) {
        
        Kokkos::deep_copy(reference_d, 0);
        Kokkos::deep_copy(reference_h, 0);
+       //====================================================================
+       // Incremental checkpoint (Hash list)
+       Kokkos::deep_copy(reference_d, 0);
+       std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
+       naive_list_times = restart_incr_chkpt_naivehashlist(naivehashlist_chkpt_files, select_chkpt, reference_d);
+       std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
+
+#ifdef VERIFY_OUTPUT
+        reference_h = Kokkos::create_mirror_view(reference_d);
+        Kokkos::deep_copy(reference_h, reference_d);
+        HashDigest naive_hashlist;
+        MD5((uint8_t*)(reference_h.data()), filesize, naive_hashlist.digest);
+        std::string naive_list_digest;
+        for(int k=0; k<16; k++) {
+          unsigned char b = naive_hashlist.digest[k];
+          char hex[3];
+          hex[0] = hexchars[b >> 4];
+          hex[1] = hexchars[b & 0xF];
+          hex[2] = 0;
+          naive_list_digest.append(hex);
+          if(k%4 == 3)
+            naive_list_digest.append(" ");
+        }
+#endif
+       //====================================================================
        // Incremental checkpoint (Hash list)
        Kokkos::deep_copy(reference_d, 0);
        std::chrono::high_resolution_clock::time_point l1 = std::chrono::high_resolution_clock::now();
@@ -129,11 +159,13 @@ int main(int argc, char** argv) {
 //       times[num_timers*i+3] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(l2-l1).count());
 
 #ifdef VERIFY_OUTPUT
-        printf("Memory size: %lu\n", reference_d.size());
+//        printf("Memory size: %lu\n", reference_d.size());
         reference_h = Kokkos::create_mirror_view(reference_d);
         Kokkos::deep_copy(reference_h, reference_d);
+//printf("Copied data to host\n");
         HashDigest hashlist;
         MD5((uint8_t*)(reference_h.data()), filesize, hashlist.digest);
+//printf("Computed list digest\n");
         std::string list_digest;
         for(int k=0; k<16; k++) {
           unsigned char b = hashlist.digest[k];
@@ -147,6 +179,7 @@ int main(int argc, char** argv) {
         }
 #endif
 
+//printf("Incremental checkpoint hash tree\n");
         // Incremental checkpoint (Hash tree)
         Kokkos::deep_copy(reference_d, 0);
         std::chrono::high_resolution_clock::time_point m1 = std::chrono::high_resolution_clock::now();
@@ -155,7 +188,7 @@ int main(int argc, char** argv) {
 //        times[num_timers*i+4] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(m2-m1).count());
 
 #ifdef VERIFY_OUTPUT
-        printf("Memory size: %lu\n", reference_d.size());
+//        printf("Memory size: %lu\n", reference_d.size());
         Kokkos::deep_copy(reference_h, reference_d);
         HashDigest hashtree;
         MD5((uint8_t*)(reference_h.data()), filesize, hashtree.digest);
@@ -170,13 +203,21 @@ int main(int argc, char** argv) {
           if(k%4 == 3)
             tree_digest.append(" ");
         }
-        std::cout << "Correct digest:  " << ref_digest << std::endl;
-        std::cout << "Hashlist digest: " << list_digest << std::endl;
-        std::cout << "Hashtree digest: " << tree_digest << std::endl;
+        std::cout << "Correct digest:        " << ref_digest << std::endl;
+        std::cout << "Naive Hashlist digest: " << naive_list_digest << std::endl;
+        std::cout << "Hashlist digest:       " << list_digest << std::endl;
+        std::cout << "Hashtree digest:       " << tree_digest << std::endl;
 #endif
         STDOUT_PRINT("Restarted checkpoint\n");
 //      }
-      result_data << full_times.first << "," << full_times.second << "," << list_times.first << "," << list_times.second << "," << tree_times.first << "," << tree_times.second << std::endl;
+      std::cout << "Copy full to GPU  : " << full_times.first << std::endl;
+      std::cout << "Restart full chkpt: " << full_times.second << std::endl;
+      std::cout << "Copy list to GPU  : " << list_times.first << std::endl;
+      std::cout << "Restart list chkpt: " << list_times.second << std::endl;
+      std::cout << "Copy tree to GPU  : " << tree_times.first << std::endl;
+      std::cout << "Restart tree chkpt: " << tree_times.second << std::endl;
+      
+      result_data << full_times.first << "," << full_times.second << "," << naive_list_times.first << "," << naive_list_times.second << "," << list_times.first << "," << list_times.second << "," << tree_times.first << "," << tree_times.second << std::endl;
     }
 //    for(uint32_t i=0; i<num_chkpts; i++) {
 //      std::cout << "Average time spent for full checkpoint "         << i << ": " << times[num_timers*i+0]/num_tests << std::endl;
