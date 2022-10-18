@@ -1,7 +1,7 @@
 #ifndef KOKKOS_MAP_HELPERS_HPP
 #define KOKKOS_MAP_HELPERS_HPP
 #include <Kokkos_Core.hpp>
-//#include <Kokkos_UnorderedMap.hpp>
+#include <Kokkos_UnorderedMap.hpp>
 #include <climits>
 #include "kokkos_vector.hpp"
 
@@ -151,10 +151,8 @@ using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest,
                                              digest_hash, 
                                              digest_equal_to>;
 
-using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, 
-                                             NodeID,
-                                             Kokkos::CudaUVMSpace>;
-using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
+using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
 using DistinctNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
                                          NodeID, 
                                          Kokkos::DefaultExecutionSpace, 
