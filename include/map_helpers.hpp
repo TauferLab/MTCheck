@@ -16,6 +16,42 @@ struct alignas(16) HashDigest {
 //  uint32_t digest[5];
 };
 
+enum NodeType {
+  Distinct=0,
+  Repeat=1,
+  Identical=2,
+  Other=3
+};
+
+struct Node {
+  uint32_t node;
+  uint32_t tree;
+  NodeType nodetype;
+  uint32_t pad;
+
+  KOKKOS_INLINE_FUNCTION
+  Node() {
+    node = UINT_MAX;
+    tree = UINT_MAX;
+    nodetype = Other;
+pad = 0;
+
+  }
+ 
+  KOKKOS_INLINE_FUNCTION
+  Node(uint32_t n, uint32_t t, NodeType node_type) {
+    node = n;
+    tree = t;
+    node_type = node_type;
+pad = 0;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  bool operator==(const Node& other) const {
+    return !(other.node != node || other.tree != tree || other.nodetype != nodetype);
+  }
+};
+
 struct NodeID {
   uint32_t node;
   uint32_t tree;
@@ -170,6 +206,8 @@ using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest,
 
 using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
 using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
+
+using NodeMap = Kokkos::UnorderedMap<uint32_t, Node, Kokkos::DefaultExecutionSpace>;
 
 #endif
 
