@@ -16,34 +16,35 @@ struct alignas(16) HashDigest {
 //  uint32_t digest[5];
 };
 
-enum NodeType {
-  Distinct=0,
-  Repeat=1,
-  Identical=2,
-  Other=3
-};
+//enum NodeType {
+//  Distinct=0,
+//  Repeat=1,
+//  Identical=2,
+//  Other=3
+//};
+
+const uint32_t Distinct = 0;
+const uint32_t Repeat = 1;
+const uint32_t Identical = 2;
+const uint32_t Other = 3;
 
 struct Node {
   uint32_t node;
   uint32_t tree;
-  NodeType nodetype;
-  uint32_t pad;
+  uint32_t nodetype;
 
   KOKKOS_INLINE_FUNCTION
   Node() {
     node = UINT_MAX;
     tree = UINT_MAX;
     nodetype = Other;
-pad = 0;
-
   }
  
   KOKKOS_INLINE_FUNCTION
-  Node(uint32_t n, uint32_t t, NodeType node_type) {
+  Node(uint32_t n, uint32_t t, uint32_t node_type) {
     node = n;
     tree = t;
-    node_type = node_type;
-pad = 0;
+    nodetype = node_type;
   }
 
   KOKKOS_INLINE_FUNCTION
