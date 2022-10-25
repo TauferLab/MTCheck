@@ -5,7 +5,9 @@
 #include <string>
 #include <map>
 #include <fstream>
-#include "kokkos_merkle_tree.hpp"
+//#include "kokkos_merkle_tree.hpp"
+#include "dedup_merkle_tree.hpp"
+#include "write_merkle_tree_chkpt.hpp"
 #include "kokkos_hash_list.hpp"
 #include "update_pattern_analysis.hpp"
 #include <libgen.h>
@@ -446,7 +448,9 @@ void tree_chkpt(Hasher& hasher,
 {
     using Timer = std::chrono::high_resolution_clock;
     DistinctNodeIDMap g_distinct_nodes  = DistinctNodeIDMap(1);
-//    SharedNodeIDMap g_shared_nodes = SharedNodeIDMap(1);
+#ifndef GLOBAL_TABLE
+    SharedNodeIDMap g_shared_nodes = SharedNodeIDMap(1);
+#endif
 //    SharedNodeIDMap g_identical_nodes = SharedNodeIDMap(1);
     NodeMap g_nodes = NodeMap(1);
 
@@ -470,10 +474,12 @@ void tree_chkpt(Hasher& hasher,
       DEBUG_PRINT("Number of chunks: %u\n", num_chunks);
       if(idx == 0) {
         g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks - 1);
-//        g_shared_nodes.rehash(2*num_chunks - 1);
+#ifndef GLOBAL_TABLE
+        g_shared_nodes.rehash(2*num_chunks - 1);
+#endif
 //        g_identical_nodes.rehash(2*num_chunks - 1);
-        g_nodes.rehash(2*num_chunks - 1);
-g_nodes.clear();
+//        g_nodes.rehash(2*num_chunks - 1);
+        g_nodes.rehash(num_chunks);
       }
 
       std::fstream result_data;
@@ -542,7 +548,6 @@ g_nodes.clear();
           file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
           file.open(full_chkpt_files[idx]+".hashtree.incr_chkpt", std::ofstream::out | std::ofstream::binary);
           uint64_t dlen = current.size();
-//          uint32_t repeatlen = g_shared_nodes.size();
           uint32_t distinctlen = g_distinct_nodes.size();
           file.write((char*)(&header), sizeof(header_t));
           file.write((const char*)(buffer_h.data()), buffer_h.size());
@@ -550,32 +555,39 @@ g_nodes.clear();
           file.close();
 #endif
         } else {
-          CompactTable shared_updates   = CompactTable(num_chunks);
-          CompactTable distinct_updates = CompactTable(num_chunks);
+//          CompactTable shared_updates   = CompactTable(num_chunks);
+//          CompactTable distinct_updates = CompactTable(num_chunks);
+          NodeMap updates = NodeMap(num_chunks);
+#ifndef GLOBAL_TABLE
+//          CompactTable shared_updates   = CompactTable(num_chunks);
+//          CompactTable distinct_updates = CompactTable(num_chunks);
           DistinctNodeIDMap l_distinct_nodes(2*num_chunks-1);
+          SharedNodeIDMap l_shared_nodes = SharedNodeIDMap(2*num_chunks-1);
+#endif
 //          SharedNodeIDMap l_shared_nodes = SharedNodeIDMap(2*num_chunks-1);
 //          SharedNodeIDMap l_identical_nodes     = SharedNodeIDMap(2*num_chunks-1);
-          NodeMap l_nodes = NodeMap(2*num_chunks-1);
+          NodeMap l_nodes = NodeMap(num_chunks);
+//          NodeMap l_nodes = NodeMap(2*num_chunks-1);
           g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks-1);
           DEBUG_PRINT("Allocated maps\n");
 
           Timer::time_point start_create_tree0 = Timer::now();
           Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
 #ifdef GLOBAL_TABLE
-//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
 //          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_identical_nodes, g_shared_nodes, g_distinct_nodes, l_identical_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
-          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, shared_updates, distinct_updates);
+//          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, shared_updates, distinct_updates);
+          deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, updates);
 #else
           deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
 #endif
           Kokkos::Profiling::popRegion();
           Timer::time_point end_create_tree0 = Timer::now();
 
-          STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
+//          STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
 //          STDOUT_PRINT("Size of shared entries: %u\n", l_shared_nodes.size());
-          STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
-          STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
-          STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
+//          STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
+//          STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
+//          STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 #ifdef GLOBAL_TABLE
 //          Kokkos::deep_copy(g_shared_nodes, l_shared_nodes);
 //          Kokkos::deep_copy(g_identical_nodes, l_identical_nodes);
@@ -594,7 +606,8 @@ g_nodes.clear();
             Timer::time_point start_collect = Timer::now();
             Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
 #ifdef GLOBAL_TABLE
-            auto datasizes = write_incr_chkpt_hashtree_global_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, distinct_updates, shared_updates, prior_idx, idx, header);
+//            auto datasizes = write_incr_chkpt_hashtree_global_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, distinct_updates, shared_updates, prior_idx, idx, header);
+            auto datasizes = write_incr_chkpt_hashtree_global_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, updates, prior_idx, idx, header);
 #else
             auto datasizes = write_incr_chkpt_hashtree_local_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, distinct_updates, shared_updates, prior_idx, idx, header);
 #endif
@@ -619,8 +632,8 @@ g_nodes.clear();
             file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
             file.open(full_chkpt_files[idx]+".hashtree.incr_chkpt", std::ofstream::out | std::ofstream::binary);
             uint64_t dlen = current.size();
-            uint32_t repeatlen = shared_updates.size();
-            uint32_t distinctlen = distinct_updates.size();
+//            uint32_t repeatlen = shared_updates.size();
+//            uint32_t distinctlen = distinct_updates.size();
             file.write((char*)(&header), sizeof(header_t));
             file.write((const char*)(buffer_h.data()), buffer_h.size());
             file.flush();

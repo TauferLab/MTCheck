@@ -6,7 +6,8 @@
 #include <map>
 #include <fstream>
 #include "hash_functions.hpp"
-#include "kokkos_merkle_tree.hpp"
+//#include "kokkos_merkle_tree.hpp"
+#include "restart_merkle_tree.hpp"
 #include "kokkos_hash_list.hpp"
 #include "update_pattern_analysis.hpp"
 #include <libgen.h>
