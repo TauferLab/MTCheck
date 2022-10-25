@@ -161,6 +161,7 @@ void compare_lists_naive( Hasher& hasher,
   #ifdef STATS
   Kokkos::deep_copy(num_same_h, num_same_d);
   printf("Number of identical chunks: %lu\n", num_same_h(0));
+  printf("Number of changes: %u\n", changes.count());
   #endif
 }
 
@@ -1598,11 +1599,12 @@ write_incr_chkpt_hashlist_naive( const std::string& filename,
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_data_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);
-  uint32_t buffer_size = 0;
+  uint64_t buffer_size = 0;
   buffer_size += changes.count()*(sizeof(uint32_t) + chunk_size);
   size_t data_offset = changes.count()*sizeof(uint32_t);
 
-  DEBUG_PRINT("Buffer size: %u\n", buffer_size);
+  DEBUG_PRINT("Changes: %u\n", changes.count());
+  DEBUG_PRINT("Buffer size: %lu\n", buffer_size);
   buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_size);
 //  Kokkos::resize(buffer_d, buffer_size);
 
@@ -1613,7 +1615,7 @@ write_incr_chkpt_hashlist_naive( const std::string& filename,
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       memcpy(buffer_d.data()+pos, &i, sizeof(uint32_t));
       uint32_t writesize = chunk_size;
-      if(i == num_chunks-1) {
+      if((i+1)*chunk_size > data.size()) {
         writesize = data.size()-i*chunk_size;
       }
       memcpy(buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*i, writesize);
