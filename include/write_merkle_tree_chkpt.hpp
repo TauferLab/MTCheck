@@ -6,7 +6,7 @@
 #include <climits>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
-#include "kokkos_queue.hpp"
+//#include "kokkos_queue.hpp"
 #include "kokkos_merkle_tree.hpp"
 #include <iostream>
 #include "utils.hpp"
@@ -27,10 +27,13 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
   }
   uint32_t num_nodes = 2*num_chunks-1;
 
-  // Write whether we are storing the hashes, length full checkpoint, chunk size, number of repeat chunks, number of distinct chunks
-  DEBUG_PRINT("Wrote header\n");
   uint32_t distinct_size = 0;
-  Kokkos::parallel_reduce("Count distinct updates", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i, uint32_t& sum) {
+  uint32_t repeat_size = 0;
+  Kokkos::RangePolicy<> distinct_policy(0, distinct.capacity());
+  Kokkos::RangePolicy<> shared_policy(0, shared.capacity());
+
+  // Calculate the number of bytes for first occurrences
+  Kokkos::parallel_reduce("Count distinct updates", distinct_policy, KOKKOS_LAMBDA(const uint32_t i, uint32_t& sum) {
     if(distinct.valid_at(i)) {
       auto info = distinct.value_at(i);
       if(info.node >= num_chunks-1) {
@@ -38,8 +41,9 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
       }
     }
   }, distinct_size);
-  uint32_t repeat_size = 0;
-  Kokkos::parallel_reduce("Count shared updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i, uint32_t& sum) {
+
+  // Calculate the number of bytes for shifted duplicates
+  Kokkos::parallel_reduce("Count shared updates", shared_policy, KOKKOS_LAMBDA(const uint32_t i, uint32_t& sum) {
     if(shared.valid_at(i)) {
       auto node = shared.key_at(i);
       if(node >= num_chunks-1) {
@@ -48,6 +52,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
     }
   }, repeat_size);
   Kokkos::fence();
+
   buffer_d = Kokkos::View<uint8_t*>("Buffer", repeat_size + distinct_size);
   Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
   Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
@@ -71,9 +76,10 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
   STDOUT_PRINT("Distinct capacity: %u, size: %u\n", distinct.capacity(), distinct_size);
   STDOUT_PRINT("Repeat capacity: %u, size: %u\n", shared.capacity(), repeat_size);
 
+  // Cacluate offset for where data chunks are written to
   size_t data_offset = (distinct_size/(sizeof(uint32_t)+chunk_size))*sizeof(uint32_t) + repeat_size;
   STDOUT_PRINT("Data offset: %lu\n", data_offset);
-  Kokkos::parallel_for("Count distinct updates", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Count distinct updates", distinct_policy, KOKKOS_LAMBDA(const uint32_t i) {
     if(distinct.valid_at(i)) {
       auto info = distinct.value_at(i);
       if(info.node >= num_chunks-1) {
@@ -85,16 +91,16 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
         if(info.node == num_nodes-1) {
           writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
         }
-        memcpy(buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*(info.node-num_chunks+1), writesize);
+        memcpy( buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, 
+                data.data()+chunk_size*(info.node-num_chunks+1), 
+                writesize);
         DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
         Kokkos::atomic_add(&num_distinct_d(0), 1);
       }
     }
   });
-Kokkos::View<uint32_t[1]> counter_d("Counter");
-Kokkos::deep_copy(counter_d, 0);
-auto counter_h = Kokkos::create_mirror_view(counter_d);
-  Kokkos::parallel_for("Count curr repeat updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+
+  Kokkos::parallel_for("Count curr repeat updates", shared_policy, KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t k = shared.key_at(i);
       if(k >= num_chunks-1) {
@@ -105,14 +111,11 @@ auto counter_h = Kokkos::create_mirror_view(counter_d);
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
           memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
           memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
-Kokkos::atomic_add(&counter_d(0), 1);
-//printf("Writing current repeat chunk: %u:%u at %lu\n", k, v.node, pos);
         }
       }
     }
   });
-Kokkos::deep_copy(counter_h, counter_d);
-DEBUG_PRINT("Number of current repeats: %u\n", counter_h(0));
+
   Kokkos::parallel_for("Count prior repeat updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t k = shared.key_at(i);
@@ -780,8 +783,6 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   // Calculate offset for where chunks are written to in the buffer
   size_t data_offset = num_bytes_metadata_h(0) + num_prior_chkpts*2*sizeof(uint32_t);
   DEBUG_PRINT("Offset for data: %lu\n", data_offset);
-  Kokkos::deep_copy(counter_h, counter_d);
-//  uint32_t num_distinct = counter_h(0);
   STDOUT_PRINT("Number of distinct regions: %u\n", num_distinct);
   STDOUT_PRINT("Number of distinct chunks: %lu\n", num_bytes_h(0)/chunk_size);
 
@@ -1005,10 +1006,6 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
   prior_counter_sv.reset_except(prior_counter_d);
   uint32_t num_prior_chkpts = chkpts_needed.count();
-//STDOUT_PRINT("Num prior checkpoints to parse: %u\n", chkpts_needed.count());
-//for(uint32_t i=prior_chkpt_id; i<=chkpt_id; i++) {
-//  STDOUT_PRINT("%lu entries from %u, index %u\n", prior_counter_h(i), i, i);
-//}
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
   Kokkos::deep_copy(max_reg_h, max_reg);
   Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
@@ -1017,8 +1014,8 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   DEBUG_PRINT("Offset for data: %lu\n", data_offset);
   Kokkos::deep_copy(counter_h, counter_d);
   uint32_t num_distinct = counter_h(0);
-STDOUT_PRINT("Number of distinct regions: %u\n", num_distinct);
-STDOUT_PRINT("Number of distinct chunks: %lu\n", num_bytes_h(0)/chunk_size);
+  STDOUT_PRINT("Number of distinct regions: %u\n", num_distinct);
+  STDOUT_PRINT("Number of distinct chunks: %lu\n", num_bytes_h(0)/chunk_size);
   // Dividers for distinct chunks. Number of chunks per region varies.
   // Need offsets for each region so that writes can be done in parallel
   Kokkos::parallel_scan("Calc offsets", num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
@@ -1028,7 +1025,8 @@ STDOUT_PRINT("Number of distinct chunks: %lu\n", num_bytes_h(0)/chunk_size);
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t));
+  uint64_t buffer_len = num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t);
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_len);
 
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);

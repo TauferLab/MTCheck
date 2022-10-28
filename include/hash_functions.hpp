@@ -6,7 +6,6 @@
 #include <openssl/md5.h>
 #include "map_helpers.hpp"
 
-//void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d);
 void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
   HashDigest correct;
   auto data_h = Kokkos::create_mirror_view(data_d);
@@ -698,9 +697,6 @@ public:
   std::string hash_name() {
     return std::string("Murmur3F");
   }
-
-  // MurmurHash3 was written by Austin Appleby, and is placed in the public
-  // domain. The author hereby disclaims copyright to this source code.
 
   KOKKOS_FORCEINLINE_FUNCTION
   uint64_t getblock64(const uint8_t* p, int i) const {
