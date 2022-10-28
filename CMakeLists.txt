@@ -48,3 +48,13 @@ set_target_properties(test_restart PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+add_executable(full_chkpt_test src/full_chkpt.cpp)
+target_include_directories(full_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(full_chkpt_test PRIVATE Kokkos::kokkos)
+target_link_libraries(full_chkpt_test PRIVATE OpenSSL::SSL)
+set_target_properties(full_chkpt_test PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
