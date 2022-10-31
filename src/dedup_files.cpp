@@ -3,7 +3,6 @@
 #include <string>
 #include <vector>
 #include <fstream>
-//#include <utility>
 #include "stdio.h"
 #include "dedup_approaches.hpp"
 
@@ -26,6 +25,20 @@ void flush_cache() {
   });
 }
 
+// Read checkpoints from files and deduplicate using various approaches
+// Expects full file paths
+// Usage:
+//   ./dedup_chkpt_files chunk_size num_chkpts [approaches] [chkpt files]
+// Possible approaches
+//   --run-full-chkpt   :   Simple full checkpoint strategy
+//   --run-naive-chkpt  :   Deduplicate using a list of hashes. Only leverage time dimension.
+//                          Compare chunks with chunks from prior chkpts at the same offset.
+//   --run-list-chkpt   :   Deduplicate using a list of hashes. Deduplicates with current and
+//                          past checkpoints. Compares with all possible chunks, not just at
+//                          the same offset.
+//   --run-tree-chkpt   :   Our deduplication approach. Takes into account time and space
+//                          dimension for deduplication. Compacts metadata using forests of 
+//                          Merkle trees
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -57,6 +70,7 @@ int main(int argc, char** argv) {
         arg_offset += 1;
       }
     }
+    // Read checkpoint files and store full paths and file names 
     std::vector<std::string> chkpt_files;
     std::vector<std::string> full_chkpt_files;
     std::vector<std::string> chkpt_filenames;
@@ -70,6 +84,7 @@ int main(int argc, char** argv) {
     DEBUG_PRINT("Read checkpoint files\n");
     DEBUG_PRINT("Number of checkpoints: %u\n", num_chkpts);
 
+    // Hash Function
 //    SHA1 hasher;
 //    Murmur3C hasher;
     MD5Hash hasher;

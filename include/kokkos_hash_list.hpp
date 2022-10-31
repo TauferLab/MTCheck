@@ -1095,8 +1095,7 @@ restart_incr_chkpt_hashlist( std::vector<std::string>& chkpt_files,
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashlist_naive( const std::string& filename, 
-                           const Kokkos::View<uint8_t*>& data, 
+write_incr_chkpt_hashlist_naive( const Kokkos::View<uint8_t*>& data, 
                            Kokkos::View<uint8_t*>& buffer_d, 
                            uint32_t chunk_size, 
                            Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,

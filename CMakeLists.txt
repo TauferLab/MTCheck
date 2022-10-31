@@ -58,3 +58,6 @@ set_target_properties(full_chkpt_test PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+enable_testing()
+add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
+

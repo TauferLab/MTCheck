@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
     Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
     std::default_random_engine generator(1931);
 
+    int success = 0;
     uint64_t data_len = 1024*1024;
     Kokkos::View<uint8_t**, Kokkos::LayoutLeft> data_views_d("Data", data_len, num_chkpts);
     Kokkos::View<uint8_t**, Kokkos::LayoutLeft>::HostMirror data_views_h = Kokkos::create_mirror_view(data_views_d);
@@ -80,6 +81,8 @@ int main(int argc, char** argv) {
 
       // Compare digests
       int res = correct.compare(full_digest);
+      if(res != 0)
+        return -1;
 
       // Print digest
       std::cout << "Checkpoint " << i << std::endl;
@@ -93,5 +96,6 @@ int main(int argc, char** argv) {
     }
   }
   Kokkos::finalize();
+  return 0;
 }
 

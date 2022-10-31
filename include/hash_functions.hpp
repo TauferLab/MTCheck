@@ -26,6 +26,25 @@ void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
   std::cout << "Reference digest:  " << ref_digest << std::endl;
 }
 
+template<typename KView>
+std::string calculate_digest_host(KView& data_h) {
+  HashDigest hash;
+  MD5((uint8_t*)(data_h.data()), data_h.size(), hash.digest);
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string digest_str;
+  for(int k=0; k<16; k++) {
+    unsigned char b = hash.digest[k];
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    digest_str.append(hex);
+    if(k%4 == 3)
+      digest_str.append(" ");
+  }
+  return digest_str;
+}
+
 enum HashFunc {
   SHA1Hash=0,
   Murmur3Hash

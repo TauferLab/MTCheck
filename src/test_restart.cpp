@@ -10,6 +10,7 @@
 #include "restart_merkle_tree.hpp"
 #include "kokkos_hash_list.hpp"
 #include "update_pattern_analysis.hpp"
+#include "restart_approaches.hpp"
 #include <libgen.h>
 #include <iostream>
 #include <thread>
@@ -136,7 +137,6 @@ int main(int argc, char** argv) {
         // Full checkpoint
         file.open(chkpt_files[select_chkpt], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
         size_t filesize = file.tellg();
-//        printf("File size: %lu\n", filesize);
         file.seekg(0);
         Kokkos::View<uint8_t*> reference_d("Reference", filesize);
         Kokkos::deep_copy(reference_d, 0);
@@ -155,107 +155,103 @@ int main(int argc, char** argv) {
         // Update timers
         full_times.first = (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c2-c1).count());
         full_times.second = 0.0;
-//        times[num_timers*i+0] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(t2-t1).count());
-//        times[num_timers*i+1] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(r2-r1).count());
-//        times[num_timers*i+2] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(c2-c1).count());
-       timing_file << "Full" << "," << select_chkpt << "," << chunk_size << "," << full_times.first << "," << full_times.second << std::endl;
+        timing_file << "Full" << "," << select_chkpt << "," << chunk_size << "," << full_times.first << "," << full_times.second << std::endl;
 
         file.close();
 
 #ifdef VERIFY_OUTPUT
-        HashDigest correct;
-        MD5((uint8_t*)(reference_h.data()), filesize, correct.digest);
-        static const char hexchars[] = "0123456789ABCDEF";
-        std::string ref_digest;
-        for(int k=0; k<16; k++) {
-          unsigned char b = correct.digest[k];
-          char hex[3];
-          hex[0] = hexchars[b >> 4];
-          hex[1] = hexchars[b & 0xF];
-          hex[2] = 0;
-          ref_digest.append(hex);
-          if(k%4 == 3)
-            ref_digest.append(" ");
-        }
-        std::cout << "Correct digest:        " << ref_digest << std::endl;
+        Kokkos::deep_copy(reference_h, reference_d);
+        std::string digest = calculate_digest_host(reference_h);
+        std::cout << "Full chkpt digest:     " << digest << std::endl;
 #endif
        
-       Kokkos::deep_copy(reference_d, 0);
-       Kokkos::deep_copy(reference_h, 0);
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
+//       full_times = restart_full_chkpt(chkpt_files, chunk_size, select_chkpt);
+//       timing_file << "Full" << "," << select_chkpt << "," << chunk_size << "," << full_times.first << "," << full_times.second << std::endl;
+        Kokkos::deep_copy(reference_d, 0);
+        Kokkos::deep_copy(reference_h, 0);
+        if(arg_offset > 1) {
+          flush_cache();
+          arg_offset -= 1;
+        }
       }
-     }
-       //====================================================================
-       // Incremental checkpoint (Hash list)
-     if(run_naive) {
-       Kokkos::deep_copy(reference_d, 0);
-       std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
-       naive_list_times = restart_incr_chkpt_naivehashlist(naivehashlist_chkpt_files, select_chkpt, reference_d);
-       std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
-       timing_file << "Naive" << "," << select_chkpt << "," << chunk_size << "," << naive_list_times.first << "," << naive_list_times.second << std::endl;
+      //====================================================================
+      // Incremental checkpoint (Hash list)
+      if(run_naive) {
+        Kokkos::deep_copy(reference_d, 0);
+        std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
+        naive_list_times = restart_incr_chkpt_naivehashlist(naivehashlist_chkpt_files, select_chkpt, reference_d);
+        std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
+        timing_file << "Naive" << "," << select_chkpt << "," << chunk_size << "," << naive_list_times.first << "," << naive_list_times.second << std::endl;
 
 #ifdef VERIFY_OUTPUT
-        reference_h = Kokkos::create_mirror_view(reference_d);
         Kokkos::deep_copy(reference_h, reference_d);
-        HashDigest naive_hashlist;
-        MD5((uint8_t*)(reference_h.data()), filesize, naive_hashlist.digest);
-        static const char hexchars[] = "0123456789ABCDEF";
-        std::string naive_list_digest;
-        for(int k=0; k<16; k++) {
-          unsigned char b = naive_hashlist.digest[k];
-          char hex[3];
-          hex[0] = hexchars[b >> 4];
-          hex[1] = hexchars[b & 0xF];
-          hex[2] = 0;
-          naive_list_digest.append(hex);
-          if(k%4 == 3)
-            naive_list_digest.append(" ");
-        }
-        std::cout << "Naive Hashlist digest: " << naive_list_digest << std::endl;
+        std::string digest = calculate_digest_host(reference_h);
+        std::cout << "Naive Hashlist digest: " << digest << std::endl;
 #endif
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
+//#ifdef VERIFY_OUTPUT
+//        reference_h = Kokkos::create_mirror_view(reference_d);
+//        Kokkos::deep_copy(reference_h, reference_d);
+//        HashDigest naive_hashlist;
+//        MD5((uint8_t*)(reference_h.data()), filesize, naive_hashlist.digest);
+//        static const char hexchars[] = "0123456789ABCDEF";
+//        std::string naive_list_digest;
+//        for(int k=0; k<16; k++) {
+//          unsigned char b = naive_hashlist.digest[k];
+//          char hex[3];
+//          hex[0] = hexchars[b >> 4];
+//          hex[1] = hexchars[b & 0xF];
+//          hex[2] = 0;
+//          naive_list_digest.append(hex);
+//          if(k%4 == 3)
+//            naive_list_digest.append(" ");
+//        }
+//        std::cout << "Naive Hashlist digest: " << naive_list_digest << std::endl;
+//#endif
+        timing_file << "Naive" << "," << select_chkpt << "," << chunk_size << "," << naive_list_times.first << "," << naive_list_times.second << std::endl;
+        if(arg_offset > 1) {
+          flush_cache();
+          arg_offset -= 1;
+        }
       }
-    }
-       //====================================================================
-       // Incremental checkpoint (Hash list)
-    if(run_list) {
-       Kokkos::deep_copy(reference_d, 0);
-       std::chrono::high_resolution_clock::time_point l1 = std::chrono::high_resolution_clock::now();
-       list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, select_chkpt, reference_d);
-       std::chrono::high_resolution_clock::time_point l2 = std::chrono::high_resolution_clock::now();
-//       times[num_timers*i+3] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(l2-l1).count());
+      //====================================================================
+      // Incremental checkpoint (Hash list)
+      if(run_list) {
+        Kokkos::deep_copy(reference_d, 0);
+        std::chrono::high_resolution_clock::time_point l1 = std::chrono::high_resolution_clock::now();
+        list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, select_chkpt, reference_d);
+        std::chrono::high_resolution_clock::time_point l2 = std::chrono::high_resolution_clock::now();
         timing_file << "List" << "," << select_chkpt << "," << chunk_size << "," << list_times.first << "," << list_times.second << std::endl;
 
 #ifdef VERIFY_OUTPUT
-//        printf("Memory size: %lu\n", reference_d.size());
-        reference_h = Kokkos::create_mirror_view(reference_d);
         Kokkos::deep_copy(reference_h, reference_d);
-//printf("Copied data to host\n");
-        HashDigest hashlist;
-        MD5((uint8_t*)(reference_h.data()), filesize, hashlist.digest);
-        static const char hexchars[] = "0123456789ABCDEF";
-//printf("Computed list digest\n");
-        std::string list_digest;
-        for(int k=0; k<16; k++) {
-          unsigned char b = hashlist.digest[k];
-          char hex[3];
-          hex[0] = hexchars[b >> 4];
-          hex[1] = hexchars[b & 0xF];
-          hex[2] = 0;
-          list_digest.append(hex);
-          if(k%4 == 3)
-            list_digest.append(" ");
-        }
-        std::cout << "Hashlist digest:       " << list_digest << std::endl;
+        std::string digest = calculate_digest_host(reference_h);
+        std::cout << "Hashlist digest:       " << digest << std::endl;
 #endif
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
-      }
+//#ifdef VERIFY_OUTPUT
+//        reference_h = Kokkos::create_mirror_view(reference_d);
+//        Kokkos::deep_copy(reference_h, reference_d);
+////printf("Copied data to host\n");
+//        HashDigest hashlist;
+//        MD5((uint8_t*)(reference_h.data()), filesize, hashlist.digest);
+//        static const char hexchars[] = "0123456789ABCDEF";
+////printf("Computed list digest\n");
+//        std::string list_digest;
+//        for(int k=0; k<16; k++) {
+//          unsigned char b = hashlist.digest[k];
+//          char hex[3];
+//          hex[0] = hexchars[b >> 4];
+//          hex[1] = hexchars[b & 0xF];
+//          hex[2] = 0;
+//          list_digest.append(hex);
+//          if(k%4 == 3)
+//            list_digest.append(" ");
+//        }
+//        std::cout << "Hashlist digest:       " << list_digest << std::endl;
+//#endif
+        if(arg_offset > 1) {
+          flush_cache();
+          arg_offset -= 1;
+        }
       }
       if(run_tree) {
 //printf("Incremental checkpoint hash tree\n");
@@ -267,38 +263,38 @@ int main(int argc, char** argv) {
 //        times[num_timers*i+4] += (1e-9)*(std::chrono::duration_cast<std::chrono::nanoseconds>(m2-m1).count());
 
 #ifdef VERIFY_OUTPUT
-//        printf("Memory size: %lu\n", reference_d.size());
         Kokkos::deep_copy(reference_h, reference_d);
-        HashDigest hashtree;
-        MD5((uint8_t*)(reference_h.data()), filesize, hashtree.digest);
-        static const char hexchars[] = "0123456789ABCDEF";
-        std::string tree_digest;
-        for(int k=0; k<16; k++) {
-          unsigned char b = hashtree.digest[k];
-          char hex[3];
-          hex[0] = hexchars[b >> 4];
-          hex[1] = hexchars[b & 0xF];
-          hex[2] = 0;
-          tree_digest.append(hex);
-          if(k%4 == 3)
-            tree_digest.append(" ");
-        }
-        std::cout << "Hashtree digest:       " << tree_digest << std::endl;
+        std::string digest = calculate_digest_host(reference_h);
+        std::cout << "Hashtree digest:       " << digest << std::endl;
 #endif
+//#ifdef VERIFY_OUTPUT
+////        printf("Memory size: %lu\n", reference_d.size());
+//        Kokkos::deep_copy(reference_h, reference_d);
+//        HashDigest hashtree;
+//        MD5((uint8_t*)(reference_h.data()), filesize, hashtree.digest);
+//        static const char hexchars[] = "0123456789ABCDEF";
+//        std::string tree_digest;
+//        for(int k=0; k<16; k++) {
+//          unsigned char b = hashtree.digest[k];
+//          char hex[3];
+//          hex[0] = hexchars[b >> 4];
+//          hex[1] = hexchars[b & 0xF];
+//          hex[2] = 0;
+//          tree_digest.append(hex);
+//          if(k%4 == 3)
+//            tree_digest.append(" ");
+//        }
+//        std::cout << "Hashtree digest:       " << tree_digest << std::endl;
+//#endif
         timing_file << "Tree" << "," << select_chkpt << "," << chunk_size << "," << tree_times.first << "," << tree_times.second << std::endl;
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
-      }
+        if(arg_offset > 1) {
+          flush_cache();
+          arg_offset -= 1;
+        }
       }
       STDOUT_PRINT("Restarted checkpoint\n");
-      
-//      result_data << full_times.first << "," << full_times.second << "," 
-//                  << naive_list_times.first << "," << naive_list_times.second << "," 
-//                  << list_times.first << "," << list_times.second << "," 
-//                  << tree_times.first << "," << tree_times.second << std::endl;
     }
-  timing_file.close();
+    timing_file.close();
   }
   Kokkos::finalize();
 }

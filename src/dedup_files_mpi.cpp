@@ -30,6 +30,20 @@ void flush_cache() {
   });
 }
 
+// Read checkpoints from files and deduplicate using various approaches
+// Expects full file paths
+// Usage:
+//   ./dedup_chkpt_files chunk_size num_chkpts [approaches] [chkpt files]
+// Possible approaches
+//   --run-full-chkpt   :   Simple full checkpoint strategy
+//   --run-naive-chkpt  :   Deduplicate using a list of hashes. Only leverage time dimension.
+//                          Compare chunks with chunks from prior chkpts at the same offset.
+//   --run-list-chkpt   :   Deduplicate using a list of hashes. Deduplicates with current and
+//                          past checkpoints. Compares with all possible chunks, not just at
+//                          the same offset.
+//   --run-tree-chkpt   :   Our deduplication approach. Takes into account time and space
+//                          dimension for deduplication. Compacts metadata using forests of 
+//                          Merkle trees
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
   MPI_Init(&argc, &argv);
@@ -42,10 +56,7 @@ int main(int argc, char** argv) {
     using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
-    // Process data from checkpoint files
-    DEBUG_PRINT("Argv[1]: %s\n", argv[1]);
-    DEBUG_PRINT("Argv[2]: %s\n", argv[2]);
-    DEBUG_PRINT("Argv[3]: %s\n", argv[3]);
+    // Read input flags
     uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[1]));
     DEBUG_PRINT("Loaded chunk size\n");
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
@@ -73,6 +84,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> full_chkpt_files;
     std::vector<std::string> chkpt_filenames;
     for(uint32_t i=0; i<argc; i++) {
+      // Filter out input checkpoint files so that each rank only reads checkpoints for their rank
       std::string rank_str = std::string("Rank") + std::to_string(rank);
       size_t found = std::string(argv[i]).find(rank_str);
       if(found != std::string::npos) {
@@ -92,6 +104,7 @@ int main(int argc, char** argv) {
     DEBUG_PRINT("Number of checkpoints: %u\n", num_chkpts);
     num_chkpts = full_chkpt_files.size();
 
+    // Hash function
 //    SHA1 hasher;
 //    Murmur3C hasher;
     MD5Hash hasher;
