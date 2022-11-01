@@ -115,7 +115,6 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
       }
     }
   });
-
   Kokkos::parallel_for("Count prior repeat updates", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t k = shared.key_at(i);

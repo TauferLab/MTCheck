@@ -53,7 +53,7 @@ do
   do
     for approach in "${dedup_approaches[@]}";
     do
-    ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+    ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
       $project_dir/message_race_layout_left/$msg_race_prefix-0-0.dat \
       $project_dir/message_race_layout_left/$msg_race_prefix-0-1.dat \
       $project_dir/message_race_layout_left/$msg_race_prefix-0-2.dat \
@@ -96,7 +96,7 @@ do
   do
     for approach in "${dedup_approaches[@]}";
     do
-    ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+    ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
       $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-0.dat \
       $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-1.dat \
       $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-2.dat \
@@ -140,7 +140,7 @@ do
   do
     for approach in "${dedup_approaches[@]}";
     do
-      ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+      ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
         $project_dir/asia_osm_layout_left/asia_osm.mtx-0-0.dat \
         $project_dir/asia_osm_layout_left/asia_osm.mtx-0-1.dat \
         $project_dir/asia_osm_layout_left/asia_osm.mtx-0-2.dat \
@@ -256,7 +256,7 @@ do
 #  do
 #    for approach in "${dedup_approaches[@]}";
 #    do
-#    ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+#    ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
 #      $project_dir/message_race_layout_left/$msg_race_prefix-0-0.dat \
 #      $project_dir/message_race_layout_left/$msg_race_prefix-0-1.dat \
 #      $project_dir/message_race_layout_left/$msg_race_prefix-0-2.dat \
@@ -279,7 +279,7 @@ do
 #  do
 #    for approach in "${dedup_approaches[@]}";
 #    do
-#    ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+#    ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
 #      $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-0.dat \
 #      $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-1.dat \
 #      $project_dir/unstructured_mesh_layout_left/$unst_mesh_prefix-0-2.dat \
@@ -302,7 +302,7 @@ do
 #  do
 #    for approach in "${dedup_approaches[@]}";
 #    do
-#      ./test_restart $chkpt 10 $num_iter $chunk_size $approach \
+#      ./restart_chkpt_files $chkpt 10 $num_iter $chunk_size $approach \
 #        $project_dir/asia_osm_layout_left/asia_osm.mtx-0-0.dat \
 #        $project_dir/asia_osm_layout_left/asia_osm.mtx-0-1.dat \
 #        $project_dir/asia_osm_layout_left/asia_osm.mtx-0-2.dat \
