@@ -761,7 +761,7 @@ void list_chkpt(Hasher& hasher,
       Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
       auto buffer_h = Kokkos::create_mirror_view(buffer_d);
       Kokkos::deep_copy(buffer_h, buffer_d);
-      memcpy(buffer_h.data(), &header, sizeof(header_t));
+//      memcpy(buffer_h.data(), &header, sizeof(header_t));
       Kokkos::fence();
       Kokkos::Profiling::popRegion();
       Timer::time_point end_write = Timer::now();
@@ -770,6 +770,15 @@ void list_chkpt(Hasher& hasher,
       result_data << compare_time << ',' << collect_time << ',' << write_time << ',' << datasizes.first << ',' << datasizes.second << ',';
       timing_file << "List" << "," << idx << "," << chunk_size << "," << compare_time << "," << collect_time << "," << write_time << std::endl;
       size_file << "List" << "," << idx << "," << chunk_size << "," << datasizes.first << "," << datasizes.second << ",";
+      STDOUT_PRINT("Ref ID:           %u\n" , header.ref_id);
+      STDOUT_PRINT("Chkpt ID:         %u\n" , header.chkpt_id);
+      STDOUT_PRINT("Data len:         %lu\n", header.datalen);
+      STDOUT_PRINT("Chunk size:       %u\n" , header.chunk_size);
+      STDOUT_PRINT("Window size:      %u\n" , header.window_size);
+      STDOUT_PRINT("Distinct size:    %u\n" , header.distinct_size);
+      STDOUT_PRINT("Curr repeat size: %u\n" , header.curr_repeat_size);
+      STDOUT_PRINT("Prev repeat size: %u\n" , header.prev_repeat_size);
+      STDOUT_PRINT("Num prior chkpts: %u\n" , header.num_prior_chkpts);
       write_metadata_breakdown(size_file, header, buffer_h, num_chkpts);
 
       std::ofstream file;
@@ -781,7 +790,7 @@ void list_chkpt(Hasher& hasher,
 #ifdef GLOBAL_TABLE
       distinctlen = g_distinct_chunks.size();
 #endif
-//      file.write((char*)(&header), sizeof(header_t));
+      file.write((char*)(&header), sizeof(header_t));
       file.write((const char*)(buffer_h.data()), buffer_h.size());
       file.flush();
       file.close();
