@@ -94,7 +94,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
         memcpy( buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, 
                 data.data()+chunk_size*(info.node-num_chunks+1), 
                 writesize);
-        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
+//        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
         Kokkos::atomic_add(&num_distinct_d(0), 1);
       }
     }
@@ -238,7 +238,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
           writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
         }
         memcpy(buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*(info.node-num_chunks+1), writesize);
-        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
+//        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
         Kokkos::atomic_add(&num_distinct_d(0), 1);
       }
     }
@@ -458,6 +458,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   STDOUT_PRINT("Distinct size: %u\n"   , header.distinct_size);
   STDOUT_PRINT("Curr repeat size: %u\n", header.curr_repeat_size);
   STDOUT_PRINT("prev repeat size: %u\n", header.prev_repeat_size);
+  STDOUT_PRINT("Buffer size: %lu\n", buffer_d.size());
   DEBUG_PRINT("Copied data to host\n");
   STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_h(0));
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
@@ -556,7 +557,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
       Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
-      DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", node, pos, data_offset+region_len(i)*chunk_size);
+//      DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", node, pos, data_offset+region_len(i)*chunk_size);
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
@@ -812,7 +813,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       // Write metadata for region
       memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
-      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
+//      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
       // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
@@ -959,6 +960,9 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
   Kokkos::deep_copy(prior_counter_d, 0);
   Kokkos::Experimental::ScatterView<uint64_t*> prior_counter_sv(prior_counter_d);
 
+  Kokkos::fence();
+  DEBUG_PRINT("Setup counters\n");
+
   // Filter and count space used for distinct entries
   // Calculate number of chunks each entry maps to
   Kokkos::parallel_for("Count distinct bytes", Kokkos::RangePolicy<>(0, distinct.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
@@ -979,11 +983,20 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       }
     }
   });
+  Kokkos::fence();
+
+  DEBUG_PRINT("Count distinct bytes\n");
+
   // Small bitset to record which checkpoints are necessary for restart
   Kokkos::Bitset<Kokkos::DefaultExecutionSpace> chkpts_needed(chkpt_id+1);
   chkpts_needed.reset();
+  
+  Kokkos::fence();
+  DEBUG_PRINT("Setup chkpt bitset\n");
+
   // Calculate space needed for repeat entries and number of entries per checkpoint
-  Kokkos::parallel_for("Count repeat bytes", Kokkos::RangePolicy<>(0, shared.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::RangePolicy<> shared_range_policy(0, shared.capacity());
+  Kokkos::parallel_for("Count repeat bytes", shared_range_policy, KOKKOS_LAMBDA(const uint32_t i) {
     if(shared.valid_at(i)) {
       uint32_t node = shared.key_at(i);
       NodeID prev = shared.value_at(i);
@@ -1002,9 +1015,19 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       }
     }
   });
+  Kokkos::fence();
+  DEBUG_PRINT("Count repeat bytes\n");
   Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
   prior_counter_sv.reset_except(prior_counter_d);
+
+  Kokkos::fence();
+  DEBUG_PRINT("Collect prior counter\n");
+
   uint32_t num_prior_chkpts = chkpts_needed.count();
+
+  Kokkos::fence();
+  DEBUG_PRINT("Number of checkpoints needed: %u\n", num_prior_chkpts);
+
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
   Kokkos::deep_copy(max_reg_h, max_reg);
   Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
@@ -1043,7 +1066,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       // Write metadata for region
       memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
-      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
+//      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
       // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())

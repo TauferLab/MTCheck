@@ -7,6 +7,7 @@
 #include <chrono>
 #include <fstream>
 #include <vector>
+#include <queue>
 #include <utility>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
@@ -208,6 +209,81 @@ Kokkos::atomic_add(&num_same(0), static_cast<uint32_t>(1));
 #endif
 }
 
+int num_subtree_roots(const HashList& list, 
+                      const DistinctNodeIDMap& first_occur_d, 
+                      const SharedNodeIDMap&   fixed_dupl_d, 
+                      const SharedNodeIDMap&   shifted_dupl_d) {
+  Kokkos::deep_copy(list.list_h, list.list_d);
+  DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
+  SharedHostNodeIDMap   fixed_dupl_h(fixed_dupl_d.capacity());
+  SharedHostNodeIDMap   shifted_dupl_h(shifted_dupl_d.capacity());
+  Kokkos::deep_copy(first_occur_h, first_occur_d);
+  Kokkos::deep_copy(fixed_dupl_h, fixed_dupl_d);
+  Kokkos::deep_copy(shifted_dupl_h, shifted_dupl_d);
+  // First Occurrece: 1
+  // Fixed Duplicate: 2
+  // Shift Duplicate: 3
+  const char OTHER = 0;
+  const char FIRST_OCUR = 1;
+  const char FIXED_DUPL = 2;
+  const char SHIFT_DUPL = 3;
+  uint64_t num_chunks = list.list_h.extent(0);
+  std::vector<char> labels(2*num_chunks-1, 0);
+  Kokkos::fence();
+  uint64_t num_contig = 0;
+  uint64_t num_first_ocur_regs = 0;
+  uint64_t num_fixed_dupl_regs = 0;
+  uint64_t num_shift_dupl_regs = 0;
+  for(uint64_t i=2*num_chunks-2; i<2*num_chunks-1; i--) {
+    if(i >= num_chunks-1) {
+      if(shifted_dupl_h.exists(i-(num_chunks-1))) {
+        labels[i] = SHIFT_DUPL;
+      } else if(fixed_dupl_h.exists(i-(num_chunks-1))) {
+        labels[i] = FIXED_DUPL;
+      } else if(first_occur_h.exists(list.list_h(i-(num_chunks-1)))) {
+        labels[i] = FIRST_OCUR;
+      } else {
+        printf("Incorrect label!\n");
+      }
+    } else {
+      uint32_t child_l = 2*i+1;
+      uint32_t child_r = 2*i+2;
+      if(labels[child_l] == labels[child_r]) {
+        labels[i] = labels[child_l];
+      } else {
+        labels[i] = OTHER;
+      }
+    }
+  }
+
+  std::queue<uint64_t> queue;
+  queue.push(0);
+  while(!queue.empty()) {
+    uint64_t u = queue.front();
+    queue.pop();
+    uint64_t left = 2*u+1;
+    uint64_t right = 2*u+2;
+    if(labels[u] != OTHER) {
+      num_contig += 1;
+      if(labels[u] == SHIFT_DUPL) {
+        num_shift_dupl_regs += 1;
+      } else if(labels[u] == FIXED_DUPL) {
+        num_fixed_dupl_regs += 1;
+      } else if(labels[u] == FIRST_OCUR) {
+        num_first_ocur_regs += 1;
+      }
+    } else {
+      queue.push(left);
+      queue.push(right);
+    }
+  }
+  printf("Number of first occurrence regions:  %lu\n", num_first_ocur_regs);
+  printf("Number of fixed duplicate regions:   %lu\n", num_fixed_dupl_regs);
+  printf("Number of shifted duplicate regions: %lu\n", num_shift_dupl_regs);
+  printf("Number of contiguous regions: %lu\n", num_contig);
+  return num_contig;
+}
+
 template<class Hasher>
 void compare_lists_global( Hasher& hasher, 
                     const HashList& list, 
@@ -355,6 +431,7 @@ void compare_lists_global( Hasher& hasher,
   STDOUT_PRINT("Number of comp nodes: %u\n", num_comp_h(0));
   STDOUT_PRINT("Number of dupl nodes: %u\n", num_dupl_h(0));
 #endif
+//  int num_regions = num_subtree_roots(list, distinct_map, identical_map, shared_map);
 }
 
 std::pair<double,double> restart_chkpt_naive(std::vector<std::vector<uint8_t> >& incr_chkpts, 

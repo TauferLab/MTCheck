@@ -16,6 +16,26 @@ struct alignas(16) HashDigest {
 //  uint32_t digest[5];
 };
 
+struct CompareHashDigest {
+  bool operator() (const HashDigest& lhs, const HashDigest& rhs) const {
+    for(int i=0; i<16; i++) {
+      if(lhs.digest[i] != rhs.digest[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+bool digests_same(const HashDigest& lhs, const HashDigest& rhs) {
+  for(int i=0; i<16; i++) {
+    if(lhs.digest[i] != rhs.digest[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 //enum NodeType {
 //  Distinct=0,
 //  Repeat=1,
@@ -189,21 +209,17 @@ using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest,
                                              digest_equal_to>;
 
 using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
-using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 using DistinctNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
-                                         NodeID, 
-                                         Kokkos::DefaultExecutionSpace, 
-                                         digest_hash, 
-                                         digest_equal_to>;
+                                               NodeID, 
+                                               Kokkos::DefaultExecutionSpace, 
+                                               digest_hash, 
+                                               digest_equal_to>;
 using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
-                                             NodeID, 
-                                             Kokkos::DefaultHostExecutionSpace, 
-                                             digest_hash, 
-                                             digest_equal_to>;
-//template<uint32_t N>
-//using CompactTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> >;
-//template<uint32_t N>
-//using CompactHostTable = Kokkos::UnorderedMap< CompactNodeInfo, Array<N> , Kokkos::DefaultHostExecutionSpace>;
+                                                   NodeID, 
+                                                   Kokkos::DefaultHostExecutionSpace, 
+                                                   digest_hash, 
+                                                   digest_equal_to>;
 
 using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
 using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
