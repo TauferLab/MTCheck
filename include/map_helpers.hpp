@@ -27,6 +27,7 @@ struct CompareHashDigest {
   }
 };
 
+KOKKOS_INLINE_FUNCTION
 bool digests_same(const HashDigest& lhs, const HashDigest& rhs) {
   for(int i=0; i<16; i++) {
     if(lhs.digest[i] != rhs.digest[i]) {
@@ -225,6 +226,9 @@ using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecu
 using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 
 using NodeMap = Kokkos::UnorderedMap<uint32_t, Node, Kokkos::DefaultExecutionSpace>;
+
+using DigestNodeIDMap = DistinctNodeIDMap;
+using RootNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
 
 #endif
 
