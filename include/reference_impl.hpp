@@ -71,7 +71,6 @@ int num_subtree_roots(Kokkos::View<uint8_t*>& data_d,
   }
   std::vector<char> labels(num_nodes, DONE);
   while(level_beg <= num_nodes) { // Intensional unsigned integer underflow
-printf("Level beg: %u, end: %u\n", level_beg, level_end);
     for(uint32_t node=level_beg; node<=level_end; node++) {
       if(node < num_nodes) {
         if(node >= num_chunks-1) { // Leave nodes
@@ -81,15 +80,12 @@ printf("Level beg: %u, end: %u\n", level_beg, level_end);
           MD5(data_h.data()+(node-(num_chunks-1))*chunk_size, num_bytes, curr_tree(node).digest); // Hash chunk
           auto result = first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id)); // Insert into table
           if(digests_same(prev_tree(node), curr_tree(node))) { // Fixed duplicate chunk
-printf("Leaf %u is a fixed duplicate\n", node);
             labels[node] = FIXED_DUPL;
             num_fixed_dupl_chunks += 1;
           } else if(result.success()) { // First occurrence chunk
-printf("Leaf %u is a first occurrence\n", node);
             labels[node] = FIRST_OCUR;
             num_first_ocur_chunks += 1;
           } else if(result.existing()) { // Shifted duplicate chunk
-printf("Leaf %u is a shift duplicate\n", node);
             labels[node] = SHIFT_DUPL;
             num_shift_dupl_chunks += 1;
           }
@@ -98,19 +94,14 @@ printf("Leaf %u is a shift duplicate\n", node);
           uint32_t child_r = 2*node+2;
           int state = 5;
           if(labels[child_l] != labels[child_r]) {
-printf("Node %u has different children\n", node);
             state = DiffChildren;
           } else if(labels[child_l] == FIXED_DUPL && labels[child_r] == FIXED_DUPL) {
-printf("Node %u has fixed duplicate children\n", node);
             state = BothFixedDupl;
           } else if(labels[child_l] == SHIFT_DUPL && labels[child_r] == SHIFT_DUPL) {
-printf("Node %u has shift duplicate children\n", node);
             state = BothShiftDupl;
           } else if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
-printf("Node %u has first occurrence children\n", node);
             state = BothFirstOcur;
           } else if(labels[child_l] == DONE && labels[child_r] == DONE) {
-printf("Node %u children are done\n", node);
             state = BothDone;
           } else {
             printf("Invalid state!\n");
