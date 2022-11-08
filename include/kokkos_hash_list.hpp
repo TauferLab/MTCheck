@@ -18,6 +18,8 @@ public:
   Kokkos::View<HashDigest*> list_d;
   Kokkos::View<HashDigest*>::HostMirror list_h;
 
+  HashList() {}
+
   HashList(const uint32_t num_leaves) {
     list_d = Kokkos::View<HashDigest*>("Hash list", num_leaves);
     list_h = Kokkos::create_mirror_view(list_d);

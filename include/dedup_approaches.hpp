@@ -851,7 +851,6 @@ void tree_chkpt(Hasher& hasher,
     uint32_t num_chunks = data_len/chunk_size;
     if(num_chunks*chunk_size < data_len)
       num_chunks += 1;
-    uint32_t num_nodes = 2*num_chunks-1;
     DEBUG_PRINT("Number of chunks: %u\n", num_chunks);
     if(idx == 0) {
       g_distinct_nodes.rehash(g_distinct_nodes.size()+2*num_chunks - 1);
@@ -893,8 +892,7 @@ void tree_chkpt(Hasher& hasher,
 //        create_merkle_tree(hasher, tree0, current, chunk_size, idx, g_distinct_nodes, g_nodes);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_create_tree0 = Timer::now();
-//auto leaves_subview = Kokkos::subview(tree0.tree_d, Kokkos::make_pair(num_chunks-1, num_nodes));
-//Kokkos::deep_copy(leaves.list_d, leaves_subview);
+        Kokkos::deep_copy(tree0.tree_h, tree0.tree_d);
 
 //        STDOUT_PRINT("Size of shared entries: %u\n", g_shared_nodes.size());
         STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
@@ -959,27 +957,20 @@ void tree_chkpt(Hasher& hasher,
         Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
 #ifdef GLOBAL_TABLE
         deduplicate_data(current, chunk_size, hasher, tree0, idx, g_identical_nodes, g_shared_nodes, g_distinct_nodes, l_identical_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
-//        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, shared_updates, distinct_updates);
 //        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, updates);
-
-//        deduplicate_data(current, chunk_size, hasher, leaves, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
-//auto leaves_subview = Kokkos::subview(tree0.tree_d, Kokkos::make_pair(num_chunks-1, num_nodes));
-//Kokkos::deep_copy(leaves.list_d, leaves_subview);
-        STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
-        STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
+//        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
+//        STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
+//        STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 //        shared_updates.clear();
 //        distinct_updates.clear();
-//        num_subtree_roots(current_h, chunk_size, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
-//        Kokkos::deep_copy(tree0.tree_h, tree0.tree_d);
+//        num_subtree_roots(current, chunk_size, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
+        Kokkos::deep_copy(tree0.tree_h, tree0.tree_d);
 #else
         deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);
 #endif
         Kokkos::Profiling::popRegion();
         Timer::time_point end_create_tree0 = Timer::now();
 
-//        STDOUT_PRINT("Size of distinct entries: %u\n", g_distinct_nodes.size());
-//        STDOUT_PRINT("Size of shared entries: %u\n", l_shared_nodes.size());
-//        STDOUT_PRINT("Size of distinct entries: %u\n", l_distinct_nodes.size());
         STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
         STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
         STDOUT_PRINT("Size of identical updates: %u\n", l_identical_nodes.size());

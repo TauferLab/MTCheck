@@ -18,6 +18,8 @@ public:
   Kokkos::View<uint8_t*> distinct_children_d;
   Kokkos::View<uint8_t*>::HostMirror distinct_children_h;
 
+  MerkleTree() {}
+
   MerkleTree(const uint32_t num_leaves) {
     tree_d = Kokkos::View<HashDigest*>("Merkle tree", (2*num_leaves-1));
     tree_h = Kokkos::create_mirror_view(tree_d);

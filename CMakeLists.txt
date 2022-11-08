@@ -88,6 +88,76 @@ set_target_properties(list_chkpt_test PROPERTIES
 #    CXX_EXTENSIONS OFF
 #)
 
+add_executable(test_case_1 src/test_case_1.cpp)
+target_include_directories(test_case_1 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_1 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_1 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_1 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_2 src/test_case_2.cpp)
+target_include_directories(test_case_2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_2 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_2 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_2 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_3 src/test_case_3.cpp)
+target_include_directories(test_case_3 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_3 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_3 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_3 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_4 src/test_case_4.cpp)
+target_include_directories(test_case_4 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_4 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_4 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_4 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_5 src/test_case_5.cpp)
+target_include_directories(test_case_5 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_5 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_5 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_5 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_6 src/test_case_6.cpp)
+target_include_directories(test_case_6 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_6 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_6 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_6 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
+add_executable(test_case_7 src/test_case_7.cpp)
+target_include_directories(test_case_7 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(test_case_7 PRIVATE Kokkos::kokkos)
+target_link_libraries(test_case_7 PRIVATE OpenSSL::SSL)
+set_target_properties(test_case_7 PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
 enable_testing()
 add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
 add_test(NAME naive_chkpt_test COMMAND naive_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
