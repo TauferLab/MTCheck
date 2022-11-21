@@ -34,6 +34,7 @@ class Deduplicator {
     uint32_t num_nodes;
     uint32_t current_id;
     uint64_t data_len;
+    DedupMode mode;
 
     Deduplicator() {
       tree = MerkleTree(1);
@@ -42,6 +43,7 @@ class Deduplicator {
       shift_dupl_updates_d = CompactTable(1);
       chunk_size = 4096;
       current_id = 0;
+      mode = Tree;
     }
 
     Deduplicator(uint32_t bytes_per_chunk) {
@@ -51,6 +53,7 @@ class Deduplicator {
       shift_dupl_updates_d = CompactTable(1);
       chunk_size = bytes_per_chunk;
       current_id = 0;
+      mode = Tree;
     }
 
     void dedup(Kokkos::View<uint8_t*>& data, bool make_baseline) {
@@ -84,15 +87,24 @@ class Deduplicator {
       } else {
         first_ocur_updates_d.clear();
         shift_dupl_updates_d.clear();
-        deduplicate_data(data, chunk_size, hash_func, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-//        num_subtree_roots(data, chunk_size, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+//        deduplicate_data(data, chunk_size, hash_func, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+        num_subtree_roots(data, chunk_size, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
       }
-      printf("First occurrence map capacity: %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
+      printf("First occurrence map capacity:    %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
       printf("First occurrence update capacity: %lu, size: %lu\n", first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-      printf("Shift duplicate update capacity: %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
+      printf("Shift duplicate update capacity:  %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
 
       Kokkos::deep_copy(tree.tree_h, tree.tree_d);
       current_id += 1;
+    }
+
+    std::pair<uint64_t,uint64_t> create_diff(Kokkos::View<uint8_t*>& data, Kokkos::View<uint8_t*>& diff) {
+      header_t header;
+      std::pair<uint64_t,uint64_t> datasizes;
+      datasizes = write_incr_chkpt_hashtree_global_mode(std::string(""), data, diff, chunk_size, 
+                                                        first_ocur_updates_d, shift_dupl_updates_d, 
+                                                        current_id-1, current_id, header);
+      return datasizes;
     }
 };
 

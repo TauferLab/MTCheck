@@ -908,7 +908,7 @@ void tree_chkpt(Hasher& hasher,
         header_t header;
         Timer::time_point start_collect = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
-          auto datasizes = write_incr_chkpt_hashtree_local_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, g_distinct_nodes, g_shared_nodes, prior_idx, idx, header);
+        auto datasizes = write_incr_chkpt_hashtree_local_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, g_distinct_nodes, g_shared_nodes, prior_idx, idx, header);
 //        auto datasizes = write_incr_chkpt_hashtree_local_mode(full_chkpt_files[idx]+".hashtree.incr_chkpt", current, buffer_d, chunk_size, g_distinct_nodes, g_nodes, prior_idx, idx, header);
         Kokkos::Profiling::popRegion();
         Timer::time_point end_collect = Timer::now();
@@ -956,14 +956,14 @@ void tree_chkpt(Hasher& hasher,
         Timer::time_point start_create_tree0 = Timer::now();
         Kokkos::Profiling::pushRegion((std::string("Deduplicate chkpt ") + std::to_string(idx)).c_str());
 #ifdef GLOBAL_TABLE
-        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_identical_nodes, g_shared_nodes, g_distinct_nodes, l_identical_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
+//        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_identical_nodes, g_shared_nodes, g_distinct_nodes, l_identical_nodes, l_shared_nodes, g_distinct_nodes, shared_updates, distinct_updates);
 //        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, updates);
 //        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
 //        STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
 //        STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 //        shared_updates.clear();
 //        distinct_updates.clear();
-//        num_subtree_roots(current, chunk_size, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
+        num_subtree_roots(current, chunk_size, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
         Kokkos::deep_copy(tree0.tree_h, tree0.tree_d);
 #else
         deduplicate_data(current, chunk_size, hasher, tree0, idx, g_shared_nodes, g_distinct_nodes, l_shared_nodes, l_distinct_nodes, shared_updates, distinct_updates);

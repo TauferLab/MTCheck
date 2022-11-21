@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
 
     Kokkos::fence();
 
+    printf("Expected 2 first occurrence region and 2 shifted duplicate regions\n");
     if(deduplicator.first_ocur_updates_d.size() != 2 || deduplicator.shift_dupl_updates_d.size() != 2) {
       res = -1;
     }

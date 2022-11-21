@@ -78,7 +78,8 @@ void compare_lists_naive( Hasher& hasher,
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
       num_bytes = data.size()-i*chunk_size;
-    hasher.hash(data.data()+(i*chunk_size), 
+//    hasher.hash(data.data()+(i*chunk_size), 
+    hash(data.data()+(i*chunk_size), 
                 num_bytes, 
                 list(i).digest);
     HashDigest digest = list.list_d(i);
@@ -143,7 +144,8 @@ void compare_lists_local( Hasher& hasher,
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
       num_bytes = data.size()-i*chunk_size;
-    hasher.hash(data.data()+(i*chunk_size), 
+//    hasher.hash(data.data()+(i*chunk_size), 
+    hash(data.data()+(i*chunk_size), 
                 num_bytes, 
                 list(i).digest);
     HashDigest digest = list.list_d(i);
@@ -323,7 +325,8 @@ void compare_lists_global( Hasher& hasher,
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
       num_bytes = data.size()-i*chunk_size;
-    hasher.hash(data.data()+(i*chunk_size), 
+//    hasher.hash(data.data()+(i*chunk_size), 
+    hash(data.data()+(i*chunk_size), 
                 num_bytes, 
                 list(i).digest);
     HashDigest digest = list.list_d(i);

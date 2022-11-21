@@ -5,6 +5,7 @@
 #include <string>
 #include <openssl/md5.h>
 #include "map_helpers.hpp"
+#include "kokkos_md5.hpp"
 
 void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
   HashDigest correct;
@@ -1190,6 +1191,10 @@ public:
   }
 };
 
+KOKKOS_FORCEINLINE_FUNCTION
+void hash(const void* data, int len, uint8_t* digest) {
+  kokkos_md5::hash(data, len, digest);
+}
 
 using DefaultHash = SHA1;
 

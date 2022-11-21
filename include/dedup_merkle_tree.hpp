@@ -13,6 +13,33 @@
 #include "reference_impl.hpp"
 #include "utils.hpp"
 
+//template<typename LabelView, typename TreeRootView>
+//void deduplicate_data(Kokkos::View<uint8_t*>& data, 
+//                      const uint32_t chunk_size, 
+//                      MerkleTree& curr_tree, 
+//                      const uint32_t chkpt_id, 
+//                      DistinctNodeIDMap& first_occur_d, 
+//                      LabelView& labels,
+//                      TreeRootView& roots,
+//                      ) {
+//  Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1,num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
+//    uint32_t num_bytes = chunk_size;
+//    if(leaf == num_nodes-1) 
+//      num_bytes = data.size() - (leaf-(num_chunks-1))*chunk_size;
+//    HashDigest digest;
+//    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+//    auto result = first_occur_d.insert(digest, NodeID(leaf, chkpt_id));
+//    if(digests_same(curr_tree(leaf), digest)) { // Fixed duplicate chunk
+//      labels(leaf) = FIXED_DUPL;
+//    } else if(result.success()) { // First occurrence chunk
+//      labels(leaf) = FIRST_OCUR;
+//    } else if(result.existing()) { // Shifted duplicate chunk
+//      labels(leaf) = SHIFT_DUPL;
+//    }
+//    curr_tree(leaf) = digest;
+//  });
+//}
+
 // Build full merkle tree and track all first occurrences of 
 // new chunks and shifted duplicate chunks.
 template <class Hasher>
@@ -207,24 +234,12 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
                 labels(node) = DONE; // Add children to tree root maps
                 NodeID child_l_node = first_occur_d.value_at(first_occur_d.find(curr_tree(child_l)));
                 NodeID child_r_node = first_occur_d.value_at(first_occur_d.find(curr_tree(child_r)));
-                if(labels(child_l) == FIRST_OCUR) {        // First occurrences
-                  first_ocur_updates.insert(child_l, child_l_node);
-                  region_counters_sa(FIRST_OCUR) += 1;
-                } else if(labels(child_l) == SHIFT_DUPL) { // Shifted duplicates
-                  shift_dupl_updates.insert(child_l, child_l_node);
-                  region_counters_sa(SHIFT_DUPL) += 1;
-                } else if(labels(child_l) == FIXED_DUPL) { // Ignore fixed duplicates
-                  region_counters_sa(FIXED_DUPL) += 1;
-                }
-                if(labels(child_r) == FIRST_OCUR) {        // First occurrences
-                  first_ocur_updates.insert(child_r, child_r_node);
-                  region_counters_sa(FIRST_OCUR) += 1;
-                } else if(labels(child_r) == SHIFT_DUPL) { // Shifted duplicates
-                  shift_dupl_updates.insert(child_r, child_r_node);
-                  region_counters_sa(SHIFT_DUPL) += 1;
-                } else if(labels(child_r) == FIXED_DUPL) { // Ignore fixed duplicates
-                  region_counters_sa(FIXED_DUPL) += 1;
-                }
+
+                shift_dupl_updates.insert(child_l, child_l_node);
+                region_counters_sa(SHIFT_DUPL) += 1;
+
+                shift_dupl_updates.insert(child_r, child_r_node);
+                region_counters_sa(SHIFT_DUPL) += 1;
               }
             } else if(labels(child_l) == FIXED_DUPL) { // Fixed duplicate region
               labels(node) = FIXED_DUPL;
