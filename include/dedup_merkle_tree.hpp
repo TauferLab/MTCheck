@@ -250,6 +250,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
             NodeID child_r_node = first_occur_d.value_at(first_occur_d.find(curr_tree(child_r)));
             if(labels(child_l) == FIRST_OCUR) {        // First occurrences
               first_ocur_updates.insert(child_l, child_l_node);
+//printf("First occurrence: %u\n", child_l);
               region_counters_sa(FIRST_OCUR) += 1;
             } else if(labels(child_l) == SHIFT_DUPL) { // Shifted duplicates
               shift_dupl_updates.insert(child_l, child_l_node);
@@ -259,6 +260,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
             }
             if(labels(child_r) == FIRST_OCUR) {        // First occurrences
               first_ocur_updates.insert(child_r, child_r_node);
+//printf("First occurrence: %u\n", child_r);
               region_counters_sa(FIRST_OCUR) += 1;
             } else if(labels(child_r) == SHIFT_DUPL) { // Shifted duplicates
               shift_dupl_updates.insert(child_r, child_r_node);
@@ -273,7 +275,6 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
   }
-  Kokkos::Experimental::contribute(chunk_counters, chunk_counters_sv);
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
   Kokkos::fence();
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);

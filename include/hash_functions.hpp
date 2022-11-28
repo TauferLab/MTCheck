@@ -1,6 +1,7 @@
 #ifndef __HASH_FUNCTIONS_HPP
 #define __HASH_FUNCTIONS_HPP
 
+#include <iostream>
 #include <cstring>
 #include <string>
 #include <openssl/md5.h>
@@ -25,6 +26,38 @@ void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
       ref_digest.append(" ");
   }
   std::cout << "Reference digest:  " << ref_digest << std::endl;
+}
+
+//void print_digest(HashDigest dig) {
+//  static const char hexchars[] = "0123456789ABCDEF";
+//  std::string ref_digest;
+//  for(int k=0; k<16; k++) {
+//    unsigned char b = dig.digest[k];
+//    char hex[3];
+//    hex[0] = hexchars[b >> 4];
+//    hex[1] = hexchars[b & 0xF];
+//    hex[2] = 0;
+//    ref_digest.append(hex);
+//    if(k%4 == 3)
+//      ref_digest.append(" ");
+//  }
+//  std::cout << ref_digest;
+//}
+
+std::string digest_to_str(HashDigest& dig) {
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string ref_digest;
+  for(int k=0; k<16; k++) {
+    unsigned char b = dig.digest[k];
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    ref_digest.append(hex);
+    if(k%4 == 3)
+      ref_digest.append(" ");
+  }
+  return ref_digest;
 }
 
 template<typename KView>

@@ -1,7 +1,7 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-//#define STDOUT
+#define STDOUT
 //#define DEBUG
 //#define STATS
 #define GLOBAL_TABLE
