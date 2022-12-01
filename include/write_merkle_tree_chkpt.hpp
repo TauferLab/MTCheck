@@ -12,7 +12,7 @@
 #include "utils.hpp"
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_local_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_local_mode(  
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d,
                                 uint32_t chunk_size, 
@@ -25,6 +25,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
   if(num_chunks*chunk_size < data.size()) {
     num_chunks += 1;
   }
+printf("Expected version\n");
   uint32_t num_nodes = 2*num_chunks-1;
 
   uint32_t distinct_size = 0;
@@ -164,7 +165,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_local_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_local_mode(  
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d,
                                 uint32_t chunk_size, 
@@ -317,7 +318,7 @@ STDOUT_PRINT("Number of current repeats: %u\n", counter_h(0));
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_global_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_global_mode(  
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d,
                                 uint32_t chunk_size, 
@@ -467,7 +468,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_local_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_local_mode(  
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d, 
                                 uint32_t chunk_size, 
@@ -476,7 +477,6 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
                                 uint32_t prior_chkpt_id,
                                 uint32_t chkpt_id,
                                 header_t& header) {
-  DEBUG_PRINT("File: %s\n", filename.c_str());
   
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size()) {
@@ -653,7 +653,7 @@ write_incr_chkpt_hashtree_local_mode( const std::string& filename,
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_global_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_global_mode(  
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d, 
                                 uint32_t chunk_size, 
@@ -665,7 +665,6 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
                                 uint32_t prior_chkpt_id,
                                 uint32_t chkpt_id,
                                 header_t& header) {
-  DEBUG_PRINT("File: %s\n", filename.c_str());
   
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size()) {
@@ -917,7 +916,7 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
 }
 
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashtree_global_mode( const std::string& filename, 
+write_incr_chkpt_hashtree_global_mode( 
                                 const Kokkos::View<uint8_t*>& data, 
                                 Kokkos::View<uint8_t*>& buffer_d, 
                                 uint32_t chunk_size, 
@@ -926,8 +925,6 @@ write_incr_chkpt_hashtree_global_mode( const std::string& filename,
                                 uint32_t prior_chkpt_id,
                                 uint32_t chkpt_id,
                                 header_t& header) {
-  DEBUG_PRINT("File: %s\n", filename.c_str());
-  
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size()) {
     num_chunks += 1;

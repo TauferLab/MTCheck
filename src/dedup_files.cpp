@@ -122,7 +122,8 @@ int main(int argc, char** argv) {
     // Tree checkpoint
     if(run_tree) {
       printf("====================Hash Tree Checkpoint ====================\n");
-      tree_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
+//      tree_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
+      tree_chkpt_deduplicator(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
       printf("====================Hash Tree Checkpoint ====================\n");
     }
   }
