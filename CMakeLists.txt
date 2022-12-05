@@ -178,6 +178,37 @@ set_target_properties(test_case_9 PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+add_library(deduplicator INTERFACE)
+target_include_directories(deduplicator INTERFACE 
+                           $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+                           $<INSTALL_INTERFACE:include>
+)
+#target_compile_features(deduplicator INTERFACE cxx_std 14)
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file("${PROJECT_BINARY_DIR}/deduplicatorConfigVersion.cmake"
+                                 VERSION 0.0.0
+                                 COMPATIBILITY SameMajorVersion
+                                 )
+install(TARGETS deduplicator
+        EXPORT deduplicatorTargets
+        LIBRARY DESTINATION lib COMPONENT Runtime 
+        ARCHIVE DESTINATION lib COMPONENT Development
+        RUNTIME DESTINATION bin COMPONENT Runtime
+        PUBLIC_HEADER DESTINATION include COMPONENT Development
+        BUNDLE DESTINATION bin COMPONENT Runtime
+)
+
+configure_package_config_file(
+  "${PROJECT_SOURCE_DIR}/cmake/deduplicatorConfig.cmake.in"
+  "${PROJECT_BINARY_DIR}/deduplicatorConfig.cmake"
+  INSTALL_DESTINATION lib/cmake/deduplicator)
+
+install(EXPORT deduplicatorTargets FILE deduplicatorTargets.cmake NAMESPACE Deduplicator:: DESTINATION lib/cmake/deduplicator)
+install(FILES "${PROJECT_BINARY_DIR}/deduplicatorConfigVersion.cmake"
+              "${PROJECT_BINARY_DIR}/deduplicatorConfig.cmake"
+        DESTINATION lib/cmake/deduplicator)
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
+
 enable_testing()
 add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
 add_test(NAME naive_chkpt_test COMMAND naive_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)

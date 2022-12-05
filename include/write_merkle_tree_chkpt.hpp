@@ -25,7 +25,6 @@ write_incr_chkpt_hashtree_local_mode(
   if(num_chunks*chunk_size < data.size()) {
     num_chunks += 1;
   }
-printf("Expected version\n");
   uint32_t num_nodes = 2*num_chunks-1;
 
   uint32_t distinct_size = 0;

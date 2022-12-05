@@ -99,6 +99,10 @@ class Deduplicator {
 //    DistinctNodeIDMap first_ocur_d;
     CompactTable first_ocur_updates_d;
     CompactTable shift_dupl_updates_d;
+    // Hash list
+    DistinctNodeIDMap first_ocur_chunks_d;
+    SharedNodeIDMap shift_dupl_chunks_d;
+    SharedNodeIDMap fixed_dupl_chunks_d;
     uint32_t chunk_size;
     uint32_t num_chunks;
     uint32_t num_nodes;
@@ -132,7 +136,7 @@ class Deduplicator {
       mode = Tree;
     }
 
-    void checkpoint(Kokkos::View<uint8_t*>& data, std::string& filename, std::string& logname, bool make_baseline) {
+    void checkpoint(DedupMode mode, Kokkos::View<uint8_t*>& data, std::string& filename, std::string& logname, bool make_baseline) {
       // ==========================================================================================
       // Deduplicate data
       // ==========================================================================================
@@ -142,42 +146,103 @@ class Deduplicator {
         num_chunks += 1;
       num_nodes = 2*num_chunks-1;
 
-      if(current_id == 0) {
-        tree = MerkleTree(num_chunks);
-        first_ocur_d = DigestNodeIDMap(num_nodes);
-        first_ocur_updates_d = CompactTable(num_chunks);
-        shift_dupl_updates_d = CompactTable(num_chunks);
-      }
-      if(tree.tree_d.size() < num_nodes) {
-        Kokkos::resize(tree.tree_d, num_nodes);
-        Kokkos::resize(tree.tree_h, num_nodes);
-      }
-      if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
-        first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
-      if(num_chunks != first_ocur_updates_d.capacity()) {
-        first_ocur_updates_d.rehash(num_nodes);
-        shift_dupl_updates_d.rehash(num_nodes);
+      HashList list;
+      Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
+
+      DistinctNodeIDMap l_first_ocur_chunks; 
+      SharedNodeIDMap l_shift_dupl_chunks; 
+      SharedNodeIDMap l_fixed_dupl_chunks; 
+
+      if(mode == Naive) {
+        Kokkos::resize(leaves.list_d, num_chunks);
+        Kokkos::resize(leaves.list_h, num_chunks);
+        list = HashList(num_chunks);
+        changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+      } else if(mode == List) {
+        if(current_id == 0) {
+          leaves = HashList(num_chunks);
+          first_ocur_chunks_d = DistinctNodeIDMap(num_chunks);
+          shift_dupl_chunks_d = SharedNodeIDMap(num_chunks);
+          fixed_dupl_chunks_d = SharedNodeIDMap(num_chunks);
+        }
+        if(leaves.list_d.size() < num_chunks) {
+          Kokkos::resize(leaves.list_d, num_nodes);
+          Kokkos::resize(leaves.list_h, num_nodes);
+        }
+        if(first_ocur_chunks_d.capacity() < first_ocur_chunks_d.size()+num_chunks)
+          first_ocur_chunks_d.rehash(first_ocur_chunks_d.size()+num_chunks);
+        l_first_ocur_chunks = DistinctNodeIDMap(num_chunks);
+        l_shift_dupl_chunks = SharedNodeIDMap(num_chunks);
+        l_fixed_dupl_chunks = SharedNodeIDMap(num_chunks);
+      } else if(mode == Tree) {
+        if(current_id == 0) {
+          tree = MerkleTree(num_chunks);
+          first_ocur_d = DigestNodeIDMap(num_nodes);
+          first_ocur_updates_d = CompactTable(num_chunks);
+          shift_dupl_updates_d = CompactTable(num_chunks);
+        }
+        if(tree.tree_d.size() < num_nodes) {
+          Kokkos::resize(tree.tree_d, num_nodes);
+          Kokkos::resize(tree.tree_h, num_nodes);
+        }
+        if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
+          first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
+        if(num_chunks != first_ocur_updates_d.capacity()) {
+          first_ocur_updates_d.rehash(num_nodes);
+          shift_dupl_updates_d.rehash(num_nodes);
+        }
+        first_ocur_updates_d.clear();
+        shift_dupl_updates_d.clear();
       }
 
-      first_ocur_updates_d.clear();
-      shift_dupl_updates_d.clear();
       using Timer = std::chrono::high_resolution_clock;
+      using Duration = std::chrono::duration<double>;
       std::string dedup_region_name = std::string("Deduplication chkpt ") + std::to_string(current_id);
       Timer::time_point start_create_tree0 = Timer::now();
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
-      if((current_id == 0) || make_baseline) {
-        create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, first_ocur_d, shift_dupl_updates_d);
-        baseline_id = current_id;
-      } else {
-        deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-//        num_subtree_roots(data, chunk_size, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+
+      if(mode == Naive) {
+        compare_lists_naive(hash_func, leaves, list, changes_bitset, current_id, data, chunk_size);
+      } else if(mode == List) {
+        compare_lists_global(hash_func, leaves, current_id, data, chunk_size, 
+                             l_fixed_dupl_chunks, l_shift_dupl_chunks, first_ocur_chunks_d, 
+                             fixed_dupl_chunks_d, shift_dupl_chunks_d, first_ocur_chunks_d);
+        STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
+               first_ocur_d.capacity(), first_ocur_d.size());
+        STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
+               first_ocur_chunks_d.capacity(), first_ocur_chunks_d.size());
+        STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
+               l_shift_dupl_chunks.capacity(), l_shift_dupl_chunks.size());
+      } else if(mode == Tree) {
+        if((current_id == 0) || make_baseline) {
+          create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, 
+                                           first_ocur_d, shift_dupl_updates_d);
+          baseline_id = current_id;
+        } else {
+          deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
+                                         first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+//          num_subtree_roots(data, chunk_size, tree, current_id, 
+//                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+        }
       }
+
       Kokkos::Profiling::popRegion();
       Timer::time_point end_create_tree0 = Timer::now();
-      timers[0] = std::chrono::duration_cast<std::chrono::duration<double>>(end_create_tree0 - start_create_tree0).count();
-      printf("First occurrence map capacity:    %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
-      printf("First occurrence update capacity: %lu, size: %lu\n", first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-      printf("Shift duplicate update capacity:  %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
+      timers[0] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
+
+//      STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
+//             first_ocur_d.capacity(), first_ocur_d.size());
+//      STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
+//             first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
+//      STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
+//             shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
+
+      if(mode == Naive) {
+  	    Kokkos::deep_copy(leaves.list_d, list.list_d);
+      } else if(mode == List) {
+        Kokkos::deep_copy(shift_dupl_chunks_d, l_shift_dupl_chunks);
+        Kokkos::deep_copy(fixed_dupl_chunks_d, l_fixed_dupl_chunks);
+      }
 
       // ==========================================================================================
       // Create Diff
@@ -188,18 +253,35 @@ class Deduplicator {
                                 + std::to_string(current_id);
       Timer::time_point start_collect = Timer::now();
       Kokkos::Profiling::pushRegion(collect_region_name.c_str());
-      if((current_id == 0) || make_baseline) {
-        datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
-                                                          first_ocur_d, shift_dupl_updates_d, 
-                                                          baseline_id, current_id, header);
-      } else {
-        datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
-                                                          first_ocur_updates_d, shift_dupl_updates_d, 
-                                                          baseline_id, current_id, header);
+
+      if(mode == Naive) {
+        datasizes = write_incr_chkpt_hashlist_naive(data, diff, chunk_size, changes_bitset, 
+                                                    0, current_id, header);
+      } else if(mode == List) {
+        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
+                                                     first_ocur_chunks_d, l_shift_dupl_chunks, 
+                                                     0, current_id, header);
+      } else if(mode == Tree) {
+        if((current_id == 0) || make_baseline) {
+          datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
+                                                           first_ocur_d, shift_dupl_updates_d, 
+                                                           baseline_id, current_id, header);
+        } else {
+          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
+                                                            first_ocur_updates_d, 
+                                                            shift_dupl_updates_d, 
+                                                            baseline_id, current_id, header);
+        }
       }
+
       Kokkos::Profiling::popRegion();
       Timer::time_point end_collect = Timer::now();
-      timers[1] = std::chrono::duration_cast<std::chrono::duration<double>>(end_collect - start_collect).count();
+      timers[1] = std::chrono::duration_cast<Duration>(end_collect - start_collect).count();
+
+      if(mode == Full) {
+        Kokkos::resize(diff, data.size());
+        Kokkos::deep_copy(diff, data);
+      }
       
       // ==========================================================================================
       // Write diff to file
@@ -209,9 +291,18 @@ class Deduplicator {
       std::string write_region_name = std::string("Copy diff to host ") 
                                       + std::to_string(current_id);
       Kokkos::Profiling::pushRegion(write_region_name.c_str());
-      Kokkos::deep_copy(diff_h, diff);
+
+      if(mode == Full) {
+        Kokkos::deep_copy(diff_h, data);
+      } else if(mode == Naive) {
+        Kokkos::deep_copy(diff_h, diff);
+        memcpy(diff_h.data(), &header, sizeof(header_t));
+      } else if((mode == Tree) || (mode == List)) {
+        Kokkos::deep_copy(diff_h, diff);
+      }
+
       Timer::time_point end_write = Timer::now();
-      timers[2] = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
+      timers[2] = std::chrono::duration_cast<Duration>(end_write - start_write).count();
 
       std::fstream result_data, timing_file, size_file;
       std::string result_logname = logname+".chunk_size."+std::to_string(chunk_size)+".csv";
@@ -222,15 +313,101 @@ class Deduplicator {
       timing_file.open(timing_logname, std::fstream::out | std::fstream::app);
 
       uint32_t num_chkpts = 10;
-      result_data << timers[0] << ',' << timers[1] << ',' << timers[2] << ',' << datasizes.first << ',' << datasizes.second << std::endl;
-      timing_file << "Tree" << "," << current_id << "," << chunk_size << "," << timers[0] << "," << timers[1] << "," << timers[2] << std::endl;
-      size_file << "Tree" << "," << current_id << "," << chunk_size << "," << datasizes.first << "," << datasizes.second << ",";
-      write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+
+      if(mode == Full) {
+        result_data << "0.0" << ","          // Comparison time
+                    << "0.0" << ","          // Collection time
+                    << timers[2] << ","     // Write time
+                    << data.size() << ',' // Size of data
+                    << "0" << ',';           // Size of metadata
+        timing_file << "Full" << ","     // Approach
+                    << current_id << ","        // Checkpoint ID
+                    << chunk_size << "," // Chunk size
+                    << "0.0" << ","      // Comparison time
+                    << "0.0" << ","      // Collection time
+                    << timers[2]        // Write time
+                    << std::endl;
+        size_file << "Full" << ","         // Approach
+                  << current_id << ","            // Checkpoint ID
+                  << chunk_size << ","     // Chunk size
+                  << data.size() << "," // Size of data
+                  << "0,"                  // Size of metadata
+                  << "0,"                  // Size of header
+                  << "0,"                  // Size of distinct metadata
+                  << "0";                  // Size of repeat map
+        for(uint32_t j=0; j<num_chkpts; j++) {
+          size_file << ",0"; // Size of metadata for checkpoint j
+        }
+        size_file << std::endl;
+      } else if(mode == Naive) {
+        result_data << timers[0] << ','      // Comparison time
+                    << timers[1] << ','      // Collection time  
+                    << timers[2] << ','        // Write time
+                    << datasizes.first << ','   // Size of data     
+                    << datasizes.second << ','; // Size of metadata 
+        timing_file << "Naive" << ","      // Approach
+                    << current_id << ","          // Checkpoint ID
+                    << chunk_size << ","   // Chunk size      
+                    << timers[0] << "," // Comparison time 
+                    << timers[1] << "," // Collection time 
+                    << timers[2]          // Write time
+                    << std::endl;
+        size_file << "Naive" << ","           // Approach
+                  << current_id << ","               // Checkpoint ID
+                  << chunk_size << ","        // Chunk size
+                  << datasizes.first << ","   // Size of data
+                  << datasizes.second << ","; // Size of metadata
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      } else if(mode == List) {
+        result_data << timers[0] << ',' 
+                    << timers[1] << ',' 
+                    << timers[2] << ',' 
+                    << datasizes.first << ',' 
+                    << datasizes.second << ',';
+        timing_file << "List" << "," 
+                    << current_id << "," 
+                    << chunk_size << "," 
+                    << timers[0] << "," // Comparison time 
+                    << timers[1] << "," // Collection time 
+                    << timers[2]          // Write time
+                    << std::endl;
+        size_file << "List" << "," 
+                  << current_id << "," 
+                  << chunk_size << "," 
+                  << datasizes.first << "," 
+                  << datasizes.second << ",";
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      } else if(mode == Tree) {
+        result_data << timers[0] << ',' 
+                    << timers[1] << ',' 
+                    << timers[2] << ',' 
+                    << datasizes.first << ',' 
+                    << datasizes.second << std::endl;
+        timing_file << "Tree" << "," 
+                    << current_id << "," 
+                    << chunk_size << "," 
+                    << timers[0] << "," 
+                    << timers[1] << "," 
+                    << timers[2] << std::endl;
+        size_file << "Tree" << "," 
+                  << current_id << "," 
+                  << chunk_size << "," 
+                  << datasizes.first << "," 
+                  << datasizes.second << ",";
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      }
+
       std::ofstream file;
       file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
       file.open(filename, std::ofstream::out | std::ofstream::binary);
-      file.write((char*)(&header), sizeof(header_t));
-      file.write((const char*)(diff_h.data()), diff_h.size());
+
+      if((mode == Full) || (mode == Naive)) {
+        file.write((const char*)(diff_h.data()), diff_h.size());
+      } else if((mode == Tree) || (mode == List)) {
+        file.write((char*)(&header), sizeof(header_t));
+        file.write((const char*)(diff_h.data()), diff_h.size());
+      }
+
       file.flush();
       file.close();
       result_data.close();
@@ -273,9 +450,9 @@ class Deduplicator {
         deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
 //        num_subtree_roots(data, chunk_size, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
       }
-      printf("First occurrence map capacity:    %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
-      printf("First occurrence update capacity: %lu, size: %lu\n", first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-      printf("Shift duplicate update capacity:  %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
+      STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
+      STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
+      STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
 
       Kokkos::deep_copy(tree.tree_h, tree.tree_d);
     }

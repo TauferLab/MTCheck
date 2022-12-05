@@ -57,11 +57,13 @@ void create_merkle_tree_deterministic(Hasher& hasher,
         num_bytes = data.size()-((i-leaf_start)*chunk_size);
       // Calc hash for leaf chunk or hash of child hashes
       if(i >= leaf_start) {
-        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+//        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+        hash(data.data()+((i-leaf_start)*chunk_size), 
                     num_bytes, 
                     (uint8_t*)(tree(i).digest));
       } else {
-        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+//        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+        hash((uint8_t*)(&tree(2*i+1)), 2*sizeof(HashDigest), (uint8_t*)(tree(i).digest));
       }
       // Insert hash and node info into either the 
       // first occurrece table or the shifted duplicate table
@@ -121,11 +123,13 @@ void create_merkle_tree(Hasher& hasher,
         num_bytes = data.size()-((i-leaf_start)*chunk_size);
       // Calc hash for leaf chunk or hash of child hashes
       if(i >= leaf_start) {
-        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+//        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+        hash(data.data()+((i-leaf_start)*chunk_size), 
                     num_bytes, 
                     (uint8_t*)(tree(i).digest));
       } else {
-        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+//        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+        hash((uint8_t*)&tree(2*i+1), 2*sizeof(HashDigest), (uint8_t*)(tree(i).digest));
       }
       // Insert hash and node info into either the 
       // first occurrece table or the shifted duplicate table
@@ -178,11 +182,13 @@ void create_merkle_tree(Hasher& hasher,
         num_bytes = data.size()-((i-leaf_start)*chunk_size);
       // Calc hash for leaf chunk or hash of child hashes
       if(i >= leaf_start) {
-        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+//        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
+        hash(data.data()+((i-leaf_start)*chunk_size), 
                     num_bytes, 
                     (uint8_t*)(tree(i).digest));
       } else {
-        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+//        hasher.hash((uint8_t*)&tree(2*i+1), 2*hasher.digest_size(), (uint8_t*)&tree(i));
+        hash((uint8_t*)&tree(2*i+1), 2*sizeof(HashDigest), (uint8_t*)(tree(i).digest));
       }
       // Insert hash and node info into either the 
       // first occurrece table or the shifted duplicate table
@@ -223,8 +229,8 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
 
   uint32_t num_chunks = (curr_tree.tree_h.extent(0)+1)/2;
   uint32_t num_nodes = curr_tree.tree_h.extent(0);
-  printf("Num chunks: %u\n", num_chunks);
-  printf("Num nodes: %u\n", num_nodes);
+  STDOUT_PRINT("Num chunks: %u\n", num_chunks);
+  STDOUT_PRINT("Num nodes: %u\n", num_nodes);
 
   uint32_t level_beg = 0;
   uint32_t level_end = 0;
@@ -245,7 +251,8 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
       num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
     HashDigest digest;
-    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+//    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
     // Insert into table
     auto result = first_occur_d.insert(digest, NodeID(leaf, chkpt_id)); 
     if(digests_same(digest, curr_tree(leaf))) { // Fixed duplicate chunk
@@ -292,7 +299,8 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
         uint32_t child_r = 2*node+2;
         if(labels(child_l) == FIRST_OCUR && labels(child_r) == FIRST_OCUR) {
           labels(node) = FIRST_OCUR;
-          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+//          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+          hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           first_occur_d.insert(curr_tree(node), NodeID(node, chkpt_id));
         }
         if(node == 0 && labels(0) == FIRST_OCUR)
@@ -327,7 +335,8 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
         } else if(labels(child_l) == FIXED_DUPL) { // Children are both fixed duplicates
           labels(node) = FIXED_DUPL;
         } else if(labels(child_l) == SHIFT_DUPL) { // Children are both shifted duplicates
-          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+//          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+          hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           if(first_occur_d.exists(curr_tree(node))) { // This node is also a shifted duplicate
             labels(node) = SHIFT_DUPL;
           } else { // Node is not a shifted duplicate. Save child trees
@@ -370,9 +379,9 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
 //  
 //  for(auto iter = tree_root_set.begin(); iter != tree_root_set.end(); iter++) {
 //    if(labels_h(*iter) == FIRST_OCUR) {
-//printf("%u FIRST_OCUR\n", *iter);
+//STDOUT_PRINT("%u FIRST_OCUR\n", *iter);
 //    } else if(labels_h(*iter) == SHIFT_DUPL) {
-//printf("%u SHIFT_DUPL\n", *iter);
+//STDOUT_PRINT("%u SHIFT_DUPL\n", *iter);
 //    }
 //  }
 
@@ -381,13 +390,13 @@ void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data,
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);
   Kokkos::deep_copy(region_counters_h, region_counters);
 
-  printf("Checkpoint %u\n", chkpt_id);
-  printf("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
-  printf("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Checkpoint %u\n", chkpt_id);
+  STDOUT_PRINT("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
   return;
 }
 
@@ -415,8 +424,8 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 
   uint32_t num_chunks = (curr_tree.tree_h.extent(0)+1)/2;
   uint32_t num_nodes = curr_tree.tree_h.extent(0);
-  printf("Num chunks: %u\n", num_chunks);
-  printf("Num nodes: %u\n", num_nodes);
+  STDOUT_PRINT("Num chunks: %u\n", num_chunks);
+  STDOUT_PRINT("Num nodes: %u\n", num_nodes);
 
   uint32_t level_beg = 0;
   uint32_t level_end = 0;
@@ -436,7 +445,8 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
       num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
     HashDigest digest;
-    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+//    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
     // Insert into table
     auto result = first_occur_d.insert(digest, NodeID(leaf, chkpt_id)); 
     if(digests_same(digest, curr_tree(leaf))) { // Fixed duplicate chunk
@@ -497,14 +507,16 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           }
         } else if(labels(child_l) == FIRST_OCUR && labels(child_r) == FIRST_OCUR) {
           labels(node) = FIRST_OCUR;
-          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+//          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+          hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           first_occur_d.insert(curr_tree(node), NodeID(node, chkpt_id));
           if(node == 0 && labels(0) == FIRST_OCUR)
             tree_roots.push(0);
         } else if(labels(child_l) == FIXED_DUPL) { // Children are both fixed duplicates
           labels(node) = FIXED_DUPL;
         } else if(labels(child_l) == SHIFT_DUPL) { // Children are both shifted duplicates
-          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+//          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+          hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           if(first_occur_d.exists(curr_tree(node))) { // This node is also a shifted duplicate
             labels(node) = SHIFT_DUPL;
           } else { // Node is not a shifted duplicate. Save child trees
@@ -546,9 +558,9 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 //  
 //  for(auto iter = tree_root_set.begin(); iter != tree_root_set.end(); iter++) {
 //    if(labels_h(*iter) == FIRST_OCUR) {
-//printf("%u FIRST_OCUR\n", *iter);
+//STDOUT_PRINT("%u FIRST_OCUR\n", *iter);
 //    } else if(labels_h(*iter) == SHIFT_DUPL) {
-//printf("%u SHIFT_DUPL\n", *iter);
+//STDOUT_PRINT("%u SHIFT_DUPL\n", *iter);
 //    }
 //  }
 
@@ -557,13 +569,13 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);
   Kokkos::deep_copy(region_counters_h, region_counters);
 
-  printf("Checkpoint %u\n", chkpt_id);
-  printf("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
-  printf("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Checkpoint %u\n", chkpt_id);
+  STDOUT_PRINT("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
   return;
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
   Kokkos::fence();
@@ -572,20 +584,20 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 //  Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t _node) {
 //    for(uint32_t node=0; node<num_nodes; node++) {
 //      if(first_ocur_updates.exists(node)) {
-//printf("%u FIRST_OCUR\n", node);
+//STDOUT_PRINT("%u FIRST_OCUR\n", node);
 //      } else if(shift_dupl_updates.exists(node)) {
-//printf("%u SHIFT_DUPL\n", node);
+//STDOUT_PRINT("%u SHIFT_DUPL\n", node);
 //      }
 //    }
 //  });
 
-  printf("Checkpoint %u\n", chkpt_id);
-  printf("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
-  printf("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
-  printf("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
-  printf("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Checkpoint %u\n", chkpt_id);
+  STDOUT_PRINT("Number of first occurrence chunks:  %lu\n", chunk_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate chunks:   %lu\n", chunk_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate chunks: %lu\n", chunk_counters_h(SHIFT_DUPL));
+  STDOUT_PRINT("Number of first occurrence regions:  %lu\n", region_counters_h(FIRST_OCUR));
+  STDOUT_PRINT("Number of fixed duplicate regions:   %lu\n", region_counters_h(FIXED_DUPL));
+  STDOUT_PRINT("Number of shifted duplicate regions: %lu\n", region_counters_h(SHIFT_DUPL));
   return;
 }
 
@@ -670,7 +682,8 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
         uint32_t num_bytes = chunk_size;
         if(node == num_nodes-1)
           num_bytes = data.size()-(node-leaf_start)*chunk_size;
-        hasher.hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
+//        hasher.hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
+        hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
 
         if(tree_id != 0) {
           NodeID info = NodeID(node,tree_id);
@@ -794,11 +807,13 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
         uint32_t child_r = 2*node + 2;
         tree.distinct_children_d(node) = tree.distinct_children_d(child_l)/2 + tree.distinct_children_d(child_r)/2;
         if(tree.distinct_children_d(node) == 2) {
-          hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+//          hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+          hash((uint8_t*)&tree(2*(node)+1), 2*sizeof(HashDigest), (uint8_t*)(tree(node).digest));
           distinct_map.insert(tree(node), NodeID(node, tree_id));
           nodes_leftover(0) += static_cast<uint32_t>(1);
         } else if(tree.distinct_children_d(node) == 8) {
-          hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+//          hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+          hash((uint8_t*)&tree(2*(node)+1), 2*sizeof(HashDigest), (uint8_t*)(tree(node).digest));
           if(prior_distinct_map.exists(tree(node))) {
             nodes_leftover(0) += static_cast<uint32_t>(1);
           } else {
@@ -931,7 +946,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
 #ifdef STATS
 if(start_offset >= leaf_start-(num_chunks/2)) {
   Kokkos::fence();
-  printf("------------------------------\n");
+  STDOUT_PRINT("------------------------------\n");
   uint32_t n_distinct = 0;
   Kokkos::RangePolicy<> reduce_policy(start_offset, end_offset);
   Kokkos::parallel_reduce("Count number of distinct", reduce_policy, KOKKOS_LAMBDA(const uint32_t i, uint32_t& update) {
@@ -1089,7 +1104,8 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           uint32_t num_bytes = chunk_size;
           if(node == num_nodes-1)
             num_bytes = data.size()-(node-leaf_start)*chunk_size;
-          hasher.hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
+//          hasher.hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
+          hash(data.data()+((node-leaf_start)*chunk_size), num_bytes, tree(node).digest);
   
           if(tree_id != 0) {
             NodeID info = NodeID(node,tree_id);
@@ -1215,11 +1231,13 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
           uint32_t child_r = 2*node + 2;
           tree.distinct_children_d(node) = tree.distinct_children_d(child_l)/2 + tree.distinct_children_d(child_r)/2;
           if(tree.distinct_children_d(node) == 2) { // Both children are distinct
-            hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+//            hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+            hash((uint8_t*)&tree(2*(node)+1), 2*sizeof(HashDigest), (uint8_t*)(tree(node).digest));
             distinct_map.insert(tree(node), NodeID(node, tree_id));
             nodes_leftover(0) += static_cast<uint32_t>(1);
           } else if(tree.distinct_children_d(node) == 8) { // Both children are repeats
-            hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+//            hasher.hash((uint8_t*)&tree(2*(node)+1), 2*hasher.digest_size(), (uint8_t*)&tree(node));
+            hash((uint8_t*)&tree(2*(node)+1), 2*sizeof(HashDigest), (uint8_t*)(tree(node).digest));
             if(prior_distinct_map.exists(tree(node))) {
               nodes_leftover(0) += static_cast<uint32_t>(1);
             } else {
