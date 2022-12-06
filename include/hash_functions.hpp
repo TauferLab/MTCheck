@@ -90,6 +90,9 @@ class Hasher {
   KOKKOS_FORCEINLINE_FUNCTION
   Hasher() {}
 
+  KOKKOS_FORCEINLINE_FUNCTION
+  Hasher(const Hasher& hasher) {}
+
   virtual std::string hash_name() = 0;
 
   KOKKOS_FORCEINLINE_FUNCTION

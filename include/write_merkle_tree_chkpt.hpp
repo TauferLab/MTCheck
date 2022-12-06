@@ -11,9 +11,10 @@
 #include <iostream>
 #include "utils.hpp"
 
+template<typename DataView>
 std::pair<uint64_t,uint64_t> 
 write_incr_chkpt_hashtree_local_mode(  
-                                const Kokkos::View<uint8_t*>& data, 
+                                const DataView& data, 
                                 Kokkos::View<uint8_t*>& buffer_d,
                                 uint32_t chunk_size, 
                                 const DistinctNodeIDMap& distinct, 
@@ -914,9 +915,10 @@ write_incr_chkpt_hashtree_global_mode(
   return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
 }
 
+template<typename DataView>
 std::pair<uint64_t,uint64_t> 
 write_incr_chkpt_hashtree_global_mode( 
-                                const Kokkos::View<uint8_t*>& data, 
+                                const DataView& data, 
                                 Kokkos::View<uint8_t*>& buffer_d, 
                                 uint32_t chunk_size, 
                                 const CompactTable& distinct, 

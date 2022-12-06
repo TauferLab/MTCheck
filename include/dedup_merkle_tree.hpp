@@ -22,10 +22,10 @@ enum Label : uint8_t {
 
 // Build full merkle tree and track all first occurrences of 
 // new chunks and shifted duplicate chunks.
-template <class Hasher>
+template <class Hasher, typename DataView>
 void create_merkle_tree_deterministic(Hasher& hasher, 
                         MerkleTree& tree, 
-                        Kokkos::View<uint8_t*>& data, 
+                        DataView& data, 
                         uint32_t chunk_size, 
                         uint32_t tree_id, 
                         DistinctNodeIDMap& distinct_map, 
@@ -205,8 +205,8 @@ void create_merkle_tree(Hasher& hasher,
   Kokkos::fence();
 }
 
-template<class Hasher>
-void deduplicate_data_deterministic(Kokkos::View<uint8_t*>& data, 
+template<class Hasher, typename DataView>
+void deduplicate_data_deterministic(DataView& data, 
                       const uint32_t chunk_size, 
                       const Hasher hasher, 
                       MerkleTree& curr_tree, 

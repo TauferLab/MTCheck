@@ -33,7 +33,7 @@ restart_full_chkpt(
   file.open(chkpt_files[select_chkpt], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
   size_t filesize = file.tellg();
   file.seekg(0);
-  Kokkos::View<uint8_t*> reference_d("Reference", filesize);
+  Kokkos::View<uint8_t*> reference_d("Full Reference", filesize);
   Kokkos::deep_copy(reference_d, 0);
   auto reference_h = Kokkos::create_mirror_view(reference_d);
   // Total time
@@ -96,7 +96,7 @@ restart_naive_list_chkpt(
   file.open(chkpt_files[select_chkpt], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
   size_t filesize = file.tellg();
   file.seekg(0);
-  Kokkos::View<uint8_t*> reference_d("Reference", filesize);
+  Kokkos::View<uint8_t*> reference_d("Naive Reference", filesize);
   Kokkos::deep_copy(reference_d, 0);
   std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
   naive_list_times = restart_incr_chkpt_naivehashlist(chkpt_files, select_chkpt, reference_d);

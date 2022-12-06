@@ -11,8 +11,11 @@
 #include "dedup_merkle_tree.hpp"
 #include "write_merkle_tree_chkpt.hpp"
 #include "kokkos_hash_list.hpp"
+#include "restart_merkle_tree.hpp"
 //#include "dedup_approaches.hpp"
 #include "utils.hpp"
+
+#define VERIFY_OUTPUT
 
 void write_metadata_breakdown2(std::fstream& fs, 
                               header_t& header, 
@@ -113,6 +116,7 @@ class Deduplicator {
     std::pair<uint64_t,uint64_t> datasizes;
 //    std::chrono::duration<double> timers[3];
     double timers[3];
+    double restart_timers[2];
 
     Deduplicator() {
       tree = MerkleTree(1);
@@ -136,10 +140,124 @@ class Deduplicator {
       mode = Tree;
     }
 
-    void checkpoint(DedupMode mode, Kokkos::View<uint8_t*>& data, std::string& filename, std::string& logname, bool make_baseline) {
+    void write_chkpt_log(header_t& header, Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& logname) {
+      std::fstream result_data, timing_file, size_file;
+      std::string result_logname = logname+".chunk_size."+std::to_string(chunk_size)+".csv";
+      std::string size_logname = logname+".chunk_size."+std::to_string(chunk_size)+".size.csv";
+      std::string timing_logname = logname+".chunk_size."+std::to_string(chunk_size)+".timing.csv";
+      result_data.open(result_logname, std::fstream::out | std::fstream::app);
+      size_file.open(size_logname, std::fstream::out | std::fstream::app);
+      timing_file.open(timing_logname, std::fstream::out | std::fstream::app);
+
+      uint32_t num_chkpts = 10;
+
+      if(mode == Full) {
+        result_data << "0.0" << ","          // Comparison time
+                    << "0.0" << ","          // Collection time
+                    << timers[2] << ","     // Write time
+                    << datasizes.first << ',' // Size of data
+                    << "0" << ',';           // Size of metadata
+        timing_file << "Full" << ","     // Approach
+                    << current_id << ","        // Checkpoint ID
+                    << chunk_size << "," // Chunk size
+                    << "0.0" << ","      // Comparison time
+                    << "0.0" << ","      // Collection time
+                    << timers[2]        // Write time
+                    << std::endl;
+        size_file << "Full" << ","         // Approach
+                  << current_id << ","            // Checkpoint ID
+                  << chunk_size << ","     // Chunk size
+                  << datasizes.first << "," // Size of data
+                  << "0,"                  // Size of metadata
+                  << "0,"                  // Size of header
+                  << "0,"                  // Size of distinct metadata
+                  << "0";                  // Size of repeat map
+        for(uint32_t j=0; j<num_chkpts; j++) {
+          size_file << ",0"; // Size of metadata for checkpoint j
+        }
+        size_file << std::endl;
+      } else if(mode == Naive) {
+        result_data << timers[0] << ','      // Comparison time
+                    << timers[1] << ','      // Collection time  
+                    << timers[2] << ','        // Write time
+                    << datasizes.first << ','   // Size of data     
+                    << datasizes.second << ','; // Size of metadata 
+        timing_file << "Naive" << ","      // Approach
+                    << current_id << ","          // Checkpoint ID
+                    << chunk_size << ","   // Chunk size      
+                    << timers[0] << "," // Comparison time 
+                    << timers[1] << "," // Collection time 
+                    << timers[2]          // Write time
+                    << std::endl;
+        size_file << "Naive" << ","           // Approach
+                  << current_id << ","               // Checkpoint ID
+                  << chunk_size << ","        // Chunk size
+                  << datasizes.first << ","   // Size of data
+                  << datasizes.second << ","; // Size of metadata
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      } else if(mode == List) {
+        result_data << timers[0] << ',' 
+                    << timers[1] << ',' 
+                    << timers[2] << ',' 
+                    << datasizes.first << ',' 
+                    << datasizes.second << ',';
+        timing_file << "List" << "," 
+                    << current_id << "," 
+                    << chunk_size << "," 
+                    << timers[0] << "," // Comparison time 
+                    << timers[1] << "," // Collection time 
+                    << timers[2]          // Write time
+                    << std::endl;
+        size_file << "List" << "," 
+                  << current_id << "," 
+                  << chunk_size << "," 
+                  << datasizes.first << "," 
+                  << datasizes.second << ",";
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      } else if(mode == Tree) {
+        result_data << timers[0] << ',' 
+                    << timers[1] << ',' 
+                    << timers[2] << ',' 
+                    << datasizes.first << ',' 
+                    << datasizes.second << std::endl;
+        timing_file << "Tree" << "," 
+                    << current_id << "," 
+                    << chunk_size << "," 
+                    << timers[0] << "," 
+                    << timers[1] << "," 
+                    << timers[2] << std::endl;
+        size_file << "Tree" << "," 
+                  << current_id << "," 
+                  << chunk_size << "," 
+                  << datasizes.first << "," 
+                  << datasizes.second << ",";
+        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+      }
+    }
+
+    void write_chkpt(header_t& header, Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& filename) {
+      std::ofstream file;
+      file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+      file.open(filename, std::ofstream::out | std::ofstream::binary);
+
+      if((mode == Full) || (mode == Naive)) {
+        file.write((const char*)(diff_h.data()), diff_h.size());
+      } else if((mode == Tree) || (mode == List)) {
+        file.write((char*)(&header), sizeof(header_t));
+        file.write((const char*)(diff_h.data()), diff_h.size());
+      }
+
+      file.flush();
+      file.close();
+    }
+
+    template<typename DataView>
+    void checkpoint(DedupMode dedup_mode, header_t& header, DataView& data, Kokkos::View<uint8_t*>::HostMirror& diff_h, bool make_baseline) {
+//    void checkpoint(DedupMode dedup_mode, DataView& data, std::string& filename, std::string& logname, bool make_baseline) {
       // ==========================================================================================
       // Deduplicate data
       // ==========================================================================================
+      mode = dedup_mode;
       data_len = data.size();
       num_chunks = data_len/chunk_size;
       if(num_chunks*chunk_size < data_len)
@@ -230,13 +348,6 @@ class Deduplicator {
       Timer::time_point end_create_tree0 = Timer::now();
       timers[0] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
 
-//      STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
-//             first_ocur_d.capacity(), first_ocur_d.size());
-//      STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
-//             first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-//      STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
-//             shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
-
       if(mode == Naive) {
   	    Kokkos::deep_copy(leaves.list_d, list.list_d);
       } else if(mode == List) {
@@ -248,13 +359,14 @@ class Deduplicator {
       // Create Diff
       // ==========================================================================================
       Kokkos::View<uint8_t*> diff;
-      header_t header;
       std::string collect_region_name = std::string("Start writing incremental checkpoint ") 
                                 + std::to_string(current_id);
       Timer::time_point start_collect = Timer::now();
       Kokkos::Profiling::pushRegion(collect_region_name.c_str());
 
-      if(mode == Naive) {
+      if(mode == Full) {
+        datasizes = std::make_pair(data.size(), 0);
+      } else if(mode == Naive) {
         datasizes = write_incr_chkpt_hashlist_naive(data, diff, chunk_size, changes_bitset, 
                                                     0, current_id, header);
       } else if(mode == List) {
@@ -284,9 +396,10 @@ class Deduplicator {
       }
       
       // ==========================================================================================
-      // Write diff to file
+      // Copy diff to host 
       // ==========================================================================================
-      auto diff_h = Kokkos::create_mirror_view(diff);
+//      auto diff_h = Kokkos::create_mirror_view(diff);
+      Kokkos::resize(diff_h, diff.size());
       Timer::time_point start_write = Timer::now();
       std::string write_region_name = std::string("Copy diff to host ") 
                                       + std::to_string(current_id);
@@ -301,120 +414,196 @@ class Deduplicator {
         Kokkos::deep_copy(diff_h, diff);
       }
 
+      Kokkos::Profiling::popRegion();
       Timer::time_point end_write = Timer::now();
       timers[2] = std::chrono::duration_cast<Duration>(end_write - start_write).count();
+    }
 
-      std::fstream result_data, timing_file, size_file;
-      std::string result_logname = logname+".chunk_size."+std::to_string(chunk_size)+".csv";
-      std::string size_logname = logname+".chunk_size."+std::to_string(chunk_size)+".size.csv";
-      std::string timing_logname = logname+".chunk_size."+std::to_string(chunk_size)+".timing.csv";
-      result_data.open(result_logname, std::fstream::out | std::fstream::app);
-      size_file.open(size_logname, std::fstream::out | std::fstream::app);
-      timing_file.open(timing_logname, std::fstream::out | std::fstream::app);
+    void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
+                    std::string& filename, std::string& logname, bool make_baseline) {
+      Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
+      Kokkos::View<uint8_t*>::HostMirror diff_h;
+      header_t header;
+      checkpoint(dedup_mode, header, data, diff_h, make_baseline);
+      write_chkpt_log(header, diff_h, logname);
+      write_chkpt(header, diff_h, filename);
 
-      uint32_t num_chkpts = 10;
-
-      if(mode == Full) {
-        result_data << "0.0" << ","          // Comparison time
-                    << "0.0" << ","          // Collection time
-                    << timers[2] << ","     // Write time
-                    << data.size() << ',' // Size of data
-                    << "0" << ',';           // Size of metadata
-        timing_file << "Full" << ","     // Approach
-                    << current_id << ","        // Checkpoint ID
-                    << chunk_size << "," // Chunk size
-                    << "0.0" << ","      // Comparison time
-                    << "0.0" << ","      // Collection time
-                    << timers[2]        // Write time
-                    << std::endl;
-        size_file << "Full" << ","         // Approach
-                  << current_id << ","            // Checkpoint ID
-                  << chunk_size << ","     // Chunk size
-                  << data.size() << "," // Size of data
-                  << "0,"                  // Size of metadata
-                  << "0,"                  // Size of header
-                  << "0,"                  // Size of distinct metadata
-                  << "0";                  // Size of repeat map
-        for(uint32_t j=0; j<num_chkpts; j++) {
-          size_file << ",0"; // Size of metadata for checkpoint j
-        }
-        size_file << std::endl;
-      } else if(mode == Naive) {
-        result_data << timers[0] << ','      // Comparison time
-                    << timers[1] << ','      // Collection time  
-                    << timers[2] << ','        // Write time
-                    << datasizes.first << ','   // Size of data     
-                    << datasizes.second << ','; // Size of metadata 
-        timing_file << "Naive" << ","      // Approach
-                    << current_id << ","          // Checkpoint ID
-                    << chunk_size << ","   // Chunk size      
-                    << timers[0] << "," // Comparison time 
-                    << timers[1] << "," // Collection time 
-                    << timers[2]          // Write time
-                    << std::endl;
-        size_file << "Naive" << ","           // Approach
-                  << current_id << ","               // Checkpoint ID
-                  << chunk_size << ","        // Chunk size
-                  << datasizes.first << ","   // Size of data
-                  << datasizes.second << ","; // Size of metadata
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
-      } else if(mode == List) {
-        result_data << timers[0] << ',' 
-                    << timers[1] << ',' 
-                    << timers[2] << ',' 
-                    << datasizes.first << ',' 
-                    << datasizes.second << ',';
-        timing_file << "List" << "," 
-                    << current_id << "," 
-                    << chunk_size << "," 
-                    << timers[0] << "," // Comparison time 
-                    << timers[1] << "," // Collection time 
-                    << timers[2]          // Write time
-                    << std::endl;
-        size_file << "List" << "," 
-                  << current_id << "," 
-                  << chunk_size << "," 
-                  << datasizes.first << "," 
-                  << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
-      } else if(mode == Tree) {
-        result_data << timers[0] << ',' 
-                    << timers[1] << ',' 
-                    << timers[2] << ',' 
-                    << datasizes.first << ',' 
-                    << datasizes.second << std::endl;
-        timing_file << "Tree" << "," 
-                    << current_id << "," 
-                    << chunk_size << "," 
-                    << timers[0] << "," 
-                    << timers[1] << "," 
-                    << timers[2] << std::endl;
-        size_file << "Tree" << "," 
-                  << current_id << "," 
-                  << chunk_size << "," 
-                  << datasizes.first << "," 
-                  << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
-      }
-
-      std::ofstream file;
-      file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
-      file.open(filename, std::ofstream::out | std::ofstream::binary);
-
-      if((mode == Full) || (mode == Naive)) {
-        file.write((const char*)(diff_h.data()), diff_h.size());
-      } else if((mode == Tree) || (mode == List)) {
-        file.write((char*)(&header), sizeof(header_t));
-        file.write((const char*)(diff_h.data()), diff_h.size());
-      }
-
-      file.flush();
-      file.close();
-      result_data.close();
-      size_file.close();
-      timing_file.close();
       current_id += 1;
     }
+
+    void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
+                    Kokkos::View<uint8_t*>::HostMirror& diff_h, bool make_baseline) {
+      Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
+      header_t header;
+      checkpoint(dedup_mode, header, data, diff_h, make_baseline);
+      current_id += 1;
+    }
+
+    void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
+                    Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& logname, 
+                    bool make_baseline) {
+      Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
+      header_t header;
+      checkpoint(dedup_mode, header, data, diff_h, make_baseline);
+      write_chkpt_log(header, diff_h, logname);
+      current_id += 1;
+    }
+
+    void write_restart_log(uint32_t select_chkpt, std::string& logname) {
+      std::fstream timing_file;
+      timing_file.open(logname, std::fstream::out | std::fstream::app);
+      if(mode == Full) {
+        timing_file << "Full" << ",";
+      } else if(mode == Naive) {
+        timing_file << "Naive" << ","; 
+      } else if(mode == List) {
+        timing_file << "List" << ","; 
+      } else if(mode == Tree) {
+        timing_file << "Tree" << ","; 
+      }
+      timing_file << select_chkpt << "," 
+                  << chunk_size << "," 
+                  << restart_timers[0] << "," 
+                  << restart_timers[1] << std::endl;
+      timing_file.close();
+    }
+
+    void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
+                 std::vector<std::string>& chkpt_filenames, 
+                 std::vector<Kokkos::View<uint8_t*>::HostMirror>& chkpts, 
+                 std::string& logname, uint32_t chkpt_id) {
+      using Nanoseconds = std::chrono::nanoseconds;
+      using Timer = std::chrono::high_resolution_clock;
+      mode = dedup_mode;
+      if(dedup_mode == Full) {
+        // Full checkpoint
+        Kokkos::resize(data, chkpts[chkpt_id].size());
+        auto& data_h = chkpts[chkpt_id];
+        // Total time
+        Timer::time_point t1 = Timer::now();
+        // Copy checkpoint to GPU
+        Timer::time_point c1 = Timer::now();
+        Kokkos::deep_copy(data, data_h);
+        Timer::time_point c2 = Timer::now();
+        Timer::time_point t2 = Timer::now();
+        // Update timers
+        restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
+        restart_timers[1] = 0.0;
+      } else if(dedup_mode == Naive) {
+        std::vector<std::string> naivelist_chkpt_files;
+        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+          naivelist_chkpt_files.push_back(chkpt_filenames[i]+".naivehashlist.incr_chkpt");
+        }
+        auto naive_list_times = restart_incr_chkpt_naivehashlist(chkpts, chkpt_id, data);
+        restart_timers[0] = naive_list_times.first;
+        restart_timers[1] = naive_list_times.second;
+//      } else if(dedup_mode == List) {
+//        std::vector<std::string> hashlist_chkpt_files;
+//        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+//          hashlist_chkpt_files.push_back(chkpt_filenames[i]+".hashlist.incr_chkpt");
+//        }
+//        auto list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, chkpt_id, data);
+//        restart_timers[0] = list_times.first;
+//        restart_timers[1] = list_times.second;
+//      } else if(dedup_mode == Tree) {
+//        std::vector<std::string> hashtree_chkpt_files;
+//        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+//          hashtree_chkpt_files.push_back(chkpt_filenames[i]+".hashtree.incr_chkpt");
+//        }
+//        auto tree_times = restart_incr_chkpt_hashtree(hashtree_chkpt_files, chkpt_id, data);
+//        restart_timers[0] = tree_times.first;
+//        restart_timers[1] = tree_times.second;
+      }
+      write_restart_log(chkpt_id, logname);
+//#ifdef VERIFY_OUTPUT
+//      auto data_h = Kokkos::create_mirror_view(data);
+//      Kokkos::deep_copy(data_h, data);
+//      std::string digest = calculate_digest_host(data_h);
+//      if(mode == Full) {
+//        std::cout << "Full chkpt digest:     ";
+//      } else if(mode == Naive) {
+//        std::cout << "Naive Hashlist digest: ";
+//      } else if(mode == List) {
+//        std::cout << "Hashlist digest:       ";
+//      } else if(mode == Tree) {
+//        std::cout << "Hashtree digest:       ";
+//      }
+//      std::cout << digest << std::endl;
+//#endif
+    } 
+
+    void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
+                 std::vector<std::string>& chkpt_filenames, 
+                 std::string& logname, uint32_t chkpt_id) {
+      using Nanoseconds = std::chrono::nanoseconds;
+      using Timer = std::chrono::high_resolution_clock;
+      mode = dedup_mode;
+      if(dedup_mode == Full) {
+        // Full checkpoint
+        std::fstream file;
+        auto fileflags = std::ifstream::in | std::ifstream::binary | std::ifstream::ate;
+        file.open(chkpt_filenames[chkpt_id], fileflags);
+        size_t filesize = file.tellg();
+        file.seekg(0);
+        Kokkos::resize(data, filesize);
+        auto data_h = Kokkos::create_mirror_view(data);
+        // Read checkpoint
+        Timer::time_point r1 = Timer::now();
+        file.read((char*)(data_h.data()), filesize);
+        file.close();
+        Timer::time_point r2 = Timer::now();
+        // Total time
+        Timer::time_point t1 = Timer::now();
+        // Copy checkpoint to GPU
+        Timer::time_point c1 = Timer::now();
+        Kokkos::deep_copy(data, data_h);
+        Timer::time_point c2 = Timer::now();
+        Timer::time_point t2 = Timer::now();
+        // Update timers
+        restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
+        restart_timers[1] = 0.0;
+      } else if(dedup_mode == Naive) {
+        std::vector<std::string> naivelist_chkpt_files;
+        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+          naivelist_chkpt_files.push_back(chkpt_filenames[i]+".naivehashlist.incr_chkpt");
+        }
+        auto naive_list_times = restart_incr_chkpt_naivehashlist(naivelist_chkpt_files, chkpt_id, data);
+        restart_timers[0] = naive_list_times.first;
+        restart_timers[1] = naive_list_times.second;
+      } else if(dedup_mode == List) {
+        std::vector<std::string> hashlist_chkpt_files;
+        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+          hashlist_chkpt_files.push_back(chkpt_filenames[i]+".hashlist.incr_chkpt");
+        }
+        auto list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, chkpt_id, data);
+        restart_timers[0] = list_times.first;
+        restart_timers[1] = list_times.second;
+      } else if(dedup_mode == Tree) {
+        std::vector<std::string> hashtree_chkpt_files;
+        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
+          hashtree_chkpt_files.push_back(chkpt_filenames[i]+".hashtree.incr_chkpt");
+        }
+        auto tree_times = restart_incr_chkpt_hashtree(hashtree_chkpt_files, chkpt_id, data);
+        restart_timers[0] = tree_times.first;
+        restart_timers[1] = tree_times.second;
+      }
+      write_restart_log(chkpt_id, logname);
+//#ifdef VERIFY_OUTPUT
+//      auto data_h = Kokkos::create_mirror_view(data);
+//      Kokkos::deep_copy(data_h, data);
+//      std::string digest = calculate_digest_host(data_h);
+//      if(mode == Full) {
+//        std::cout << "Full chkpt digest:     ";
+//      } else if(mode == Naive) {
+//        std::cout << "Naive Hashlist digest: ";
+//      } else if(mode == List) {
+//        std::cout << "Hashlist digest:       ";
+//      } else if(mode == Tree) {
+//        std::cout << "Hashtree digest:       ";
+//      }
+//      std::cout << digest << std::endl;
+//#endif
+    } 
 
     void dedup(Kokkos::View<uint8_t*>& data, bool make_baseline) {
       data_len = data.size();

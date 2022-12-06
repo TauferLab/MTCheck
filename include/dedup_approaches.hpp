@@ -140,7 +140,7 @@ void full_chkpt(Hasher& hasher,
 
     std::string filename = full_chkpt_files[idx] + ".full_chkpt";
     std::string logname = chkpt_filenames[idx];
-    deduplicator.checkpoint(Full, current, filename, logname, idx==0);
+    deduplicator.checkpoint(Full, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
     Kokkos::fence();
 
 //    // Full checkpoint
@@ -410,7 +410,7 @@ void naive_chkpt(Hasher& hasher,
 
     std::string filename = full_chkpt_files[idx] + ".naivehashlist.incr_chkpt";
     std::string logname = chkpt_filenames[idx];
-    deduplicator.checkpoint(Naive, current, filename, logname, idx==0);
+    deduplicator.checkpoint(Naive, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
     Kokkos::fence();
 
 //    // Create list for hashes and bitset for identifying changes
@@ -710,7 +710,7 @@ void list_chkpt(Hasher& hasher,
     {
       std::string filename = full_chkpt_files[idx] + ".hashlist.incr_chkpt";
       std::string logname = chkpt_filenames[idx];
-      deduplicator.checkpoint(List, current, filename, logname, idx==0);
+      deduplicator.checkpoint(List, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       Kokkos::fence();
 
 //      DistinctNodeIDMap l_distinct_chunks = DistinctNodeIDMap(num_chunks);
@@ -1155,7 +1155,7 @@ void tree_chkpt_deduplicator(Hasher& hasher,
 
       std::string filename = full_chkpt_files[idx] + ".hashtree.incr_chkpt";
       std::string logname = chkpt_filenames[idx];
-      deduplicator.checkpoint(Tree, current, filename, logname, idx==0);
+      deduplicator.checkpoint(Tree, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       Kokkos::fence();
 
 //      if(idx == 0) {
