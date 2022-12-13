@@ -132,27 +132,27 @@ restart_list_chkpt(
   return list_times;
 }
 
-std::pair<double,double> 
-restart_tree_chkpt(
-                         std::vector<std::vector<uint8_t>>& incr_chkpts, 
-                         Kokkos::View<uint8_t*>& reference_d,
-                         uint32_t chunk_size, 
-                         uint32_t select_chkpt,
-                         int verify)  {
-  std::pair<double,double> list_times;
-  size_t filesize = incr_chkpts[select_chkpt].size();
-  Kokkos::deep_copy(reference_d, 0);
-  std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
-  list_times = restart_incr_chkpt_hashtree(incr_chkpts, select_chkpt, reference_d);
-  std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
-
-  if(verify) {
-    auto reference_h = Kokkos::create_mirror_view(reference_d);
-    std::string digest = calculate_digest_host(reference_h);
-    std::cout << "Hash list digest: " << digest << std::endl;
-  }
-  return list_times;
-}
+//std::pair<double,double> 
+//restart_tree_chkpt(
+//                         std::vector<std::vector<uint8_t>>& incr_chkpts, 
+//                         Kokkos::View<uint8_t*>& reference_d,
+//                         uint32_t chunk_size, 
+//                         uint32_t select_chkpt,
+//                         int verify)  {
+//  std::pair<double,double> list_times;
+//  size_t filesize = incr_chkpts[select_chkpt].size();
+//  Kokkos::deep_copy(reference_d, 0);
+//  std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
+//  list_times = restart_incr_chkpt_hashtree(incr_chkpts, select_chkpt, reference_d);
+//  std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
+//
+//  if(verify) {
+//    auto reference_h = Kokkos::create_mirror_view(reference_d);
+//    std::string digest = calculate_digest_host(reference_h);
+//    std::cout << "Hash list digest: " << digest << std::endl;
+//  }
+//  return list_times;
+//}
 
 #endif // RESTART_APPROACHES_HPP
 

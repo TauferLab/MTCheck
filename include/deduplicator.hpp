@@ -240,12 +240,14 @@ class Deduplicator {
       file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
       file.open(filename, std::ofstream::out | std::ofstream::binary);
 
-      if((mode == Full) || (mode == Naive)) {
-        file.write((const char*)(diff_h.data()), diff_h.size());
-      } else if((mode == Tree) || (mode == List)) {
-        file.write((char*)(&header), sizeof(header_t));
-        file.write((const char*)(diff_h.data()), diff_h.size());
-      }
+      file.write((const char*)(diff_h.data()), diff_h.size());
+
+//      if((mode == Full) || (mode == Naive)) {
+//        file.write((const char*)(diff_h.data()), diff_h.size());
+//      } else if((mode == Tree) || (mode == List)) {
+////        file.write((char*)(&header), sizeof(header_t));
+//        file.write((const char*)(diff_h.data()), diff_h.size());
+//      }
 
       file.flush();
       file.close();
@@ -339,6 +341,8 @@ class Deduplicator {
         } else {
           deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
                                          first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+//          num_subtree_roots_experiment(data, chunk_size, tree, current_id, 
+//                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
 //          num_subtree_roots(data, chunk_size, tree, current_id, 
 //                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
         }
@@ -412,6 +416,7 @@ class Deduplicator {
         memcpy(diff_h.data(), &header, sizeof(header_t));
       } else if((mode == Tree) || (mode == List)) {
         Kokkos::deep_copy(diff_h, diff);
+        memcpy(diff_h.data(), &header, sizeof(header_t));
       }
 
       Kokkos::Profiling::popRegion();
@@ -469,7 +474,6 @@ class Deduplicator {
     }
 
     void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
-                 std::vector<std::string>& chkpt_filenames, 
                  std::vector<Kokkos::View<uint8_t*>::HostMirror>& chkpts, 
                  std::string& logname, uint32_t chkpt_id) {
       using Nanoseconds = std::chrono::nanoseconds;
@@ -478,58 +482,30 @@ class Deduplicator {
       if(dedup_mode == Full) {
         // Full checkpoint
         Kokkos::resize(data, chkpts[chkpt_id].size());
-        auto& data_h = chkpts[chkpt_id];
         // Total time
         Timer::time_point t1 = Timer::now();
         // Copy checkpoint to GPU
         Timer::time_point c1 = Timer::now();
-        Kokkos::deep_copy(data, data_h);
+        Kokkos::deep_copy(data, chkpts[chkpt_id]);
         Timer::time_point c2 = Timer::now();
         Timer::time_point t2 = Timer::now();
         // Update timers
         restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
         restart_timers[1] = 0.0;
       } else if(dedup_mode == Naive) {
-        std::vector<std::string> naivelist_chkpt_files;
-        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
-          naivelist_chkpt_files.push_back(chkpt_filenames[i]+".naivehashlist.incr_chkpt");
-        }
         auto naive_list_times = restart_incr_chkpt_naivehashlist(chkpts, chkpt_id, data);
         restart_timers[0] = naive_list_times.first;
         restart_timers[1] = naive_list_times.second;
-//      } else if(dedup_mode == List) {
-//        std::vector<std::string> hashlist_chkpt_files;
-//        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
-//          hashlist_chkpt_files.push_back(chkpt_filenames[i]+".hashlist.incr_chkpt");
-//        }
-//        auto list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, chkpt_id, data);
-//        restart_timers[0] = list_times.first;
-//        restart_timers[1] = list_times.second;
-//      } else if(dedup_mode == Tree) {
-//        std::vector<std::string> hashtree_chkpt_files;
-//        for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
-//          hashtree_chkpt_files.push_back(chkpt_filenames[i]+".hashtree.incr_chkpt");
-//        }
-//        auto tree_times = restart_incr_chkpt_hashtree(hashtree_chkpt_files, chkpt_id, data);
-//        restart_timers[0] = tree_times.first;
-//        restart_timers[1] = tree_times.second;
+      } else if(dedup_mode == List) {
+        auto list_times = restart_incr_chkpt_hashlist(chkpts, chkpt_id, data);
+        restart_timers[0] = list_times.first;
+        restart_timers[1] = list_times.second;
+      } else if(dedup_mode == Tree) {
+        auto tree_times = restart_incr_chkpt_hashtree(chkpts, chkpt_id, data);
+        restart_timers[0] = tree_times.first;
+        restart_timers[1] = tree_times.second;
       }
       write_restart_log(chkpt_id, logname);
-//#ifdef VERIFY_OUTPUT
-//      auto data_h = Kokkos::create_mirror_view(data);
-//      Kokkos::deep_copy(data_h, data);
-//      std::string digest = calculate_digest_host(data_h);
-//      if(mode == Full) {
-//        std::cout << "Full chkpt digest:     ";
-//      } else if(mode == Naive) {
-//        std::cout << "Naive Hashlist digest: ";
-//      } else if(mode == List) {
-//        std::cout << "Hashlist digest:       ";
-//      } else if(mode == Tree) {
-//        std::cout << "Hashtree digest:       ";
-//      }
-//      std::cout << digest << std::endl;
-//#endif
     } 
 
     void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
@@ -588,21 +564,6 @@ class Deduplicator {
         restart_timers[1] = tree_times.second;
       }
       write_restart_log(chkpt_id, logname);
-//#ifdef VERIFY_OUTPUT
-//      auto data_h = Kokkos::create_mirror_view(data);
-//      Kokkos::deep_copy(data_h, data);
-//      std::string digest = calculate_digest_host(data_h);
-//      if(mode == Full) {
-//        std::cout << "Full chkpt digest:     ";
-//      } else if(mode == Naive) {
-//        std::cout << "Naive Hashlist digest: ";
-//      } else if(mode == List) {
-//        std::cout << "Hashlist digest:       ";
-//      } else if(mode == Tree) {
-//        std::cout << "Hashtree digest:       ";
-//      }
-//      std::cout << digest << std::endl;
-//#endif
     } 
 
     void dedup(Kokkos::View<uint8_t*>& data, bool make_baseline) {

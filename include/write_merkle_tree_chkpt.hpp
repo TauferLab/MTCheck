@@ -54,7 +54,7 @@ write_incr_chkpt_hashtree_local_mode(
   }, repeat_size);
   Kokkos::fence();
 
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", repeat_size + distinct_size);
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", sizeof(header_t) + repeat_size + distinct_size);
   Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
   Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
   Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
@@ -87,12 +87,12 @@ write_incr_chkpt_hashtree_local_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos, &info.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos, &info.node, sizeof(uint32_t));
         uint32_t writesize = chunk_size;
         if(info.node == num_nodes-1) {
           writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
         }
-        memcpy( buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, 
+        memcpy( buffer_d.data()+sizeof(header_t)+data_offset+(pos/sizeof(uint32_t))*chunk_size, 
                 data.data()+chunk_size*(info.node-num_chunks+1), 
                 writesize);
 //        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
@@ -110,8 +110,8 @@ write_incr_chkpt_hashtree_local_mode(
           Kokkos::atomic_add(&num_curr_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
         }
       }
     }
@@ -125,8 +125,8 @@ write_incr_chkpt_hashtree_local_mode(
           Kokkos::atomic_add(&num_prev_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
         }
       }
     }
@@ -201,7 +201,7 @@ write_incr_chkpt_hashtree_local_mode(
     }
   }, repeat_size);
   Kokkos::fence();
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", repeat_size + distinct_size);
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", sizeof(header_t) + repeat_size + distinct_size);
   Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
   Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
   Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
@@ -233,12 +233,12 @@ write_incr_chkpt_hashtree_local_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos, &info.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos, &info.node, sizeof(uint32_t));
         uint32_t writesize = chunk_size;
         if(info.node == num_nodes-1) {
           writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
         }
-        memcpy(buffer_d.data()+data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*(info.node-num_chunks+1), writesize);
+        memcpy(buffer_d.data()+sizeof(header_t)+data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*(info.node-num_chunks+1), writesize);
 //        DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", info.node, pos, data_offset+(pos/sizeof(uint32_t))*chunk_size);
         Kokkos::atomic_add(&num_distinct_d(0), 1);
       }
@@ -258,8 +258,8 @@ Kokkos::atomic_add(&counter_d(0), 1);
           Kokkos::atomic_add(&num_curr_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
 //Kokkos::atomic_add(&counter_d(0), 1);
 //printf("Writing current repeat chunk: %u:%u at %lu\n", k, v.node, pos);
         }
@@ -278,8 +278,8 @@ STDOUT_PRINT("Number of current repeats: %u\n", counter_h(0));
           Kokkos::atomic_add(&num_prev_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
         }
       }
     }
@@ -355,7 +355,7 @@ write_incr_chkpt_hashtree_global_mode(
   }, repeat_size);
   Kokkos::fence();
 //  buffer_d = Kokkos::View<uint8_t*>("Buffer", repeat_size + distinct_size);
-  Kokkos::resize(buffer_d, repeat_size+distinct_size);
+  Kokkos::resize(buffer_d, sizeof(header_t)+repeat_size+distinct_size);
   Kokkos::View<uint64_t[1]> num_bytes_d("Number of bytes written");
   Kokkos::View<uint64_t[1]>::HostMirror num_bytes_h = Kokkos::create_mirror_view(num_bytes_d);
   Kokkos::View<uint64_t[1]> num_bytes_data_d("Number of bytes written for checkpoint data");
@@ -385,12 +385,12 @@ write_incr_chkpt_hashtree_global_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t) + chunk_size);
-        memcpy(buffer_d.data()+pos, &info.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos, &info.node, sizeof(uint32_t));
         uint32_t writesize = chunk_size;
         if(info.node == num_nodes-1) {
           writesize = data.size()-(info.node-num_chunks+1)*chunk_size;
         }
-        memcpy(buffer_d.data()+pos+sizeof(uint32_t), data.data()+chunk_size*(info.node-num_chunks+1), writesize);
+        memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), data.data()+chunk_size*(info.node-num_chunks+1), writesize);
         Kokkos::atomic_add(&num_distinct_d(0), 1);
         DEBUG_PRINT("Writing distinct chunk: %u at %lu\n", info.node, pos);
       }
@@ -408,8 +408,8 @@ write_incr_chkpt_hashtree_global_mode(
           Kokkos::atomic_add(&num_curr_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
           Kokkos::atomic_add(&counter_d(0), 1);
           DEBUG_PRINT("Writing current repeat chunk: %u:%u at %lu\n", k, v.node, pos);
         }
@@ -427,8 +427,8 @@ write_incr_chkpt_hashtree_global_mode(
           Kokkos::atomic_add(&num_prev_repeat_d(0), 1);
           Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
           uint64_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos, &k, sizeof(uint32_t));
-          memcpy(buffer_d.data()+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos, &k, sizeof(uint32_t));
+          memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &v.node, sizeof(uint32_t));
         }
       }
     }
@@ -542,7 +542,7 @@ write_incr_chkpt_hashtree_local_mode(
 //  Kokkos::deep_copy(region_nodes_h, region_nodes);
 
   STDOUT_PRINT("Length of buffer: %lu\n", num_bytes_h(0));
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", num_bytes_h(0));
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", sizeof(header_t)+num_bytes_h(0));
 
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);
@@ -556,12 +556,12 @@ write_incr_chkpt_hashtree_local_mode(
       Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
       Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
-      memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
 //      DEBUG_PRINT("Writing region %u at %lu with offset %lu\n", node, pos, data_offset+region_len(i)*chunk_size);
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
-      memcpy(buffer_d.data()+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
+      memcpy(buffer_d.data()+sizeof(header_t)+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
     });
   } else {
     DEBUG_PRINT("Using explicit copy\n");
@@ -575,14 +575,14 @@ write_incr_chkpt_hashtree_local_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
-        memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
       }
       team_member.team_barrier();
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
       Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&] (const uint64_t& j) {
-        buffer_d(data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
+        buffer_d(sizeof(header_t)+data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
       });
     });
   }
@@ -597,8 +597,8 @@ write_incr_chkpt_hashtree_local_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         DEBUG_PRINT("Trying to write 8 bytes starting at %lu. Max size: %lu\n", pos, buffer_d.size());
-        memcpy(buffer_d.data()+pos, &node, sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos, &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
         DEBUG_PRINT("Write current repeat: %u: (%u,%u)\n", node, prev.node, prev.tree);
         Kokkos::atomic_add(&num_curr_repeat_d(0), 1);
       }
@@ -613,8 +613,8 @@ write_incr_chkpt_hashtree_local_mode(
       if(prev.tree != chkpt_id) {
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos, &node, sizeof(uint32_t));
-        memcpy(buffer_d.data()+pos+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos, &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
       }
     }
   });
@@ -794,7 +794,7 @@ write_incr_chkpt_hashtree_global_mode(
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t));
+  buffer_d = Kokkos::View<uint8_t*>("Buffer", sizeof(header_t)+num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t));
 
   Kokkos::deep_copy(num_bytes_d, 0);
   Kokkos::deep_copy(num_bytes_metadata_d, 0);
@@ -811,13 +811,13 @@ write_incr_chkpt_hashtree_global_mode(
       Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       // Write metadata for region
-      memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
 //      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
       // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
-      memcpy(buffer_d.data()+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
+      memcpy(buffer_d.data()+sizeof(header_t)+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
     });
   } else {
     Kokkos::parallel_for("Write distinct bytes", Kokkos::TeamPolicy<>(num_distinct, Kokkos::AUTO) , 
@@ -831,7 +831,7 @@ write_incr_chkpt_hashtree_global_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
         Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t));
-        memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
       }
       team_member.team_barrier();
       // Write chunks
@@ -839,7 +839,7 @@ write_incr_chkpt_hashtree_global_mode(
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
       Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&] (const uint64_t& j) {
-        buffer_d(data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
+        buffer_d(sizeof(header_t)+data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
       });
     });
   }
@@ -853,8 +853,8 @@ write_incr_chkpt_hashtree_global_mode(
       uint32_t num_repeats_i = static_cast<uint32_t>(prior_counter_d(i));
       Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos, &i, sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+pos, &i, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
       DEBUG_PRINT("Wrote table entry (%u,%u) at offset %lu\n", i, num_repeats_i, pos);
     }
   });
@@ -877,8 +877,8 @@ write_incr_chkpt_hashtree_global_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
         size_t pos = Kokkos::atomic_sub_fetch(&prior_counter_d(prev.tree), 1);
-        memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t), &node, sizeof(uint32_t));
-        memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+prior_start+pos*2*sizeof(uint32_t), &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+prior_start+pos*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
       }
     }
   });
@@ -1045,7 +1045,7 @@ write_incr_chkpt_hashtree_global_mode(
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
-  uint64_t buffer_len = num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t);
+  uint64_t buffer_len = sizeof(header_t)+num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t);
   buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_len);
 
   Kokkos::deep_copy(num_bytes_d, 0);
@@ -1063,13 +1063,13 @@ write_incr_chkpt_hashtree_global_mode(
       Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       // Write metadata for region
-      memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
 //      DEBUG_PRINT("Writing region %u (%u,%u) at %lu with offset %lu\n", i, node, region_len(i), i*sizeof(uint32_t), data_offset+region_len(i)*chunk_size);
       // Write chunks
       uint32_t writesize = chunk_size*size;
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
-      memcpy(buffer_d.data()+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
+      memcpy(buffer_d.data()+sizeof(header_t)+data_offset+chunk_size*region_len(i), data.data()+start*chunk_size, writesize);
     });
   } else {
     Kokkos::parallel_for("Write distinct bytes", Kokkos::TeamPolicy<>(num_distinct, Kokkos::AUTO) , 
@@ -1083,7 +1083,7 @@ write_incr_chkpt_hashtree_global_mode(
         Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
         Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(size*chunk_size));
         Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t));
-        memcpy(buffer_d.data()+i*sizeof(uint32_t), &node, sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &node, sizeof(uint32_t));
       }
       team_member.team_barrier();
       // Write chunks
@@ -1091,7 +1091,7 @@ write_incr_chkpt_hashtree_global_mode(
       if(start*chunk_size+writesize > data.size())
         writesize = data.size()-start*chunk_size;
       Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&] (const uint64_t& j) {
-        buffer_d(data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
+        buffer_d(sizeof(header_t)+data_offset+chunk_size*region_len(i)+j) = data(start*chunk_size+j);
       });
     });
   }
@@ -1105,8 +1105,8 @@ write_incr_chkpt_hashtree_global_mode(
       uint32_t num_repeats_i = static_cast<uint32_t>(prior_counter_d(i));
       Kokkos::atomic_add(&num_bytes_metadata_d(0), 2*sizeof(uint32_t));
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), 2*sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos, &i, sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+pos, &i, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
       DEBUG_PRINT("Wrote table entry (%u,%u) at offset %lu\n", i, num_repeats_i, pos);
     }
   });
@@ -1128,8 +1128,8 @@ write_incr_chkpt_hashtree_global_mode(
       Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t)+sizeof(uint32_t));
       Kokkos::atomic_add(&num_bytes_d(0), sizeof(uint32_t)+sizeof(uint32_t));
       size_t pos = Kokkos::atomic_sub_fetch(&prior_counter_d(prev.tree), 1);
-      memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t), &node, sizeof(uint32_t));
-      memcpy(buffer_d.data()+prior_start+pos*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+prior_start+pos*2*sizeof(uint32_t), &node, sizeof(uint32_t));
+      memcpy(buffer_d.data()+sizeof(header_t)+prior_start+pos*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
     }
   });
 

@@ -505,154 +505,154 @@ void naive_chkpt(Hasher& hasher,
   STDOUT_PRINT("------------------------------------------------------\n");
 }
 
-template<typename Hasher>
-void list_chkpt(Hasher& hasher, 
-                Kokkos::View<uint8_t**,Kokkos::LayoutLeft,Kokkos::DefaultHostExecutionSpace>& chkpts_h,
-                std::vector<std::vector<uint8_t>>& incr_chkpts,
-                std::string& log_filename,
-                uint32_t chunk_size, 
-                uint32_t num_chkpts,
-                int lineage_based) 
-{
-  using Timer = std::chrono::high_resolution_clock;
-  DistinctNodeIDMap g_distinct_chunks = DistinctNodeIDMap(1);
-  SharedNodeIDMap g_shared_chunks = SharedNodeIDMap(1);
-  SharedNodeIDMap g_identical_chunks = SharedNodeIDMap(1);
-
-  // Iterate through checkpoints and deduplicate
-  for(uint32_t idx=0; idx<num_chkpts; idx++) {
-    size_t data_len = chkpts_h.extent(0);
-    uint32_t num_chunks = data_len/chunk_size;
-    if(num_chunks*chunk_size < data_len)
-      num_chunks += 1;
-    if(idx == 0) {
-      g_shared_chunks.rehash(num_chunks);
-      g_identical_chunks.rehash(num_chunks);
-    }
-    g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
-
-    std::string log_name = log_filename+".chunk_size."+std::to_string(chunk_size);
-    std::fstream result_data;
-    std::fstream timing_file, size_file;
-
-    if(log_filename.size() > 0) {
-      // Open result file
-      std::string result_name = log_name +".csv";
-      result_data.open(result_name, std::fstream::out | std::fstream::app);
-
-      // Open log files for timings and checkpoint sizes
-      std::string timing_name = log_name +".timing.csv";
-      std::string size_name = log_name +".size.csv";
-      timing_file.open(timing_name, std::fstream::out | std::fstream::app);
-      size_file.open(size_name, std::fstream::out | std::fstream::app);
-    }
-
-    // Read data into memory and copy to Device
-    Kokkos::View<uint8_t*> current("Current region", data_len);
-    auto chkpt_view = Kokkos::subview(chkpts_h, Kokkos::ALL, idx);
-    Kokkos::deep_copy(current, chkpt_view);
-
-    // Create tables for hash list deduplication
-    DistinctNodeIDMap l_distinct_chunks = DistinctNodeIDMap(num_chunks);
-    SharedNodeIDMap l_shared_chunks     = SharedNodeIDMap(num_chunks);
-    SharedNodeIDMap l_identical_chunks     = SharedNodeIDMap(num_chunks);
-//    g_distinct_chunks.rehash(num_chunks);
-//    g_shared_chunks.rehash(num_chunks);
-
-    HashList list0 = HashList(num_chunks);
-    Kokkos::fence();
-
-    uint32_t num_distinct = g_distinct_chunks.size();
-    Kokkos::fence();
-    Timer::time_point start_compare = Timer::now();
-    Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
-    if(lineage_based) {
-      compare_lists_global(hasher, list0, idx, current, chunk_size, l_identical_chunks, l_shared_chunks, g_distinct_chunks, g_identical_chunks, g_shared_chunks, g_distinct_chunks);
-    } else {
-      compare_lists_local(hasher, list0, idx, current, chunk_size, l_shared_chunks, l_distinct_chunks, g_shared_chunks, g_distinct_chunks);
-    }
-    Kokkos::Profiling::popRegion();
-    Timer::time_point end_compare = Timer::now();
-
-    Kokkos::fence();
-
-    auto compare_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
-    if(lineage_based) {
-      // Update global repeat map
-      Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
-      Kokkos::deep_copy(g_identical_chunks, l_identical_chunks);
-    } else if(idx == 0) {
-      // Update global distinct map
-      Kokkos::deep_copy(g_distinct_chunks, l_distinct_chunks);
-      // Update global shared map
-      Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
-      DEBUG_PRINT("Updated global lists\n");
-    }
-
-    uint32_t prior_idx = 0;
-    Kokkos::fence();
-    Timer::time_point start_collect = Timer::now();
-    Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
-    Kokkos::View<uint8_t*> buffer_d;
-    header_t header;
-    std::pair<uint64_t,uint64_t> datasizes;
-    if(lineage_based) {
-      datasizes = write_incr_chkpt_hashlist_global(current, buffer_d, chunk_size, g_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
-    } else {
-      datasizes = write_incr_chkpt_hashlist_local(current, buffer_d, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
-    }
-    Kokkos::Profiling::popRegion();
-    Timer::time_point end_collect = Timer::now();
-    auto collect_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_collect - start_collect).count();
-    STDOUT_PRINT("Time spect collecting updates: %f\n", collect_time);
-
-    Timer::time_point start_write = Timer::now();
-    Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
-    auto buffer_h = Kokkos::create_mirror_view(buffer_d);
-    Kokkos::deep_copy(buffer_h, buffer_d);
-    memcpy(buffer_h.data(), &header, sizeof(header_t));
-    Kokkos::fence();
-    Kokkos::Profiling::popRegion();
-    Timer::time_point end_write = Timer::now();
-    auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
-    STDOUT_PRINT("Time spect copying updates: %f\n", write_time);
-    if(log_filename.size() > 0) {
-      result_data << compare_time << ','      // Comparison time
-                  << collect_time << ','      // Collection time  
-                  << write_time << ','        // Write time
-                  << datasizes.first << ','   // Size of data     
-                  << datasizes.second << ','; // Size of metadata 
-      timing_file << "List" << ","      // Approach
-                  << idx << ","          // Checkpoint ID
-                  << chunk_size << ","   // Chunk size      
-                  << compare_time << "," // Comparison time 
-                  << collect_time << "," // Collection time 
-                  << write_time          // Write time
-                  << std::endl;
-      size_file << "List" << ","           // Approach
-                << idx << ","               // Checkpoint ID
-                << chunk_size << ","        // Chunk size
-                << datasizes.first << ","   // Size of data
-                << datasizes.second << ","; // Size of metadata
-      write_metadata_breakdown(size_file, header, buffer_h, num_chkpts);
-    }
-
-    if(idx == num_chkpts-1) {
-      std::vector<uint8_t> vector_buf = std::vector<uint8_t>(buffer_h.extent(0));
-      memcpy(vector_buf.data(), buffer_h.data(), buffer_h.extent(0));
-      incr_chkpts.push_back(vector_buf);
-    }
-
-    Kokkos::fence();
-    if(log_filename.size() > 0) {
-      result_data.close();
-      timing_file.close();
-      size_file.close();
-    }
-    STDOUT_PRINT("------------------------------------------------------\n");
-  }
-  STDOUT_PRINT("------------------------------------------------------\n");
-}
+//template<typename Hasher>
+//void list_chkpt(Hasher& hasher, 
+//                Kokkos::View<uint8_t**,Kokkos::LayoutLeft,Kokkos::DefaultHostExecutionSpace>& chkpts_h,
+//                std::vector<std::vector<uint8_t>>& incr_chkpts,
+//                std::string& log_filename,
+//                uint32_t chunk_size, 
+//                uint32_t num_chkpts,
+//                int lineage_based) 
+//{
+//  using Timer = std::chrono::high_resolution_clock;
+//  DistinctNodeIDMap g_distinct_chunks = DistinctNodeIDMap(1);
+//  SharedNodeIDMap g_shared_chunks = SharedNodeIDMap(1);
+//  SharedNodeIDMap g_identical_chunks = SharedNodeIDMap(1);
+//
+//  // Iterate through checkpoints and deduplicate
+//  for(uint32_t idx=0; idx<num_chkpts; idx++) {
+//    size_t data_len = chkpts_h.extent(0);
+//    uint32_t num_chunks = data_len/chunk_size;
+//    if(num_chunks*chunk_size < data_len)
+//      num_chunks += 1;
+//    if(idx == 0) {
+//      g_shared_chunks.rehash(num_chunks);
+//      g_identical_chunks.rehash(num_chunks);
+//    }
+//    g_distinct_chunks.rehash(g_distinct_chunks.size()+num_chunks);
+//
+//    std::string log_name = log_filename+".chunk_size."+std::to_string(chunk_size);
+//    std::fstream result_data;
+//    std::fstream timing_file, size_file;
+//
+//    if(log_filename.size() > 0) {
+//      // Open result file
+//      std::string result_name = log_name +".csv";
+//      result_data.open(result_name, std::fstream::out | std::fstream::app);
+//
+//      // Open log files for timings and checkpoint sizes
+//      std::string timing_name = log_name +".timing.csv";
+//      std::string size_name = log_name +".size.csv";
+//      timing_file.open(timing_name, std::fstream::out | std::fstream::app);
+//      size_file.open(size_name, std::fstream::out | std::fstream::app);
+//    }
+//
+//    // Read data into memory and copy to Device
+//    Kokkos::View<uint8_t*> current("Current region", data_len);
+//    auto chkpt_view = Kokkos::subview(chkpts_h, Kokkos::ALL, idx);
+//    Kokkos::deep_copy(current, chkpt_view);
+//
+//    // Create tables for hash list deduplication
+//    DistinctNodeIDMap l_distinct_chunks = DistinctNodeIDMap(num_chunks);
+//    SharedNodeIDMap l_shared_chunks     = SharedNodeIDMap(num_chunks);
+//    SharedNodeIDMap l_identical_chunks     = SharedNodeIDMap(num_chunks);
+////    g_distinct_chunks.rehash(num_chunks);
+////    g_shared_chunks.rehash(num_chunks);
+//
+//    HashList list0 = HashList(num_chunks);
+//    Kokkos::fence();
+//
+//    uint32_t num_distinct = g_distinct_chunks.size();
+//    Kokkos::fence();
+//    Timer::time_point start_compare = Timer::now();
+//    Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
+//    if(lineage_based) {
+//      compare_lists_global(hasher, list0, idx, current, chunk_size, l_identical_chunks, l_shared_chunks, g_distinct_chunks, g_identical_chunks, g_shared_chunks, g_distinct_chunks);
+//    } else {
+//      compare_lists_local(hasher, list0, idx, current, chunk_size, l_shared_chunks, l_distinct_chunks, g_shared_chunks, g_distinct_chunks);
+//    }
+//    Kokkos::Profiling::popRegion();
+//    Timer::time_point end_compare = Timer::now();
+//
+//    Kokkos::fence();
+//
+//    auto compare_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_compare - start_compare).count();
+//    if(lineage_based) {
+//      // Update global repeat map
+//      Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
+//      Kokkos::deep_copy(g_identical_chunks, l_identical_chunks);
+//    } else if(idx == 0) {
+//      // Update global distinct map
+//      Kokkos::deep_copy(g_distinct_chunks, l_distinct_chunks);
+//      // Update global shared map
+//      Kokkos::deep_copy(g_shared_chunks, l_shared_chunks);
+//      DEBUG_PRINT("Updated global lists\n");
+//    }
+//
+//    uint32_t prior_idx = 0;
+//    Kokkos::fence();
+//    Timer::time_point start_collect = Timer::now();
+//    Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
+//    Kokkos::View<uint8_t*> buffer_d;
+//    header_t header;
+//    std::pair<uint64_t,uint64_t> datasizes;
+//    if(lineage_based) {
+//      datasizes = write_incr_chkpt_hashlist_global(current, buffer_d, chunk_size, g_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
+//    } else {
+//      datasizes = write_incr_chkpt_hashlist_local(current, buffer_d, chunk_size, l_distinct_chunks, l_shared_chunks, prior_idx, idx, header);
+//    }
+//    Kokkos::Profiling::popRegion();
+//    Timer::time_point end_collect = Timer::now();
+//    auto collect_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_collect - start_collect).count();
+//    STDOUT_PRINT("Time spect collecting updates: %f\n", collect_time);
+//
+//    Timer::time_point start_write = Timer::now();
+//    Kokkos::Profiling::pushRegion((std::string("Start writing incremental checkpoint ") + std::to_string(idx)).c_str());
+//    auto buffer_h = Kokkos::create_mirror_view(buffer_d);
+//    Kokkos::deep_copy(buffer_h, buffer_d);
+//    memcpy(buffer_h.data(), &header, sizeof(header_t));
+//    Kokkos::fence();
+//    Kokkos::Profiling::popRegion();
+//    Timer::time_point end_write = Timer::now();
+//    auto write_time = std::chrono::duration_cast<std::chrono::duration<double>>(end_write - start_write).count();
+//    STDOUT_PRINT("Time spect copying updates: %f\n", write_time);
+//    if(log_filename.size() > 0) {
+//      result_data << compare_time << ','      // Comparison time
+//                  << collect_time << ','      // Collection time  
+//                  << write_time << ','        // Write time
+//                  << datasizes.first << ','   // Size of data     
+//                  << datasizes.second << ','; // Size of metadata 
+//      timing_file << "List" << ","      // Approach
+//                  << idx << ","          // Checkpoint ID
+//                  << chunk_size << ","   // Chunk size      
+//                  << compare_time << "," // Comparison time 
+//                  << collect_time << "," // Collection time 
+//                  << write_time          // Write time
+//                  << std::endl;
+//      size_file << "List" << ","           // Approach
+//                << idx << ","               // Checkpoint ID
+//                << chunk_size << ","        // Chunk size
+//                << datasizes.first << ","   // Size of data
+//                << datasizes.second << ","; // Size of metadata
+//      write_metadata_breakdown(size_file, header, buffer_h, num_chkpts);
+//    }
+//
+//    if(idx == num_chkpts-1) {
+//      std::vector<uint8_t> vector_buf = std::vector<uint8_t>(buffer_h.extent(0));
+//      memcpy(vector_buf.data(), buffer_h.data(), buffer_h.extent(0));
+//      incr_chkpts.push_back(vector_buf);
+//    }
+//
+//    Kokkos::fence();
+//    if(log_filename.size() > 0) {
+//      result_data.close();
+//      timing_file.close();
+//      size_file.close();
+//    }
+//    STDOUT_PRINT("------------------------------------------------------\n");
+//  }
+//  STDOUT_PRINT("------------------------------------------------------\n");
+//}
 
 template<typename Hasher>
 void list_chkpt(Hasher& hasher, 

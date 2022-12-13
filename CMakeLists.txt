@@ -78,6 +78,16 @@ set_target_properties(list_chkpt_test PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+add_executable(tree_chkpt_test src/tree_chkpt.cpp)
+target_include_directories(tree_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(tree_chkpt_test PRIVATE Kokkos::kokkos)
+target_link_libraries(tree_chkpt_test PRIVATE OpenSSL::SSL)
+set_target_properties(tree_chkpt_test PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS OFF
+)
+
 #add_executable(tree_chkpt_test src/tree_chkpt.cpp)
 #target_include_directories(tree_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 #target_link_libraries(tree_chkpt_test PRIVATE Kokkos::kokkos)
@@ -213,5 +223,5 @@ enable_testing()
 add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
 add_test(NAME naive_chkpt_test COMMAND naive_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
 add_test(NAME list_chkpt_test COMMAND list_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
-#add_test(NAME tree_chkpt_test COMMAND tree_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
+add_test(NAME tree_chkpt_test COMMAND tree_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
 

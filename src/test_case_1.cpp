@@ -40,12 +40,15 @@ int main(int argc, char** argv) {
     Kokkos::deep_copy(step1_d, step1_h);
     
     Deduplicator<MD5Hash> deduplicator(1);
+    Kokkos::View<uint8_t*>::HostMirror diff_h("Buffer", 1);
 
-    deduplicator.dedup(step0_d, true);
+//    deduplicator.dedup(step0_d, true);
+    deduplicator.checkpoint(Tree, (uint8_t*)(step0_d.data()), step0_d.size(), diff_h, true);
 
     Kokkos::fence();
 
-    deduplicator.dedup(step1_d, false);
+//    deduplicator.dedup(step1_d, false);
+    deduplicator.checkpoint(Tree, (uint8_t*)(step1_d.data()), step1_d.size(), diff_h, false);
 
     Kokkos::fence();
 

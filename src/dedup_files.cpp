@@ -4,7 +4,8 @@
 #include <vector>
 #include <fstream>
 #include "stdio.h"
-#include "dedup_approaches.hpp"
+#include "deduplicator.hpp"
+//#include "dedup_approaches.hpp"
 
 // Clear caches by doing unrelated work on GPU/CPU
 void flush_cache() {
@@ -89,42 +90,47 @@ int main(int argc, char** argv) {
 //    Murmur3C hasher;
     MD5Hash hasher;
 
-    // Full checkpoint
-    if(run_full) {
-      printf("=======================Full Checkpoint=======================\n");
-      full_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
-      printf("=======================Full Checkpoint=======================\n");
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
+    using Timer = std::chrono::high_resolution_clock;
+    using Duration = std::chrono::duration<double>;
+    Deduplicator<MD5Hash> deduplicator(chunk_size);
+    // Iterate through num_chkpts
+    for(uint32_t idx=0; idx<num_chkpts; idx++) {
+      // Open file and read/calc important values
+      std::ifstream f;
+      f.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+      f.open(full_chkpt_files[idx], std::ifstream::in | std::ifstream::binary);
+      f.seekg(0, f.end);
+      size_t data_len = f.tellg();
+      f.seekg(0, f.beg);
+      uint32_t num_chunks = data_len/chunk_size;
+      if(num_chunks*chunk_size < data_len)
+        num_chunks += 1;
+
+      // Read checkpoint file and load it into the device
+      Kokkos::View<uint8_t*> current("Current region", data_len);
+      Kokkos::View<uint8_t*, Kokkos::CudaHostPinnedSpace> current_h("Current region mirror", data_len);
+      f.read((char*)(current_h.data()), data_len);
+      Kokkos::deep_copy(current, current_h);
+      f.close();
+
+      std::string logname = chkpt_filenames[idx];
+      if(run_full) {
+        std::string filename = full_chkpt_files[idx] + ".full_chkpt";
+        deduplicator.checkpoint(Full, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       }
-    }
-    // Naive list checkpoint
-    if(run_naive) {
-      printf("====================Naive List Checkpoint====================\n");
-      naive_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
-      printf("====================Naive List Checkpoint====================\n");
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
+      if(run_naive) {
+        std::string filename = full_chkpt_files[idx] + ".naivehashlist.incr_chkpt";
+        deduplicator.checkpoint(Naive, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       }
-    }
-    // Hash list checkpoint
-    if(run_list) {
-      printf("====================Hash List Checkpoint ====================\n");
-      list_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
-      printf("====================Hash List Checkpoint ====================\n");
-      if(arg_offset > 1) {
-        flush_cache();
-        arg_offset -= 1;
+      if(run_list) {
+        std::string filename = full_chkpt_files[idx] + ".hashlist.incr_chkpt";
+        deduplicator.checkpoint(List, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       }
-    }
-    // Tree checkpoint
-    if(run_tree) {
-      printf("====================Hash Tree Checkpoint ====================\n");
-//      tree_chkpt(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
-      tree_chkpt_deduplicator(hasher, full_chkpt_files, chkpt_filenames, chunk_size, num_chkpts);
-      printf("====================Hash Tree Checkpoint ====================\n");
+      if(run_tree) {
+        std::string filename = full_chkpt_files[idx] + ".hashtree.incr_chkpt";
+        deduplicator.checkpoint(Tree, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
+      }
+      Kokkos::fence();
     }
   }
   Kokkos::finalize();
