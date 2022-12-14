@@ -282,7 +282,8 @@ printf("Build up forest of potential first occurrence trees\n");
       for(uint32_t idx=0; idx<dup_list.size(); idx++) {
         if(dup_list[idx] == select) {
           labels[select] = FIRST_OCUR;
-          chunk_counters[labels[select]] += 1;
+          if(select > num_chunks-1)
+            chunk_counters[labels[select]] += 1;
           auto& entry = first_occur_h.value_at(first_occur_h.find(curr_tree(select)));
           entry.node = select;
 //printf("Set %u as the first occurrence.\n", select);
@@ -292,7 +293,8 @@ printf("Build up forest of potential first occurrence trees\n");
           }
         } else {
           labels[dup_list[idx]] = SHIFT_DUPL;
-          chunk_counters[labels[dup_list[idx]]] += 1;
+          if(dup_list[idx] > num_chunks-1)
+            chunk_counters[labels[dup_list[idx]]] += 1;
 //printf("Set %u as the shifted duplicate.\n", dup_list[idx]);
         }
       }

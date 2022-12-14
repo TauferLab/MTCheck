@@ -7,25 +7,6 @@
 #include "deduplicator.hpp"
 //#include "dedup_approaches.hpp"
 
-// Clear caches by doing unrelated work on GPU/CPU
-void flush_cache() {
-  uint32_t GB = 268435456;
-  Kokkos::View<uint32_t*> a("A", GB);
-  Kokkos::View<uint32_t*> b("B", GB);
-  Kokkos::View<uint32_t*> c("C", GB);
-
-  Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
-  Kokkos::parallel_for(GB, KOKKOS_LAMBDA(const uint32_t i) {
-    auto rand_gen = rand_pool.get_state();
-    a(i) = static_cast<uint32_t>(rand_gen.urand() % UINT_MAX);
-    b(i) = static_cast<uint32_t>(rand_gen.urand() % UINT_MAX);
-    rand_pool.free_state(rand_gen);
-  });
-  Kokkos::parallel_for(GB, KOKKOS_LAMBDA(const uint32_t i) {
-    c(i) = a(i)*b(i);
-  });
-}
-
 // Read checkpoints from files and deduplicate using various approaches
 // Expects full file paths
 // Usage:
