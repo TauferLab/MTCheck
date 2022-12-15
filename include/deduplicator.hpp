@@ -505,8 +505,16 @@ class Deduplicator {
         restart_timers[0] = tree_times.first;
         restart_timers[1] = tree_times.second;
       }
-      write_restart_log(chkpt_id, logname);
+      std::string restart_logname = logname+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+      write_restart_log(chkpt_id, restart_logname);
     } 
+
+    void restart(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
+                 std::vector<Kokkos::View<uint8_t*>::HostMirror>& chkpts, 
+                 std::string& logname, uint32_t chkpt_id) {
+      Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
+      restart(dedup_mode, data, chkpts, logname, chkpt_id);
+    }
 
     void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
                  std::vector<std::string>& chkpt_filenames, 

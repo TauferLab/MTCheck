@@ -104,9 +104,6 @@ int main(int argc, char** argv) {
 
     uint32_t select_chkpt = restart_id;
 
-    std::fstream timing_file;
-    timing_file.open(chkpt_files_trim[select_chkpt]+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv", std::fstream::out | std::fstream::app);
-
     for(uint32_t j=0; j<num_tests; j++) {
       std::ifstream file;
       file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
@@ -135,7 +132,7 @@ int main(int argc, char** argv) {
           file.close();
           chkpts.push_back(chkpt);
         }
-        std::string logname = chkpt_files_trim[select_chkpt]+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+        std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
         deduplicator.restart(Full, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
@@ -161,8 +158,7 @@ int main(int argc, char** argv) {
           chkpts.push_back(chkpt);
         }
 
-        std::string logname = chkpt_files_trim[select_chkpt]+
-                              ".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+        std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
         deduplicator.restart(Naive, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
@@ -188,7 +184,7 @@ int main(int argc, char** argv) {
           chkpts.push_back(chkpt);
         }
 
-        std::string logname = chkpt_files_trim[select_chkpt]+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+        std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
         deduplicator.restart(List, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
@@ -213,7 +209,7 @@ int main(int argc, char** argv) {
           chkpts.push_back(chkpt);
         }
 
-        std::string logname = chkpt_files_trim[select_chkpt]+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+        std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
         deduplicator.restart(Tree, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
@@ -224,7 +220,6 @@ int main(int argc, char** argv) {
       }
       STDOUT_PRINT("Restarted checkpoint\n");
     }
-    timing_file.close();
   }
   Kokkos::finalize();
 }
