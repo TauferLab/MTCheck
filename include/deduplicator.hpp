@@ -37,7 +37,7 @@ void write_metadata_breakdown2(std::fstream& fs,
   STDOUT_PRINT("==========Repeat Map==========\n");
   for(uint32_t i=0; i<header.num_prior_chkpts; i++) {
     uint32_t chkpt = 0, num = 0;
-    uint64_t header_offset = header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+    uint64_t header_offset = sizeof(header_t)+header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
     memcpy(&chkpt, buffer.data()+header_offset, sizeof(uint32_t));
     memcpy(&num, buffer.data()+header_offset+sizeof(uint32_t), sizeof(uint32_t));
     STDOUT_PRINT("%u:%u\n", chkpt, num);
@@ -57,7 +57,7 @@ void write_metadata_breakdown2(std::fstream& fs,
       if(i < header.num_prior_chkpts) {
         // Write bytes for shifted duplicates from checkpoint i
         uint32_t chkpt = 0, num = 0;
-        uint64_t repeat_map_offset = header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+        uint64_t repeat_map_offset = sizeof(header_t)+header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
         memcpy(&chkpt, buffer.data()+repeat_map_offset, sizeof(uint32_t));
         memcpy(&num, buffer.data()+repeat_map_offset+sizeof(uint32_t), sizeof(uint32_t));
         STDOUT_PRINT("Repeat bytes for %u: %lu\n", chkpt, num*2*sizeof(uint32_t));
