@@ -18,7 +18,7 @@
 //  const char DONE = 3;
 
 template<typename DataView>
-int num_subtree_roots(DataView& data_d,
+int dedup_low_offset_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       MerkleTree& tree, 
                       const uint32_t chkpt_id,
@@ -28,7 +28,7 @@ int num_subtree_roots(DataView& data_d,
   Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data_d);
   Kokkos::deep_copy(data_h, data_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> prev_tree("Prev tree", tree.tree_h.extent(0));
-  Kokkos::deep_copy(prev_tree, tree.tree_h);
+  Kokkos::deep_copy(prev_tree, tree.tree_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> curr_tree("Curr tree", tree.tree_h.extent(0));
 
   DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
@@ -148,8 +148,8 @@ int num_subtree_roots(DataView& data_d,
   return region_counters[FIRST_OCUR]+region_counters[FIXED_DUPL]+region_counters[SHIFT_DUPL];
 }
 
-//template <typename DataView>
-int num_subtree_roots_experiment(const Kokkos::View<uint8_t*>& data_d,
+template <typename DataView>
+int dedup_low_root_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       const MerkleTree& tree, 
                       const uint32_t chkpt_id,
@@ -167,8 +167,6 @@ int num_subtree_roots_experiment(const Kokkos::View<uint8_t*>& data_d,
 
   CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
   CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
-//    Kokkos::deep_copy(shift_dupl_map_h, shift_dupl_map_d);
-//    Kokkos::deep_copy(first_ocur_map_h, first_ocur_map_d);
 
   const char FIRST_OCUR = 0;
   const char FIXED_DUPL = 1;
@@ -186,8 +184,6 @@ int num_subtree_roots_experiment(const Kokkos::View<uint8_t*>& data_d,
   std::set<uint32_t> tree_roots;
   std::unordered_map<std::string, std::vector<uint32_t>> first_ocur_dupl;
 
-printf("Prepared data\n");
-
   // Process leaves first
   for(uint32_t leaf=num_chunks-1; leaf<num_nodes; leaf++) {
     uint32_t num_bytes = chunk_size;
@@ -196,122 +192,124 @@ printf("Prepared data\n");
     // Hash chunk
     MD5(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
     // Insert into table
-    auto result = first_occur_h.insert(curr_tree(leaf), NodeID(leaf, chkpt_id)); 
     if(digests_same(prev_tree(leaf), curr_tree(leaf))) { // Fixed duplicate chunk
       labels[leaf] = FIXED_DUPL;
-    } else if(result.success()) { // First occurrence chunk
-//      labels[leaf] = FIRST_OCUR;
-
+    } else if(first_occur_h.exists(curr_tree(leaf))) {
+      labels[leaf] = SHIFT_DUPL;
+    } else {
       labels[leaf] = FIRST_DUPL;
-      std::vector<uint32_t> entry;
-      entry.push_back(leaf);
-      first_ocur_dupl.insert(std::make_pair(digest_to_str(curr_tree(leaf)), entry));
-//printf("Inserting hash table entry: (%u) %s: %u\n", leaf, digest_to_str(curr_tree(leaf)).c_str(), entry[0]);
-    } else if(result.existing()) { // Shifted duplicate chunk
-
-      auto& info = first_occur_h.value_at(result.index());
-      if(info.tree == chkpt_id) { // Ensure node with lowest offset is the first occurrence
-        labels[leaf] = FIRST_DUPL;
+      if(first_ocur_dupl.find(digest_to_str(curr_tree(leaf))) == first_ocur_dupl.end()) {
+        std::vector<uint32_t> entry;
+        entry.push_back(leaf);
+        first_ocur_dupl.insert(std::make_pair(digest_to_str(curr_tree(leaf)), entry));
+      } else {
         auto& entry = first_ocur_dupl[digest_to_str(curr_tree(leaf))];
         entry.push_back(leaf);
-//printf("Updating hash table entry:  (%u) %s: ", leaf, digest_to_str(curr_tree(leaf)).c_str());
-//for(uint32_t i=0; i<entry.size(); i++) {
-//  printf("%u ", entry[i]);
-//}
-//printf("\n");
-      } else {
-        labels[leaf] = SHIFT_DUPL;
       }
     }
     chunk_counters[labels[leaf]] += 1;
   }
-printf("Initial leaf labels done\n");
 
-  // Build up forest of Merkle Trees
+  // Build up forest of first occurrence trees
   for(uint32_t node=num_chunks-2; node<num_nodes; node--) {
     uint32_t child_l = 2*node+1;
     uint32_t child_r = 2*node+2;
-    if(labels[child_l] == FIRST_DUPL && labels[child_r] == FIRST_DUPL) {
+    if((labels[child_l] == FIRST_DUPL) && (labels[child_r] == FIRST_DUPL)) {
       labels[node] = FIRST_DUPL;
       MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
-      first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
       if(first_ocur_dupl.find(digest_to_str(curr_tree(node))) == first_ocur_dupl.end()) {
+        // Add new entry to table
         std::vector<uint32_t> entry;
         entry.push_back(node);
         first_ocur_dupl.insert(std::make_pair(digest_to_str(curr_tree(node)), entry));
       } else {
+        // Update existing entry
         auto& entry = first_ocur_dupl[digest_to_str(curr_tree(node))];
         entry.push_back(node);
       }
     }
   }
-printf("Build up forest of potential first occurrence trees\n");
-  // Select which leaves will be first occurrences
-  for(uint32_t node=num_nodes-1; node<num_nodes; node--) {
-//  for(uint32_t node=num_chunks-1; node<num_nodes; node++) {
-    if(labels[node] == FIRST_DUPL) {
-      uint32_t select = num_nodes;
-      uint32_t root = num_nodes;
-//printf("Looking for list corresponding to %s\n", digest_to_str(curr_tree(node)).c_str());
-      auto dup_list = first_ocur_dupl[digest_to_str(curr_tree(node))];
-//printf("\tList length: %u\n", dup_list.size());
+
+  // Remove roots that have duplicate leaves
+  for(auto it=first_ocur_dupl.begin(); it!=first_ocur_dupl.end(); it++) {
+    auto& dup_list = it->second;
+    uint32_t root = num_nodes;
+    bool found_dup = true;
+    while(found_dup) {
+      found_dup = false;
+      root = num_nodes;
       for(uint32_t idx=0; idx<dup_list.size(); idx++) {
         uint32_t u = dup_list[idx];
         uint32_t possible_root = u;
-//printf("\tIndex %u , u: %u, possible root %u\n", idx, u, possible_root);
         if(possible_root > 0) {
-          auto iter = first_ocur_dupl.find(digest_to_str(curr_tree((possible_root-1)/2)));
-          while(possible_root > 0 && iter != first_ocur_dupl.end()) {
-//printf("\t\tPossible root %u\n", possible_root);
+          while(possible_root > 0 && first_ocur_dupl.find(digest_to_str(curr_tree((possible_root-1)/2))) != first_ocur_dupl.end()) {
             possible_root = (possible_root-1)/2;
-            if((possible_root-1)/2)
-              break;
-            iter = first_ocur_dupl.find(digest_to_str(curr_tree((possible_root-1)/2)));
           }
         }
-//printf("\tIndex %u, u %u, root %u\n", idx, u, possible_root);
         if(possible_root < root) {
           root = possible_root;
-          select = u;
-        } else if((possible_root == root) && (u < select)) {
-          select = u;
-        }
-//printf("\tIndex %u corresponds to node %u with root %u (node %u)\n", idx, u, root, select);
-      }
-//printf("\tSelect %u with root %u as the first occurrence\n", select, root);
-      for(uint32_t idx=0; idx<dup_list.size(); idx++) {
-        if(dup_list[idx] == select) {
-          labels[select] = FIRST_OCUR;
-          if(select > num_chunks-1)
-            chunk_counters[labels[select]] += 1;
-          auto& entry = first_occur_h.value_at(first_occur_h.find(curr_tree(select)));
-          entry.node = select;
-//printf("Set %u as the first occurrence.\n", select);
-          if(dup_list[idx] == root) {
-            tree_roots.insert(root);
-//printf("Add %u as a root\n", root);
-          }
-        } else {
-          labels[dup_list[idx]] = SHIFT_DUPL;
-          if(dup_list[idx] > num_chunks-1)
-            chunk_counters[labels[dup_list[idx]]] += 1;
-//printf("Set %u as the shifted duplicate.\n", dup_list[idx]);
+        } else if(possible_root == root) {
+          first_ocur_dupl.erase(digest_to_str(curr_tree(root)));
+          found_dup = true;
+          break;
         }
       }
     }
   }
 
-printf("Selected first occurrence trees\n");
+  // Select which leaves will be first occurrences
+  for(uint32_t node=num_chunks-1; node<num_nodes; node++) {
+    if(labels[node] == FIRST_DUPL) {
+      uint32_t select = num_nodes;
+      uint32_t root = num_nodes;
+      auto dup_list = first_ocur_dupl[digest_to_str(curr_tree(node))];
+      for(uint32_t idx=0; idx<dup_list.size(); idx++) {
+        uint32_t u = dup_list[idx];
+        uint32_t possible_root = u;
+        while(possible_root > 0 && first_ocur_dupl.find(digest_to_str(curr_tree((possible_root-1)/2))) != first_ocur_dupl.end()) {
+          possible_root = (possible_root-1)/2;
+        }
+        if(possible_root < root) {
+          root = possible_root;
+          select = u;
+        }
+      }
+      for(uint32_t idx=0; idx<dup_list.size(); idx++) {
+        labels[dup_list[idx]] = SHIFT_DUPL;
+        chunk_counters[labels[dup_list[idx]]] += 1;
+      }
+      labels[select] = FIRST_OCUR;
+      chunk_counters[FIRST_OCUR] += 1;
+      first_occur_h.insert(curr_tree(select), NodeID(select, chkpt_id));
+    }
+  }
+
+  // Build up forest of Merkle Trees
+  for(uint32_t node=num_chunks-2; node < num_chunks-1; node--) {
+    uint32_t child_l = 2*node+1;
+    uint32_t child_r = 2*node+2;
+    if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
+      labels[node] = FIRST_OCUR;
+      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      auto res = first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
+      if(res.existing()) {
+        auto& entry = first_occur_h.value_at(res.index());
+        entry.node = node;
+      }
+    }
+  }
 
   for(uint32_t node=num_chunks-2; node < num_chunks-1; node--) {
     uint32_t child_l = 2*node+1;
     uint32_t child_r = 2*node+2;
     if(labels[child_l] != labels[child_r]) { // Children have different labels
       labels[node] = DONE;
-      if((labels[child_l] != FIXED_DUPL) && (labels[child_l] != DONE))
+      if((labels[child_l] != FIXED_DUPL) && (labels[child_l] != DONE)) {
         tree_roots.insert(child_l);
-      if((labels[child_r] != FIXED_DUPL) && (labels[child_r] != DONE))
+      }
+      if((labels[child_r] != FIXED_DUPL) && (labels[child_r] != DONE)) {
         tree_roots.insert(child_r);
+      }
     } else if(labels[child_l] == FIXED_DUPL) { // Children are both fixed duplicates
       labels[node] = FIXED_DUPL;
     } else if(labels[child_l] == SHIFT_DUPL) { // Children are both shifted duplicates
@@ -336,10 +334,8 @@ printf("Selected first occurrence trees\n");
       NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
       if(labels[root] == FIRST_OCUR) {
         first_ocur_map_h.insert(root, node);
-//printf("%u FIRST_OCUR\n", root);
       } else if(labels[root] == SHIFT_DUPL) {
         shift_dupl_map_h.insert(root, node);
-//printf("%u SHIFT_DUPL\n", root);
       }
     }
   }
@@ -348,7 +344,6 @@ printf("Selected first occurrence trees\n");
   Kokkos::deep_copy(first_ocur_map_d, first_ocur_map_h);
   Kokkos::deep_copy(tree.tree_d, curr_tree);
   Kokkos::deep_copy(first_occur_d, first_occur_h);
-  Kokkos::deep_copy(tree.tree_h, tree.tree_d);
 
   printf("Checkpoint %u\n", chkpt_id);
   printf("Number of first occurrence chunks:  %lu\n", chunk_counters[FIRST_OCUR]);

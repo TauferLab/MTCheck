@@ -58,10 +58,9 @@ int main(int argc, char** argv) {
       std::string correct = calculate_digest_host(data_h);
 
       // Perform chkpt
-      header_t header;
       Kokkos::View<uint8_t*>::HostMirror diff_h("Diff", 1);
-//      deduplicator.checkpoint(Naive, header, data_d, diff_h, i==0);
-      deduplicator.checkpoint(Naive, (uint8_t*)(data_d.data()), data_d.size(), diff_h, i==0);
+//      deduplicator.checkpoint(Basic, header, data_d, diff_h, i==0);
+      deduplicator.checkpoint(Basic, (uint8_t*)(data_d.data()), data_d.size(), diff_h, i==0);
       Kokkos::fence();
       incr_chkpts.push_back(diff_h);
 
@@ -70,7 +69,7 @@ int main(int argc, char** argv) {
       Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
       std::string null("/dev/null/");
 printf("i: %u, size: %u\n", i, incr_chkpts.size());
-      deduplicator.restart(Naive, restart_buf_d, incr_chkpts, null, i);
+      deduplicator.restart(Basic, restart_buf_d, incr_chkpts, null, i);
       Kokkos::fence();
 
       // Calculate digest of full checkpoint
@@ -88,7 +87,7 @@ printf("i: %u, size: %u\n", i, incr_chkpts.size());
         std::cout << "Hashes don't match!\n";
       }
       std::cout << "Correct:     " << correct << std::endl;
-      std::cout << "Naive chkpt: " << full_digest << std::endl;
+      std::cout << "Basic chkpt: " << full_digest << std::endl;
 
       if(res != 0) {
         break;

@@ -13,7 +13,7 @@
 //   ./dedup_chkpt_files chunk_size num_chkpts [approaches] [chkpt files]
 // Possible approaches
 //   --run-full-chkpt   :   Simple full checkpoint strategy
-//   --run-naive-chkpt  :   Deduplicate using a list of hashes. Only leverage time dimension.
+//   --run-basic-chkpt  :   Deduplicate using a list of hashes. Only leverage time dimension.
 //                          Compare chunks with chunks from prior chkpts at the same offset.
 //   --run-list-chkpt   :   Deduplicate using a list of hashes. Deduplicates with current and
 //                          past checkpoints. Compares with all possible chunks, not just at
@@ -29,29 +29,15 @@ int main(int argc, char** argv) {
 
     // Process data from checkpoint files
     DEBUG_PRINT("Argv[1]: %s\n", argv[1]);
+    DEBUG_PRINT("Argv[2]: %s\n", argv[2]);
     uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[1]));
-    DEBUG_PRINT("Loaded chunk size\n");
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
-    bool run_full = false;
-    bool run_naive = false;
-    bool run_list = false;
-    bool run_tree = false;
-    uint32_t arg_offset = 0;
-    for(uint32_t i=0; i<argc; i++) {
-      if((strcmp(argv[i], "--run-full-chkpt") == 0)) {
-        run_full = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-naive-chkpt") == 0) {
-        run_naive = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-list-chkpt") == 0) {
-        run_list = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-tree-chkpt") == 0) {
-        run_tree = true;
-        arg_offset += 1;
-      }
+    DedupMode mode = get_mode(argc, argv);
+    if(mode == Unknown) {
+      printf("ERROR: Incorrect mode\n");
+      print_mode_help();
     }
+    uint32_t arg_offset = 1;
     // Read checkpoint files and store full paths and file names 
     std::vector<std::string> chkpt_files;
     std::vector<std::string> full_chkpt_files;
@@ -95,22 +81,17 @@ int main(int argc, char** argv) {
       f.close();
 
       std::string logname = chkpt_filenames[idx];
-      if(run_full) {
-        std::string filename = full_chkpt_files[idx] + ".full_chkpt";
-        deduplicator.checkpoint(Full, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
+      std::string filename = full_chkpt_files[idx];
+      if(mode == Full) {
+        filename = filename + ".full_chkpt";
+      } else if(mode == Basic) {
+        filename = filename + ".basic.incr_chkpt";
+      } else if(mode == List) {
+        filename = filename + ".hashlist.incr_chkpt";
+      } else {
+        filename = filename + ".hashtree.incr_chkpt";
       }
-      if(run_naive) {
-        std::string filename = full_chkpt_files[idx] + ".naivehashlist.incr_chkpt";
-        deduplicator.checkpoint(Naive, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
-      }
-      if(run_list) {
-        std::string filename = full_chkpt_files[idx] + ".hashlist.incr_chkpt";
-        deduplicator.checkpoint(List, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
-      }
-      if(run_tree) {
-        std::string filename = full_chkpt_files[idx] + ".hashtree.incr_chkpt";
-        deduplicator.checkpoint(Tree, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
-      }
+      deduplicator.checkpoint(mode, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       Kokkos::fence();
     }
   }

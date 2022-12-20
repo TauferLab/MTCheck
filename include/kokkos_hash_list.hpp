@@ -57,7 +57,7 @@ public:
 };
 
 template<class Hasher, typename DataView>
-void compare_lists_naive( Hasher& hasher, 
+void compare_lists_basic( Hasher& hasher, 
                     const HashList& prior_list,
                     const HashList& list, 
                     Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,
@@ -440,7 +440,7 @@ void compare_lists_global( Hasher& hasher,
 }
 
 std::pair<double,double> 
-restart_chkpt_naive(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts, 
+restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts, 
                              const int chkpt_idx, 
                              Kokkos::View<uint8_t*>& data,
                              size_t size,
@@ -622,7 +622,7 @@ restart_chkpt_naive(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
   return std::make_pair(copy_time, restart_time);
 }
 
-std::pair<double,double> restart_chkpt_naive(std::vector<std::vector<uint8_t> >& incr_chkpts, 
+std::pair<double,double> restart_chkpt_basic(std::vector<std::vector<uint8_t> >& incr_chkpts, 
                              const int chkpt_idx, 
                              Kokkos::View<uint8_t*>& data,
                              size_t size,
@@ -804,7 +804,7 @@ std::pair<double,double> restart_chkpt_naive(std::vector<std::vector<uint8_t> >&
   return std::make_pair(copy_time, restart_time);
 }
 
-std::pair<double,double> restart_chkpt_naive(std::vector<std::string>& chkpt_files, 
+std::pair<double,double> restart_chkpt_basic(std::vector<std::string>& chkpt_files, 
                              const int file_idx, 
                              std::ifstream& file,
                              Kokkos::View<uint8_t*>& data,
@@ -2347,7 +2347,7 @@ std::pair<double,double> restart_chkpt_global(std::vector<std::string>& chkpt_fi
 }
 
 std::pair<double,double>
-restart_incr_chkpt_naivehashlist( std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts,
+restart_incr_chkpt_basic( std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts,
                              const int idx, 
                              Kokkos::View<uint8_t*>& data) {
   size_t filesize = incr_chkpts[idx].size();
@@ -2376,14 +2376,14 @@ restart_incr_chkpt_naivehashlist( std::vector<Kokkos::View<uint8_t*>::HostMirror
   Kokkos::resize(data, header.datalen);
 
   std::pair<double,double> times;
-  times = restart_chkpt_naive(incr_chkpts, idx, data, filesize, num_chunks, header, buffer_d);
+  times = restart_chkpt_basic(incr_chkpts, idx, data, filesize, num_chunks, header, buffer_d);
   Kokkos::fence();
   STDOUT_PRINT("Restarted checkpoint\n");
   return times;
 }
 
 std::pair<double,double>
-restart_incr_chkpt_naivehashlist( std::vector<std::vector<uint8_t>>& incr_chkpts,
+restart_incr_chkpt_basic( std::vector<std::vector<uint8_t>>& incr_chkpts,
                              const int idx, 
                              Kokkos::View<uint8_t*>& data) {
   size_t filesize = incr_chkpts[idx].size();
@@ -2412,14 +2412,14 @@ restart_incr_chkpt_naivehashlist( std::vector<std::vector<uint8_t>>& incr_chkpts
   Kokkos::resize(data, header.datalen);
 
   std::pair<double,double> times;
-  times = restart_chkpt_naive(incr_chkpts, idx, data, filesize, num_chunks, header, buffer_d, buffer_h);
+  times = restart_chkpt_basic(incr_chkpts, idx, data, filesize, num_chunks, header, buffer_d, buffer_h);
   Kokkos::fence();
   STDOUT_PRINT("Restarted checkpoint\n");
   return times;
 }
 
 std::pair<double,double>
-restart_incr_chkpt_naivehashlist( std::vector<std::string>& chkpt_files,
+restart_incr_chkpt_basic( std::vector<std::string>& chkpt_files,
                              const int file_idx, 
                              Kokkos::View<uint8_t*>& data) {
   // Read main incremental checkpoint header
@@ -2454,7 +2454,7 @@ restart_incr_chkpt_naivehashlist( std::vector<std::string>& chkpt_files,
   Kokkos::resize(data, header.datalen);
 
   std::pair<double,double> times;
-  times = restart_chkpt_naive(chkpt_files, file_idx, file, data, filesize, num_chunks, header, buffer_d, buffer_h);
+  times = restart_chkpt_basic(chkpt_files, file_idx, file, data, filesize, num_chunks, header, buffer_d, buffer_h);
   Kokkos::fence();
   STDOUT_PRINT("Restarted checkpoint\n");
   return times;
@@ -2590,7 +2590,7 @@ restart_incr_chkpt_hashlist( std::vector<std::string>& chkpt_files,
 
 template<typename DataView>
 std::pair<uint64_t,uint64_t> 
-write_incr_chkpt_hashlist_naive( const DataView& data, 
+write_incr_chkpt_hashlist_basic( const DataView& data, 
                            Kokkos::View<uint8_t*>& buffer_d, 
                            uint32_t chunk_size, 
                            Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,

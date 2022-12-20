@@ -22,25 +22,6 @@
 
 #define VERIFY_OUTPUT
 
-// Clear caches by doing unrelated work on GPU/CPU
-void flush_cache() {
-  uint32_t GB = 268435456;
-  Kokkos::View<uint32_t*> a("A", GB);
-  Kokkos::View<uint32_t*> b("B", GB);
-  Kokkos::View<uint32_t*> c("C", GB);
-
-  Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
-  Kokkos::parallel_for(GB, KOKKOS_LAMBDA(const uint32_t i) {
-    auto rand_gen = rand_pool.get_state();
-    a(i) = static_cast<uint32_t>(rand_gen.urand() % UINT_MAX);
-    b(i) = static_cast<uint32_t>(rand_gen.urand() % UINT_MAX);
-    rand_pool.free_state(rand_gen);
-  });
-  Kokkos::parallel_for(GB, KOKKOS_LAMBDA(const uint32_t i) {
-    c(i) = a(i)*b(i);
-  });
-}
-
 int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
   Kokkos::initialize(argc, argv);
@@ -53,26 +34,12 @@ int main(int argc, char** argv) {
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
     uint32_t num_tests = static_cast<uint32_t>(atoi(argv[3]));
     uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[4]));
-    bool run_full = false;
-    bool run_naive = false;
-    bool run_list = false;
-    bool run_tree = false;
-    uint32_t arg_offset = 0;
-    for(uint32_t i=0; i<argc; i++) {
-      if((strcmp(argv[i], "--run-full-chkpt") == 0)) {
-        run_full = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-naive-chkpt") == 0) {
-        run_naive = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-list-chkpt") == 0) {
-        run_list = true;
-        arg_offset += 1;
-      } else if(strcmp(argv[i], "--run-tree-chkpt") == 0) {
-        run_tree = true;
-        arg_offset += 1;
-      }
+    DedupMode mode = get_mode(argc, argv);
+    if(mode == Unknown) {
+      printf("ERROR: Incorrect mode\n");
+      print_mode_help();
     }
+    uint32_t arg_offset = 1;
     std::vector<std::string> chkpt_files;
     std::vector<std::string> chkpt_files_trim;
     for(uint32_t i=0; i<num_chkpts; i++) {
@@ -86,9 +53,9 @@ int main(int argc, char** argv) {
     for(uint32_t i=0; i<num_chkpts; i++) {
       full_chkpt_files.push_back(chkpt_files[i]+".full_chkpt");
     }
-    std::vector<std::string> naivehashlist_chkpt_files;
+    std::vector<std::string> basic_chkpt_files;
     for(uint32_t i=0; i<num_chkpts; i++) {
-      naivehashlist_chkpt_files.push_back(chkpt_files[i]+".naivehashlist.incr_chkpt");
+      basic_chkpt_files.push_back(chkpt_files[i]+".basic.incr_chkpt");
     }
     std::vector<std::string> hashlist_chkpt_files;
     for(uint32_t i=0; i<num_chkpts; i++) {
@@ -117,8 +84,10 @@ int main(int argc, char** argv) {
       auto reference_h = Kokkos::create_mirror_view(reference_d);
       file.close();
 
-      if(run_full) {
+      if(mode == Full) {
+        //====================================================================
         // Full checkpoint
+        //====================================================================
         std::vector<Kokkos::View<uint8_t*>::HostMirror> chkpts;
         for(uint32_t i=0; i<num_chkpts; i++) {
           std::fstream file;
@@ -140,15 +109,15 @@ int main(int argc, char** argv) {
         std::string digest = calculate_digest_host(reference_h);
         std::cout << "Full chkpt digest:     " << digest << std::endl;
 #endif
-      }
-      //====================================================================
-      // Incremental checkpoint (Hash list)
-      if(run_naive) {
+      } else if(mode == Basic) {
+        //====================================================================
+        // Basic Incremental checkpoint 
+        //====================================================================
         std::vector<Kokkos::View<uint8_t*>::HostMirror> chkpts;
         for(uint32_t i=0; i<num_chkpts; i++) {
           std::fstream file;
           auto fileflags = std::ifstream::in | std::ifstream::binary | std::ifstream::ate;
-          file.open(naivehashlist_chkpt_files[i], fileflags);
+          file.open(basic_chkpt_files[i], fileflags);
           size_t filesize = file.tellg();
           file.seekg(0);
           Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
@@ -160,16 +129,16 @@ int main(int argc, char** argv) {
 
         std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
-        deduplicator.restart(Naive, reference_d, chkpts, logname, select_chkpt);
+        deduplicator.restart(Basic, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);
-        std::cout << "Naive Hashlist digest: " << digest << std::endl;
+        std::cout << "Basic Hashlist digest: " << digest << std::endl;
 #endif
-      }
-      //====================================================================
-      // Incremental checkpoint (Hash list)
-      if(run_list) {
+      } else if(mode == List) {
+        //====================================================================
+        // Incremental checkpoint (Hash list)
+        //====================================================================
         std::vector<Kokkos::View<uint8_t*>::HostMirror> chkpts;
         for(uint32_t i=0; i<num_chkpts; i++) {
           std::fstream file;
@@ -192,9 +161,10 @@ int main(int argc, char** argv) {
         std::string digest = calculate_digest_host(reference_h);
         std::cout << "Hashlist digest:       " << digest << std::endl;
 #endif
-      }
-      if(run_tree) {
+      } else {
+        //====================================================================
         // Incremental checkpoint (Hash tree)
+        //====================================================================
         std::vector<Kokkos::View<uint8_t*>::HostMirror> chkpts;
         for(uint32_t i=0; i<num_chkpts; i++) {
           std::fstream file;
@@ -211,7 +181,7 @@ int main(int argc, char** argv) {
 
         std::string logname = chkpt_files_trim[select_chkpt];
         Deduplicator<MD5Hash> deduplicator(chunk_size);
-        deduplicator.restart(Tree, reference_d, chkpts, logname, select_chkpt);
+        deduplicator.restart(mode, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);

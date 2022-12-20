@@ -40,17 +40,61 @@ int main(int argc, char** argv) {
     Kokkos::deep_copy(step1_d, step1_h);
     
     Deduplicator<MD5Hash> deduplicator(1);
+    std::vector< Kokkos::View<uint8_t*>::HostMirror > incr_chkpts;
+
     Kokkos::View<uint8_t*>::HostMirror diff_h("Buffer", 1);
 
-//    deduplicator.dedup(step0_d, true);
+    std::string correct = calculate_digest_host(step0_h);
+
     deduplicator.checkpoint(Tree, (uint8_t*)(step0_d.data()), step0_d.size(), diff_h, true);
 
     Kokkos::fence();
 
-//    deduplicator.dedup(step1_d, false);
+    incr_chkpts.push_back(diff_h);
+    Kokkos::View<uint8_t*> restart_buf_d("Restart buffer", 8);
+    Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
+    std::string null("/dev/null/");
+    deduplicator.restart(Tree, restart_buf_d, incr_chkpts, null, 0);
+    Kokkos::deep_copy(restart_buf_h, restart_buf_d);
+    std::string full_digest = calculate_digest_host(restart_buf_h);
+    res = correct.compare(full_digest);
+    // Print digest
+    std::cout << "Checkpoint " << 0 << std::endl;
+    if(res == 0) {
+      std::cout << "Hashes match!\n";
+    } else {
+      std::cout << "Hashes don't match!\n";
+    }
+    std::cout << "Correct:    " << correct << std::endl;
+    std::cout << "Tree chkpt: " << full_digest << std::endl;
+
+    if(res != 0) 
+      return res;
+
+    Kokkos::fence();
+
     deduplicator.checkpoint(Tree, (uint8_t*)(step1_d.data()), step1_d.size(), diff_h, false);
 
     Kokkos::fence();
+
+    correct = calculate_digest_host(step1_h);
+    incr_chkpts.push_back(diff_h);
+    deduplicator.restart(Tree, restart_buf_d, incr_chkpts, null, 1);
+    Kokkos::deep_copy(restart_buf_h, restart_buf_d);
+    full_digest = calculate_digest_host(restart_buf_h);
+    res = correct.compare(full_digest);
+    // Print digest
+    std::cout << "Checkpoint " << 1 << std::endl;
+    if(res == 0) {
+      std::cout << "Hashes match!\n";
+    } else {
+      std::cout << "Hashes don't match!\n";
+    }
+    std::cout << "Correct:    " << correct << std::endl;
+    std::cout << "Tree chkpt: " << full_digest << std::endl;
+
+    if(res != 0) 
+      return res;
 
     printf("Expected 1 first occurrence region and 0 shifted duplicate regions\n");
     if(deduplicator.first_ocur_updates_d.size() != 1 || deduplicator.shift_dupl_updates_d.size() != 0) {

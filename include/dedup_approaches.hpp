@@ -208,7 +208,7 @@ void full_chkpt(Hasher& hasher,
 // chunk has been changed and collect those changes into a diff. Note that chunk i only
 // compares hashes with chunks i in previous checkpoints
 template<typename Hasher>
-void naive_chkpt(Hasher& hasher, 
+void basic_chkpt(Hasher& hasher, 
                 Kokkos::View<uint8_t**,Kokkos::LayoutLeft,Kokkos::DefaultHostExecutionSpace>& chkpts_h,
                 std::vector<std::vector<uint8_t>>& incr_chkpts,
                 std::string& log_filename,
@@ -261,7 +261,7 @@ void naive_chkpt(Hasher& hasher,
     // Compare lists and record time taken
     Timer::time_point start_compare = Timer::now();
     Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
-    compare_lists_naive(hasher, prev_list, list0, changes_bitset, idx, current, chunk_size);
+    compare_lists_basic(hasher, prev_list, list0, changes_bitset, idx, current, chunk_size);
     Kokkos::Profiling::popRegion();
     Timer::time_point end_compare = Timer::now();
     Kokkos::fence();
@@ -278,7 +278,7 @@ void naive_chkpt(Hasher& hasher,
     Kokkos::Profiling::pushRegion(region_name.c_str());
     Kokkos::View<uint8_t*> buffer_d;
     header_t header;
-    std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_naive(current, 
+    std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_basic(current, 
                                                                              buffer_d, 
                                                                              chunk_size, 
                                                                              changes_bitset, 
@@ -309,14 +309,14 @@ void naive_chkpt(Hasher& hasher,
                   << write_time << ','        // Write time
                   << datasizes.first << ','   // Size of data     
                   << datasizes.second << ','; // Size of metadata 
-      timing_file << "Naive" << ","      // Approach
+      timing_file << "Basic" << ","      // Approach
                   << idx << ","          // Checkpoint ID
                   << chunk_size << ","   // Chunk size      
                   << compare_time << "," // Comparison time 
                   << collect_time << "," // Collection time 
                   << write_time          // Write time
                   << std::endl;
-      size_file << "Naive" << ","           // Approach
+      size_file << "Basic" << ","           // Approach
                 << idx << ","               // Checkpoint ID
                 << chunk_size << ","        // Chunk size
                 << datasizes.first << ","   // Size of data
@@ -349,7 +349,7 @@ void naive_chkpt(Hasher& hasher,
 // chunk has been changed and collect those changes into a diff. Note that chunk i only
 // compares hashes with chunks i in previous checkpoints
 template<typename Hasher>
-void naive_chkpt(Hasher& hasher, 
+void basic_chkpt(Hasher& hasher, 
                 std::vector<std::string>& full_chkpt_files, 
                 std::vector<std::string>& chkpt_filenames, 
                 uint32_t chunk_size, 
@@ -408,9 +408,9 @@ void naive_chkpt(Hasher& hasher,
     DEBUG_PRINT("Size of full checkpoint: %zd\n", current.size());
     f.close();
 
-    std::string filename = full_chkpt_files[idx] + ".naivehashlist.incr_chkpt";
+    std::string filename = full_chkpt_files[idx] + ".basic.incr_chkpt";
     std::string logname = chkpt_filenames[idx];
-    deduplicator.checkpoint(Naive, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
+    deduplicator.checkpoint(Basic, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
     Kokkos::fence();
 
 //    // Create list for hashes and bitset for identifying changes
@@ -422,7 +422,7 @@ void naive_chkpt(Hasher& hasher,
 //    // Compare lists and record time taken
 //    Timer::time_point start_compare = Timer::now();
 //    Kokkos::Profiling::pushRegion((std::string("Find distinct chunks ") + std::to_string(idx)).c_str());
-//    compare_lists_naive(hasher, prev_list, list0, changes_bitset, idx, current, chunk_size);
+//    compare_lists_basic(hasher, prev_list, list0, changes_bitset, idx, current, chunk_size);
 //    Kokkos::Profiling::popRegion();
 //    Timer::time_point end_compare = Timer::now();
 //    Kokkos::fence();
@@ -434,13 +434,13 @@ void naive_chkpt(Hasher& hasher,
 //    // Create buffer from diff
 //    uint32_t prior_idx = 0;
 //    Kokkos::fence();
-//    std::string output_name = full_chkpt_files[idx]+".naivehashlist.incr_chkpt";
+//    std::string output_name = full_chkpt_files[idx]+".basic.incr_chkpt";
 //    std::string region_name = std::string("Writing incremental checkpoint ") + std::to_string(idx);
 //    Timer::time_point start_collect = Timer::now();
 //    Kokkos::Profiling::pushRegion(region_name.c_str());
 //    Kokkos::View<uint8_t*> buffer_d;
 //    header_t header;
-//    std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_naive(current, 
+//    std::pair<uint64_t,uint64_t> datasizes = write_incr_chkpt_hashlist_basic(current, 
 //                                                                             buffer_d, 
 //                                                                             chunk_size, 
 //                                                                             changes_bitset, 
@@ -470,14 +470,14 @@ void naive_chkpt(Hasher& hasher,
 //                << write_time << ','        // Write time
 //                << datasizes.first << ','   // Size of data     
 //                << datasizes.second << ','; // Size of metadata 
-//    timing_file << "Naive" << ","      // Approach
+//    timing_file << "Basic" << ","      // Approach
 //                << idx << ","          // Checkpoint ID
 //                << chunk_size << ","   // Chunk size      
 //                << compare_time << "," // Comparison time 
 //                << collect_time << "," // Collection time 
 //                << write_time          // Write time
 //                << std::endl;
-//    size_file << "Naive" << ","           // Approach
+//    size_file << "Basic" << ","           // Approach
 //              << idx << ","               // Checkpoint ID
 //              << chunk_size << ","        // Chunk size
 //              << datasizes.first << ","   // Size of data
@@ -488,7 +488,7 @@ void naive_chkpt(Hasher& hasher,
 //    // Write deduplicate data to file
 //    std::ofstream file;
 //    file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
-//    file.open(full_chkpt_files[idx]+".naivehashlist.incr_chkpt", std::ofstream::out | std::ofstream::binary);
+//    file.open(full_chkpt_files[idx]+".basic.incr_chkpt", std::ofstream::out | std::ofstream::binary);
 ////    file.write((char*)(&header), sizeof(header_t));
 //    file.write((const char*)(buffer_h.data()), buffer_h.size());
 //    file.flush();

@@ -62,52 +62,52 @@ restart_full_chkpt(
 }
 
 std::pair<double,double> 
-restart_naive_list_chkpt(
+restart_basic_list_chkpt(
                          std::vector<std::vector<uint8_t>>& incr_chkpts, 
                          Kokkos::View<uint8_t*>& reference_d,
                          uint32_t chunk_size, 
                          uint32_t select_chkpt,
                          int verify)  {
-  std::pair<double,double> naive_list_times;
+  std::pair<double,double> basic_list_times;
   size_t filesize = incr_chkpts[select_chkpt].size();
   Kokkos::deep_copy(reference_d, 0);
   std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
-//  naive_list_times = restart_incr_chkpt_naivehashlist(chkpt_files, select_chkpt, reference_d);
-  naive_list_times = restart_incr_chkpt_naivehashlist(incr_chkpts, select_chkpt, reference_d);
+//  basic_list_times = restart_incr_chkpt_basic(chkpt_files, select_chkpt, reference_d);
+  basic_list_times = restart_incr_chkpt_basic(incr_chkpts, select_chkpt, reference_d);
   std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
 
   if(verify) {
     auto reference_h = Kokkos::create_mirror_view(reference_d);
     std::string digest = calculate_digest_host(reference_h);
-    std::cout << "Naive Hashlist digest: " << digest << std::endl;
+    std::cout << "Basic Hashlist digest: " << digest << std::endl;
   }
-  return naive_list_times;
+  return basic_list_times;
 }
 
 std::pair<double,double> 
-restart_naive_list_chkpt(
+restart_basic_list_chkpt(
                    std::vector<std::string>& chkpt_files, 
                    uint32_t chunk_size, 
                    uint32_t select_chkpt,
                    bool verify
                    )  {
-  std::pair<double,double> naive_list_times;
+  std::pair<double,double> basic_list_times;
   std::fstream file;
   file.open(chkpt_files[select_chkpt], std::ifstream::in | std::ifstream::binary | std::ifstream::ate);
   size_t filesize = file.tellg();
   file.seekg(0);
-  Kokkos::View<uint8_t*> reference_d("Naive Reference", filesize);
+  Kokkos::View<uint8_t*> reference_d("Basic Reference", filesize);
   Kokkos::deep_copy(reference_d, 0);
   std::chrono::high_resolution_clock::time_point n1 = std::chrono::high_resolution_clock::now();
-  naive_list_times = restart_incr_chkpt_naivehashlist(chkpt_files, select_chkpt, reference_d);
+  basic_list_times = restart_incr_chkpt_basic(chkpt_files, select_chkpt, reference_d);
   std::chrono::high_resolution_clock::time_point n2 = std::chrono::high_resolution_clock::now();
 
   if(verify) {
     auto reference_h = Kokkos::create_mirror_view(reference_d);
     std::string digest = calculate_digest_host(reference_h);
-    std::cout << "Naive Hashlist digest: " << digest << std::endl;
+    std::cout << "Basic Hashlist digest: " << digest << std::endl;
   }
-  return naive_list_times;
+  return basic_list_times;
 }
 
 std::pair<double,double> 

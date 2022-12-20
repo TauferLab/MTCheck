@@ -5,10 +5,9 @@
 #include <string>
 #include <map>
 #include <fstream>
-#include "hash_functions.hpp"
 #include "deduplicator.hpp"
-//#include "restart_approaches.hpp"
 //#include "dedup_approaches.hpp"
+//#include "restart_approaches.hpp"
 #include <libgen.h>
 #include <iostream>
 #include <utility>
@@ -31,8 +30,9 @@ int main(int argc, char** argv) {
 //    Murmur3C hasher;
     MD5Hash hasher;
 
-    Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
+    Kokkos::Random_XorShift64_Pool<> rand_pool(time(NULL));
 
+//    uint64_t data_len = 1024*1024;
     uint64_t data_len = 1024*1024;
     Kokkos::View<uint8_t**, 
                  Kokkos::LayoutLeft, 
@@ -58,10 +58,9 @@ int main(int argc, char** argv) {
       std::string correct = calculate_digest_host(data_h);
 
       // Perform chkpt
-      header_t header;
       Kokkos::View<uint8_t*>::HostMirror diff_h("Diff", 1);
-//      deduplicator.checkpoint(List, header, data_d, diff_h, i==0);
-      deduplicator.checkpoint(List, (uint8_t*)(data_d.data()), data_d.size(), diff_h, i==0);
+//      deduplicator.checkpoint(Tree, header, data_d, diff_h, i==0);
+      deduplicator.checkpoint(Tree, (uint8_t*)(data_d.data()), data_d.size(), diff_h, i==0);
       Kokkos::fence();
       incr_chkpts.push_back(diff_h);
 
@@ -70,7 +69,7 @@ int main(int argc, char** argv) {
       Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
       std::string null("/dev/null/");
 printf("i: %u, size: %u\n", i, incr_chkpts.size());
-      deduplicator.restart(List, restart_buf_d, incr_chkpts, null, i);
+      deduplicator.restart(Tree, restart_buf_d, incr_chkpts, null, i);
       Kokkos::fence();
 
       // Calculate digest of full checkpoint
@@ -87,8 +86,8 @@ printf("i: %u, size: %u\n", i, incr_chkpts.size());
       } else {
         std::cout << "Hashes don't match!\n";
       }
-      std::cout << "Correct:     " << correct << std::endl;
-      std::cout << "List chkpt: " << full_digest << std::endl;
+      std::cout << "Correct:    " << correct << std::endl;
+      std::cout << "Tree chkpt: " << full_digest << std::endl;
 
       if(res != 0) {
         break;
@@ -98,5 +97,7 @@ printf("i: %u, size: %u\n", i, incr_chkpts.size());
   Kokkos::finalize();
   return res;
 }
+
+
 
 
