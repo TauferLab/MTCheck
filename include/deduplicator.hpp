@@ -475,9 +475,16 @@ class Deduplicator {
         timing_file << "Basic" << ","; 
       } else if(mode == List) {
         timing_file << "List" << ","; 
-      } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
-                (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
+      } else if(mode == Tree) {
         timing_file << "Tree" << ","; 
+      } else if(mode == TreeLowOffsetRef) {
+        timing_file << "TreeLowOffsetRef" << ","; 
+      } else if(mode == TreeLowOffset) {
+        timing_file << "TreeLowOffset" << ","; 
+      } else if(mode == TreeLowRootRef) {
+        timing_file << "TreeLowRootRef" << ","; 
+      } else if(mode == TreeLowRoot) {
+        timing_file << "TreeLowRoot" << ","; 
       }
       timing_file << select_chkpt << "," 
                   << chunk_size << "," 
@@ -588,84 +595,6 @@ class Deduplicator {
       }
       write_restart_log(chkpt_id, logname);
     } 
-
-//    void dedup(Kokkos::View<uint8_t*>& data, bool make_baseline) {
-//      data_len = data.size();
-//      num_chunks = data_len/chunk_size;
-//      if(num_chunks*chunk_size < data_len)
-//        num_chunks += 1;
-//      num_nodes = 2*num_chunks-1;
-//
-//      if(current_id == 0) {
-//        tree = MerkleTree(num_chunks);
-//        first_ocur_d = DigestNodeIDMap(num_nodes);
-////        first_ocur_d = DistinctNodeIDMap(1);
-//        first_ocur_updates_d = CompactTable(num_chunks);
-//        shift_dupl_updates_d = CompactTable(num_chunks);
-//      }
-//      if(tree.tree_d.size() < num_nodes) {
-//        Kokkos::resize(tree.tree_d, num_nodes);
-//        Kokkos::resize(tree.tree_h, num_nodes);
-//      }
-//      if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
-//        first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
-//      if(num_chunks != first_ocur_updates_d.capacity()) {
-//        first_ocur_updates_d.rehash(num_nodes);
-//        shift_dupl_updates_d.rehash(num_nodes);
-//      }
-//
-//      first_ocur_updates_d.clear();
-//      shift_dupl_updates_d.clear();
-//      if((current_id == 0) || make_baseline) {
-//        create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, first_ocur_d, shift_dupl_updates_d);
-//        baseline_id = current_id;
-//      } else {
-//        deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-////        num_subtree_roots(data, chunk_size, tree, current_id, first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-//      }
-//      STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", first_ocur_d.capacity(), first_ocur_d.size());
-//      STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-//      STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
-//
-//      Kokkos::deep_copy(tree.tree_h, tree.tree_d);
-//    }
-//
-//    std::pair<uint64_t,uint64_t> 
-//    create_diff(Kokkos::View<uint8_t*>& data, 
-//                header_t& header, 
-//                Kokkos::View<uint8_t*>& diff, 
-//                bool make_baseline) {
-//      if((current_id == 0) || make_baseline) {
-//        datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
-//                                                          first_ocur_d, shift_dupl_updates_d, 
-//                                                          baseline_id, current_id, header);
-//      } else {
-//        datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
-//                                                          first_ocur_updates_d, shift_dupl_updates_d, 
-//                                                          baseline_id, current_id, header);
-//      }
-//      return datasizes;
-//    }
-//
-//    void write_diff(header_t& header, Kokkos::View<uint8_t*>& diff, std::string& filename) {
-//      auto diff_h = Kokkos::create_mirror_view(diff);
-//      Kokkos::deep_copy(diff_h, diff);
-//      std::fstream timing_file, size_file;
-//      std::string size_logname = filename+".chunk_size."+std::to_string(chunk_size)+".size.csv";
-//      size_file.open(size_logname, std::fstream::out | std::fstream::app);
-//      uint32_t num_chkpts = 10;
-//      size_file << "Tree" << "," << current_id << "," << chunk_size << "," << datasizes.first << "," << datasizes.second << ",";
-//      write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
-//      std::ofstream file;
-//      file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
-//      file.open(filename, std::ofstream::out | std::ofstream::binary);
-//      file.write((char*)(&header), sizeof(header_t));
-//      file.write((const char*)(diff_h.data()), diff_h.size());
-//      file.flush();
-//      file.close();
-//      size_file.close();
-//      current_id += 1;
-//    }
 };
 
 #endif // DEDUPLICATOR_HPP

@@ -9,6 +9,8 @@ find_package(OpenSSL REQUIRED)
 
 include(GNUInstallDirs)
 
+option(ENABLE_TESTS "enable tests" OFF)
+
 add_executable(dedup_chkpt_files src/dedup_files.cpp)
 target_include_directories(dedup_chkpt_files PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(dedup_chkpt_files PRIVATE Kokkos::kokkos)
@@ -79,5 +81,7 @@ install(FILES "${PROJECT_BINARY_DIR}/deduplicatorConfigVersion.cmake"
         DESTINATION lib/cmake/deduplicator)
 install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
 
-enable_testing()
-add_subdirectory(test)
+if(ENABLE_TESTS)
+  enable_testing()
+  add_subdirectory(test)
+endif(ENABLE_TESTS)
