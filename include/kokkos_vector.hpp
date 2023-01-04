@@ -2,27 +2,44 @@
 #define KOKKOS_VECTOR_HPP
 #include <Kokkos_Core.hpp>
 
+template<typename StoreType>
 class Vector {
   public:
-    Kokkos::View<uint32_t*> vector_d;
+    Kokkos::View<StoreType*> vector_d;
     Kokkos::View<uint32_t[1]> len_d;
-    typename Kokkos::View<uint32_t*>::HostMirror vector_h;
+    typename Kokkos::View<StoreType*>::HostMirror vector_h;
     Kokkos::View<uint32_t[1]>::HostMirror len_h;
     
-    Vector(uint32_t capacity) {
-      vector_d = Kokkos::View<uint32_t*>("Vector", capacity);
+    Vector() {
+      vector_d = Kokkos::View<StoreType*>("Vector", 1);
       len_d   = Kokkos::View<uint32_t[1]>("Vector length");
       vector_h = Kokkos::create_mirror_view(vector_d);
       len_h   = Kokkos::create_mirror_view(len_d);
       Kokkos::deep_copy(len_d, 0);
     }
 
-    KOKKOS_INLINE_FUNCTION void push(uint32_t item) const {
+    Vector(uint32_t capacity) {
+      vector_d = Kokkos::View<StoreType*>("Vector", capacity);
+      len_d   = Kokkos::View<uint32_t[1]>("Vector length");
+      vector_h = Kokkos::create_mirror_view(vector_d);
+      len_h   = Kokkos::create_mirror_view(len_d);
+      Kokkos::deep_copy(len_d, 0);
+    }
+
+    KOKKOS_INLINE_FUNCTION StoreType* data() const {
+      return vector_d.data();
+    }
+
+    KOKKOS_INLINE_FUNCTION StoreType& operator()(const uint32_t x) const {
+      return vector_d(x);
+    }
+
+    KOKKOS_INLINE_FUNCTION void push(StoreType item) const {
       uint32_t len = Kokkos::atomic_fetch_add(&len_d(0), 1);
       vector_d(len) = item;
     }
 
-    void host_push(uint32_t item) const {
+    void host_push(StoreType item) const {
       uint32_t len = Kokkos::atomic_fetch_add(&len_h(0), 1);
       vector_h(len) = item;
       Kokkos::deep_copy(vector_d, vector_h);
@@ -45,8 +62,6 @@ class Vector {
     }
 
     void clear() const {
-      Kokkos::deep_copy(vector_d, 0);
-      Kokkos::deep_copy(vector_h, 0);
       Kokkos::deep_copy(len_d, 0);
       Kokkos::deep_copy(len_h, 0);
     }

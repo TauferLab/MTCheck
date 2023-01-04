@@ -29,7 +29,10 @@ typedef struct header_t {
   uint32_t curr_repeat_size; // Number of repeat entries from current checkpoint
   uint32_t prev_repeat_size; // Number of repeat entries from prior checkpoints
   uint32_t num_prior_chkpts;
-//  uint32_t repeat_size;      // Number of repeat entries
+  uint32_t repeat_size;      // Number of repeat entries
+//  uint32_t num_first_ocur;
+//  uint32_t num_chkpts;
+//  uint32_t num_shift_dupl;
 } header_t;
 
 enum DedupMode {

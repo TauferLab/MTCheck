@@ -98,6 +98,9 @@ class Deduplicator {
     DistinctNodeIDMap first_ocur_chunks_d;
     SharedNodeIDMap shift_dupl_chunks_d;
     SharedNodeIDMap fixed_dupl_chunks_d;
+    Vector<uint32_t> changes_vec;
+    Vector<uint32_t> first_ocur_vec;
+    Vector<uint32_t> shift_dupl_vec;
     uint32_t chunk_size;
     uint32_t num_chunks;
     uint32_t num_nodes;
@@ -271,12 +274,17 @@ class Deduplicator {
         Kokkos::resize(leaves.list_h, num_chunks);
         list = HashList(num_chunks);
         changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+        changes_vec = Vector<uint32_t>(num_chunks);
+        first_ocur_vec = Vector<uint32_t>(num_chunks);
+        shift_dupl_vec = Vector<uint32_t>(num_chunks);
       } else if(mode == List) {
         if(current_id == 0) {
           leaves = HashList(num_chunks);
           first_ocur_chunks_d = DistinctNodeIDMap(num_chunks);
           shift_dupl_chunks_d = SharedNodeIDMap(num_chunks);
           fixed_dupl_chunks_d = SharedNodeIDMap(num_chunks);
+          first_ocur_vec = Vector<uint32_t>(num_chunks);
+          shift_dupl_vec = Vector<uint32_t>(num_chunks);
         }
         if(leaves.list_d.size() < num_chunks) {
           Kokkos::resize(leaves.list_d, num_nodes);
@@ -316,11 +324,19 @@ class Deduplicator {
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
 
       if(mode == Basic) {
-        compare_lists_basic(hash_func, leaves, list, changes_bitset, current_id, data, chunk_size);
+//        compare_lists_basic(hash_func, leaves, list, changes_bitset, current_id, data, chunk_size);
+//        compare_lists_basic(hash_func, leaves, list, changes_vec, current_id, data, chunk_size);
+        compare_lists_basic(hash_func, leaves, changes_vec, current_id, data, chunk_size);
       } else if(mode == List) {
-        compare_lists_global(hash_func, leaves, current_id, data, chunk_size, 
-                             l_fixed_dupl_chunks, l_shift_dupl_chunks, first_ocur_chunks_d, 
-                             fixed_dupl_chunks_d, shift_dupl_chunks_d, first_ocur_chunks_d);
+//        compare_lists_global(hash_func, leaves, current_id, data, chunk_size, 
+//                             l_fixed_dupl_chunks, l_shift_dupl_chunks, first_ocur_chunks_d, 
+//                             fixed_dupl_chunks_d, shift_dupl_chunks_d, first_ocur_chunks_d);
+//        compare_lists_global_short(leaves, current_id, data, chunk_size, first_ocur_chunks_d, l_shift_dupl_chunks, first_ocur_chunks_d);
+//        if(current_id == 0) {
+//          compare_lists_global_short(leaves, current_id, data, chunk_size, first_ocur_chunks_d, l_shift_dupl_chunks, first_ocur_chunks_d);
+//        } else {
+          compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
+//        }
         STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
                first_ocur_d.capacity(), first_ocur_d.size());
         STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
@@ -362,7 +378,7 @@ class Deduplicator {
       timers[0] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
 
       if(mode == Basic) {
-  	    Kokkos::deep_copy(leaves.list_d, list.list_d);
+//  	    Kokkos::deep_copy(leaves.list_d, list.list_d);
       } else if(mode == List) {
         Kokkos::deep_copy(shift_dupl_chunks_d, l_shift_dupl_chunks);
         Kokkos::deep_copy(fixed_dupl_chunks_d, l_fixed_dupl_chunks);
@@ -380,12 +396,21 @@ class Deduplicator {
       if(mode == Full) {
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
-        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
+        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_vec, 
                                                     0, current_id, header);
+//        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
+//                                                    0, current_id, header);
       } else if(mode == List) {
-        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
-                                                     first_ocur_chunks_d, l_shift_dupl_chunks, 
-                                                     0, current_id, header);
+//        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
+//                                                     first_ocur_chunks_d, l_shift_dupl_chunks, 
+//                                                     0, current_id, header);
+//        if(current_id == 0) {
+//          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
+//                                                       first_ocur_chunks_d, l_shift_dupl_chunks, 
+//                                                       0, current_id, header);
+//        } else {
+          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, 0, current_id, header);
+//        }
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
@@ -517,7 +542,8 @@ class Deduplicator {
         restart_timers[0] = basic_list_times.first;
         restart_timers[1] = basic_list_times.second;
       } else if(dedup_mode == List) {
-        auto list_times = restart_incr_chkpt_hashlist(chkpts, chkpt_id, data);
+//        auto list_times = restart_incr_chkpt_hashlist(chkpts, chkpt_id, data);
+        auto list_times = restart_list(chkpts, chkpt_id, data);
         restart_timers[0] = list_times.first;
         restart_timers[1] = list_times.second;
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 

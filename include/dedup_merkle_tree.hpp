@@ -434,7 +434,7 @@ void deduplicate_data_deterministic(DataView& data,
   }
   Kokkos::View<char*> labels("Labels", num_nodes);
   Kokkos::deep_copy(labels, DONE);
-  Vector tree_roots(num_chunks);
+  Vector<uint32_t> tree_roots(num_chunks);
 
   // Process leaves first
   Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
@@ -629,7 +629,7 @@ void deduplicate_data(Kokkos::View<uint8_t*>& data,
   }
   Kokkos::View<char*> labels("Labels", num_nodes);
   Kokkos::deep_copy(labels, DONE);
-  Vector tree_roots(num_chunks);
+  Vector<uint32_t> tree_roots(num_chunks);
 
   // Process leaves first
   Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {

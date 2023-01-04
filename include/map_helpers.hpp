@@ -5,15 +5,14 @@
 #include <climits>
 #include "kokkos_vector.hpp"
 
-union Storage {
-  uint8_t digest[16];
-  uint32_t count[4];
-};
+//union Storage {
+//  uint8_t digest[16];
+//  uint32_t count[4];
+//};
 
 //template<uint32_t N> 
 struct alignas(16) HashDigest {
   uint8_t digest[16];
-//  uint32_t digest[5];
 };
 
 struct CompareHashDigest {
@@ -161,7 +160,6 @@ struct digest_hash {
     result ^= digest_ptr[1];
     result ^= digest_ptr[2];
     result ^= digest_ptr[3];
-//    result ^= digest_ptr[4];
     return result;
   }
 
@@ -173,7 +171,6 @@ struct digest_hash {
     result ^= digest_ptr[1];
     result ^= digest_ptr[2];
     result ^= digest_ptr[3];
-//    result ^= digest_ptr[4];
     return result;
   }
 };
