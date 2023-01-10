@@ -15,6 +15,12 @@ struct alignas(16) HashDigest {
   uint8_t digest[16];
 };
 
+KOKKOS_INLINE_FUNCTION
+uint32_t digest_to_u32(HashDigest& digest) {
+  uint32_t* u32_ptr = (uint32_t*)(digest.digest);
+  return u32_ptr[0] ^ u32_ptr[1] ^ u32_ptr[2] ^ u32_ptr[3];
+}
+
 struct CompareHashDigest {
   bool operator() (const HashDigest& lhs, const HashDigest& rhs) const {
     for(int i=0; i<16; i++) {
@@ -226,6 +232,18 @@ using NodeMap = Kokkos::UnorderedMap<uint32_t, Node, Kokkos::DefaultExecutionSpa
 
 using DigestNodeIDMap = DistinctNodeIDMap;
 using RootNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
+
+//using DigestListMap = Kokkos::UnorderedMap<HashDigest, 
+//                                           Vector<uint32_t>, 
+//                                           Kokkos::DefaultExecutionSpace, 
+//                                           digest_hash, 
+//                                           digest_equal_to>;
+
+using DigestListMap = Kokkos::UnorderedMap<HashDigest, 
+                                           uint32_t,
+                                           Kokkos::DefaultExecutionSpace, 
+                                           digest_hash, 
+                                           digest_equal_to>;
 
 #endif
 

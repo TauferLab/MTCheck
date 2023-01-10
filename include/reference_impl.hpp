@@ -11,12 +11,6 @@
 #include "kokkos_hash_list.hpp"
 #include "utils.hpp"
 
-//struct ReferenceImpl {
-//  const char FIRST_OCUR = 0;
-//  const char FIXED_DUPL = 1;
-//  const char SHIFT_DUPL = 2;
-//  const char DONE = 3;
-
 template<typename DataView>
 int dedup_low_offset_ref(DataView& data_d,
                       const uint32_t chunk_size,
@@ -37,10 +31,10 @@ int dedup_low_offset_ref(DataView& data_d,
   CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
   CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
 
-  const char FIRST_OCUR = 0;
-  const char FIXED_DUPL = 1;
-  const char SHIFT_DUPL = 2;
-  const char DONE = 4;
+//  const char FIRST_OCUR = 0;
+//  const char FIXED_DUPL = 1;
+//  const char SHIFT_DUPL = 2;
+//  const char DONE = 4;
   uint64_t chunk_counters[4]  = {0,0,0,0};
   uint64_t region_counters[4] = {0,0,0,0};
   uint32_t num_chunks = (tree.tree_h.extent(0)+1)/2;
@@ -168,11 +162,11 @@ int dedup_low_root_ref(DataView& data_d,
   CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
   CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
 
-  const char FIRST_OCUR = 0;
-  const char FIXED_DUPL = 1;
-  const char SHIFT_DUPL = 2;
-  const char FIRST_DUPL = 3;
-  const char DONE = 4;
+//  const char FIRST_OCUR = 0;
+//  const char FIXED_DUPL = 1;
+//  const char SHIFT_DUPL = 2;
+//  const char FIRST_DUPL = 3;
+//  const char DONE = 4;
   uint64_t chunk_counters[4]  = {0,0,0,0};
   uint64_t region_counters[4] = {0,0,0,0};
   uint32_t num_chunks = (tree.tree_h.extent(0)+1)/2;

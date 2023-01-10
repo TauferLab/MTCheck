@@ -2983,6 +2983,24 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
   Kokkos::deep_copy(data_subview, changes_bytes);
   Kokkos::deep_copy(changes.vector_h, changes.vector_d);
 
+//  uint32_t num_streams = 4;
+////  cudaStream_t* streams = new cudaStream_t[changes.size()];
+//  cudaStream_t* streams = new cudaStream_t[num_streams];
+//  for(uint32_t i=0; i<num_streams; i++) {
+//    cudaStreamCreate(&streams[i]);
+//  }
+//  for(uint32_t i=0; i<changes.size(); i++) {
+//    uint32_t chunk = changes.vector_h(i);
+//    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
+//    uint32_t writesize = chunk_size;
+//    if((chunk+1)*chunk_size > data.size()) {
+//      writesize = data.size()-chunk*chunk_size;
+//    }
+//    cudaMemcpyAsync(buffer_h.data()+sizeof(header_t)+offset, data.data()+chunk_size*chunk, writesize, cudaMemcpyDeviceToHost, streams[i%num_streams]);
+//  }
+//  cudaDeviceSynchronize();
+//Kokkos::deep_copy(buffer_d, buffer_h);
+
 //  for(uint32_t i=0; i<changes.size(); i++) {
 //    uint32_t chunk = changes.vector_h(i);
 //    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
@@ -2995,15 +3013,29 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 //  cudaDeviceSynchronize();
 //Kokkos::deep_copy(buffer_d, buffer_h);
   
-  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
+//  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t chunk = changes(i);
+////    memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &chunk, sizeof(uint32_t));
+//    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
+//    uint32_t writesize = chunk_size;
+//    if((chunk+1)*chunk_size > data.size()) {
+//      writesize = data.size()-chunk*chunk_size;
+//    }
+//    memcpy(buffer_d.data()+sizeof(header_t)+offset, data.data()+chunk_size*chunk, writesize);
+//  });
+
+  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(changes.size(), Kokkos::AUTO()), 
+                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    uint32_t i = team_member.league_rank();
     uint32_t chunk = changes(i);
-//    memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &chunk, sizeof(uint32_t));
-    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
     uint32_t writesize = chunk_size;
+    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
     if((chunk+1)*chunk_size > data.size()) {
       writesize = data.size()-chunk*chunk_size;
     }
-    memcpy(buffer_d.data()+sizeof(header_t)+offset, data.data()+chunk_size*chunk, writesize);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&] (const uint64_t& j) {
+      buffer_d(sizeof(header_t)+offset+j) = data(chunk_size*chunk+j);
+    });
   });
   Kokkos::fence();
   header.ref_id = prior_chkpt_id;

@@ -350,22 +350,20 @@ class Deduplicator {
                                            first_ocur_d, shift_dupl_updates_d);
           baseline_id = current_id;
         } else {
+//          if((mode == Tree) || (mode == TreeLowOffset)) {
           if((mode == Tree) || (mode == TreeLowOffset)) {
             deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
                                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-          } else if(mode == TreeLowOffsetRef) {
+          } else if((mode == TreeLowOffsetRef)) {
             dedup_low_offset_ref(data, chunk_size, tree, current_id, 
                                  first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-          } else if(mode == TreeLowRootRef || mode == TreeLowRoot) {
+          } else if(mode == TreeLowRootRef) {
             dedup_low_root_ref(data, chunk_size, tree, current_id, 
                                first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
+          } else if((mode == TreeLowRoot)) {
+            dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
+                           first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           }
-//          deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
-//                                         first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-//          num_subtree_roots_experiment(data, chunk_size, tree, current_id, 
-//                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-//          num_subtree_roots(data, chunk_size, tree, current_id, 
-//                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           printf("First occurrence update capacity: %lu, size: %lu\n", 
                  first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
           printf("Shift duplicate update capacity:  %lu, size: %lu\n", 
@@ -469,7 +467,6 @@ class Deduplicator {
       checkpoint(dedup_mode, header, data, diff_h, make_baseline);
       write_chkpt_log(header, diff_h, logname);
       write_chkpt(header, diff_h, filename);
-
       current_id += 1;
     }
 

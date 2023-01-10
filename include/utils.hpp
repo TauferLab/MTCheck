@@ -47,6 +47,14 @@ enum DedupMode {
   TreeLowRoot
 };
 
+enum Label : uint8_t {
+  FIRST_OCUR = 0,
+  FIXED_DUPL = 1,
+  SHIFT_DUPL = 2,
+  FIRST_DUPL = 3,
+  DONE = 4
+};
+
 void print_mode_help() {
   printf("Modes: \n");
   printf("Full checkpoint:                                   --run-full-chkpt\n");

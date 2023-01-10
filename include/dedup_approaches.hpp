@@ -982,8 +982,8 @@ void tree_chkpt(Hasher& hasher,
 //        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_nodes, g_distinct_nodes, l_nodes, g_distinct_nodes, updates);
         shared_updates.clear();
         distinct_updates.clear();
-//        deduplicate_data_deterministic(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
-        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
+        deduplicate_data_deterministic(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
+//        deduplicate_data(current, chunk_size, hasher, tree0, idx, g_distinct_nodes, shared_updates, distinct_updates);
 //        STDOUT_PRINT("Size of shared updates: %u\n", shared_updates.size());
 //        STDOUT_PRINT("Size of distinct updates: %u\n", distinct_updates.size());
 //        shared_updates.clear();
