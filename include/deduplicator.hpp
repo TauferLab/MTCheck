@@ -351,7 +351,7 @@ class Deduplicator {
           baseline_id = current_id;
         } else {
 //          if((mode == Tree) || (mode == TreeLowOffset)) {
-          if((mode == Tree) || (mode == TreeLowOffset)) {
+          if((mode == TreeLowOffset)) {
             deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
                                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           } else if((mode == TreeLowOffsetRef)) {
@@ -360,13 +360,13 @@ class Deduplicator {
           } else if(mode == TreeLowRootRef) {
             dedup_low_root_ref(data, chunk_size, tree, current_id, 
                                first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-          } else if((mode == TreeLowRoot)) {
+          } else if((mode == Tree) || (mode == TreeLowRoot)) {
             dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           }
-          printf("First occurrence update capacity: %lu, size: %lu\n", 
+          STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
                  first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-          printf("Shift duplicate update capacity:  %lu, size: %lu\n", 
+          STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
                  shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
         }
       }
@@ -420,6 +420,9 @@ class Deduplicator {
                                                             first_ocur_updates_d, 
                                                             shift_dupl_updates_d, 
                                                             baseline_id, current_id, header);
+//          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, tree, first_ocur_d,
+//                                                            first_ocur_vec, shift_dupl_vec, 
+//                                                            baseline_id, current_id, header);
         }
       }
 

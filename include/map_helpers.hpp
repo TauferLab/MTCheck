@@ -245,5 +245,11 @@ using DigestListMap = Kokkos::UnorderedMap<HashDigest,
                                            digest_hash, 
                                            digest_equal_to>;
 
+using DigestMap = Kokkos::UnorderedMap<HashDigest, 
+                                           void,
+                                           Kokkos::DefaultExecutionSpace, 
+                                           digest_hash, 
+                                           digest_equal_to>;
+
 #endif
 

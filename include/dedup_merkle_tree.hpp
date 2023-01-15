@@ -303,20 +303,11 @@ void dedup_low_root(DataView& data,
   Kokkos::View<uint32_t*> dupl_keys("Duplicate keys", num_nodes);
   Kokkos::View<uint32_t[1]> num_dupl_hash("Num duplicates");
   Kokkos::View<uint32_t[1]> hash_id_counter("Counter");
+  Kokkos::UnorderedMap<uint32_t,uint32_t> id_map(num_nodes);
   Kokkos::deep_copy(duplicates, UINT_MAX);
   Kokkos::deep_copy(dupl_keys, UINT_MAX);
   Kokkos::deep_copy(num_dupl_hash, 0);
   Kokkos::deep_copy(hash_id_counter, 0);
-printf("Allocated data\n");
-
-//printf("Allocate DigestListMap\n");
-//  DigestListMap first_occurrences(num_nodes);
-//printf("Create DigestListMap\n");
-//  for(uint32_t i=0; i<num_nodes; i++) {
-//    auto& val = first_occurrences.value_at(i);
-//    Kokkos::resize(val.vector_d, num_nodes);
-//  }
-//printf("Resized Vectors\n");
 
   uint32_t level_beg = 0;
   uint32_t level_end = 0;
@@ -331,7 +322,6 @@ printf("Allocated data\n");
   // Process leaves first
   Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
     auto chunk_counters_sa = chunk_counters_sv.access();
-    auto region_counters_sa = region_counters_sv.access();
     uint32_t num_bytes = chunk_size;
     if(leaf == num_nodes-1) // Calculate how much data to hash
       num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
@@ -349,21 +339,13 @@ printf("Allocated data\n");
       labels(leaf) = FIRST_DUPL;
       chunk_counters_sa(labels(leaf)) += 1;
 
-      uint32_t id = digest_to_u32(digest);
+//      uint32_t id = digest_to_u32(digest);
+      uint32_t id = leaf+num_nodes;
       auto result = first_occurrences.insert(digest, id);
+      id = first_occurrences.value_at(result.index());
       uint32_t offset = Kokkos::atomic_fetch_add(&num_dupl_hash(0), 1);
       duplicates(offset) = leaf;
       dupl_keys(offset) = id;
-
-//      if(!first_occurrences.exists(digest)) {
-//        auto list = Vector<uint32_t>(num_chunks);
-//        list.push(leaf);
-//        first_occurrences.insert(digest, list);
-//      } else {
-//        auto& list = first_occurrences.value_at(first_occurrences.find(digest));
-//        list.push(leaf);
-//      }
-
     }
     curr_tree(leaf) = digest;
   });
@@ -385,20 +367,16 @@ printf("Allocated data\n");
           hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
 
           labels(node) = FIRST_DUPL;
-          uint32_t id = digest_to_u32(curr_tree(node));
+
+//          uint32_t id = digest_to_u32(curr_tree(node));
+          uint32_t id = node+num_nodes;
           auto result = first_occurrences.insert(curr_tree(node), id);
+          if(result.existing()) {
+            id = first_occurrences.value_at(result.index());
+          }
           uint32_t offset = Kokkos::atomic_fetch_add(&num_dupl_hash(0), 1);
           duplicates(offset) = node;
           dupl_keys(offset) = id;
-
-//          if(!first_occurrences.exists(curr_tree(node))) {
-//            auto list = Vector<uint32_t>(num_chunks);
-//            list.push(node);
-//            first_occurrences.insert(curr_tree(node), list);
-//          } else {
-//            auto& list = first_occurrences.value_at(first_occurrences.find(curr_tree(node)));
-//            list.push(node);
-//          }
         }
         if(node == 0 && labels(0) == FIRST_DUPL) {
           tree_roots.push(0);
@@ -407,50 +385,37 @@ printf("Allocated data\n");
     });
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
+//    Kokkos::fence();
   }
-Kokkos::fence();
-printf("Processed leaves and trees\n");
+  DEBUG_PRINT("Processed leaves and trees\n");
 
   auto hash_id_counter_h = Kokkos::create_mirror_view(hash_id_counter);
   auto num_dupl_hash_h = Kokkos::create_mirror_view(num_dupl_hash);
-  Kokkos::deep_copy(hash_id_counter_h, hash_id_counter);
+//  Kokkos::deep_copy(hash_id_counter_h, hash_id_counter);
   Kokkos::deep_copy(num_dupl_hash_h, num_dupl_hash);
-  uint32_t num_hashes = hash_id_counter_h(0);
+//  uint32_t num_hashes = hash_id_counter_h(0);
   uint32_t num_first_occur = num_dupl_hash_h(0);
-Kokkos::fence();
-  printf("Number of distinct hashes %u\n", num_hashes);
-  printf("Number of duplicates: %u\n", num_first_occur);
 
   Kokkos::View<uint32_t*> num_duplicates("Number of duplicates", first_occurrences.size()+1);
   Kokkos::deep_copy(num_duplicates, 0);
   Kokkos::deep_copy(hash_id_counter, 0);
-  Kokkos::parallel_for(first_occurrences.capacity(), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Create id map", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(first_occurrences.valid_at(i)) {
-      HashDigest digest = first_occurrences.key_at(i);
-      uint32_t old_id = digest_to_u32(digest);
-      uint32_t id = Kokkos::atomic_fetch_add(&hash_id_counter(0), static_cast<uint32_t>(1));
-      uint32_t num_dups = 0;
-      for(uint32_t j=0; j<num_dupl_hash(0); j++) {
-        if(dupl_keys(j) == old_id) {
-          num_dups += 1;
-          dupl_keys(j) = id;
-        }
-      }
-      auto& n_duplicates = first_occurrences.value_at(i);
-      n_duplicates = id;
-      num_duplicates(id) = num_dups;
-if(id < 32)
-printf("%u: %u\tNum duplicates: %u\n", old_id, id, num_dups);
+      uint32_t& old_id = first_occurrences.value_at(i);
+      uint32_t new_id = Kokkos::atomic_fetch_add(&hash_id_counter(0), static_cast<uint32_t>(1));
+      id_map.insert(old_id, new_id);
+      old_id = new_id;
     }
+  });
+  Kokkos::parallel_for("Update keys", Kokkos::RangePolicy<>(0, num_first_occur), KOKKOS_LAMBDA(const uint32_t i) {
+    uint32_t old_id = dupl_keys(i);
+    uint32_t new_id = id_map.value_at(id_map.find(old_id));
+    dupl_keys(i) = new_id;
+    Kokkos::atomic_add(&num_duplicates(dupl_keys(i)), 1);
   });
 
   Kokkos::deep_copy(hash_id_counter_h, hash_id_counter);
-  Kokkos::deep_copy(num_dupl_hash_h, num_dupl_hash);
-  num_hashes = hash_id_counter_h(0);
-  num_first_occur = num_dupl_hash_h(0);
-Kokkos::fence();
-  printf("Number of distinct hashes %u\n", num_hashes);
-  printf("Number of duplicates: %u\n", num_first_occur);
+  uint32_t num_hashes = hash_id_counter_h(0);
 
   auto keys = dupl_keys;
   using key_type = decltype(keys);
@@ -458,79 +423,53 @@ Kokkos::fence();
   Comparator comp(hash_id_counter_h(0), 0, hash_id_counter_h(0));
   Kokkos::BinSort<key_type, Comparator> bin_sort(keys, 0, num_dupl_hash_h(0), comp, 0);
   bin_sort.create_permute_vector();
-//  auto dup_subview = Kokkos::subview(duplicates, std::make_pair(0, num_first_occur));
-//  auto key_subview = Kokkos::subview(dupl_keys, Kokkos::make_pair(0, num_first_occur));
-//  bin_sort.sort(dup_subview);
-//  bin_sort.sort(key_subview);
   bin_sort.sort(duplicates);
-  bin_sort.sort(dupl_keys);
-Kokkos::fence();
-  printf("Sorted Views\n");
 
-//  Kokkos::parallel_for(num_duplicates.size(), KOKKOS_LAMBDA(const uint32_t i) {
-//    printf("(ID, Offset): (%u,%u)\n", i, num_duplicates(i));
-//  });
-  
   uint32_t total_duplicates = 0;
-  Kokkos::parallel_scan(num_duplicates.size(), KOKKOS_LAMBDA(uint32_t i, uint32_t& partial_sum, bool is_final) {
+  Kokkos::parallel_scan("Find vector offsets", Kokkos::RangePolicy<>(0,num_duplicates.size()), KOKKOS_LAMBDA(uint32_t i, uint32_t& partial_sum, bool is_final) {
     uint32_t num = num_duplicates(i);
     if(is_final) num_duplicates(i) = partial_sum;
     partial_sum += num;
   }, total_duplicates);
-Kokkos::fence();
-  printf("Prefix scan done\n");
-//  Kokkos::parallel_for(num_duplicates.size(), KOKKOS_LAMBDA(const uint32_t i) {
-//    printf("(ID, Offset): (%u,%u)\n", i, num_duplicates(i));
-//  });
-  
-  // Remove roots that have duplicate leaves
-  Kokkos::parallel_for("Remove roots with duplicate leaves", Kokkos::RangePolicy<>(0, first_occurrences.size()), KOKKOS_LAMBDA(const uint32_t i) {
+
+  Kokkos::parallel_for("Remove roots with duplicate leaves", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
     if(first_occurrences.valid_at(i)) {
       uint32_t id = first_occurrences.value_at(i);
-if(num_duplicates(id+1)-num_duplicates(id) > 1) {
-printf("Num duplicates for %u: %u\n", id, num_duplicates(id+1)-num_duplicates(id));
-      uint32_t root = num_nodes;
-      bool found_dup = true;
-      while(found_dup) {
-        found_dup = false;
-        root = num_nodes;
-        for(uint32_t idx=0; idx<num_duplicates(id+1)-num_duplicates(id); idx++) {
-          uint32_t u = duplicates(num_duplicates(id)+idx);
-//        for(uint32_t idx=0; idx<list.size(); idx++) {
-//          uint32_t u = list(idx);
-          uint32_t possible_root = u;
-          while((num_nodes < possible_root) && (possible_root > 0) && first_occurrences.exists(curr_tree((possible_root-1)/2))) {
-            possible_root = (possible_root-1)/2;
-          }
-          if(possible_root < root) {
-            root = possible_root;
-          } else if(possible_root == root) {
-            first_occurrences.erase(curr_tree(root));
-            found_dup = true;
-            break;
+      if(num_duplicates(id+1)-num_duplicates(id) > 1) {
+        uint32_t root = num_nodes;
+        bool found_dup = true;
+        while(found_dup) {
+          found_dup = false;
+          root = num_nodes;
+          for(uint32_t idx=0; idx<num_duplicates(id+1)-num_duplicates(id); idx++) {
+            uint32_t u = duplicates(num_duplicates(id)+idx);
+//            uint32_t u = duplicates(num_duplicates(id));
+            uint32_t possible_root = u;
+            while((num_nodes < possible_root) && (possible_root > 0) && first_occurrences.exists(curr_tree((possible_root-1)/2))) {
+              possible_root = (possible_root-1)/2;
+            }
+            if(possible_root < root) {
+              root = possible_root;
+            } else if(possible_root == root) {
+              first_occurrences.erase(curr_tree(root));
+              found_dup = true;
+              break;
+            }
           }
         }
       }
-}
     }
   });
 
-Kokkos::fence();
-printf("Removed roots\n");
 
   Kokkos::parallel_for("Select first occurrence leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t node) {
     if(labels(node) == FIRST_DUPL) {
       auto chunk_counters_sa = chunk_counters_sv.access();
-//      uint32_t select = num_nodes;
-//      uint32_t root = num_nodes;
       uint32_t id = first_occurrences.value_at(first_occurrences.find(curr_tree(node)));
       uint32_t select = duplicates(num_duplicates(id));
       uint32_t root = select;
-//if(num_duplicates(id+1)-num_duplicates(id) > 1) {
       for(uint32_t idx=0; idx<num_duplicates(id+1)-num_duplicates(id); idx++) {
         uint32_t u = duplicates(num_duplicates(id)+idx);
-//      for(uint32_t idx=0; idx<dup_list.size(); idx++) {
-//        uint32_t u = dup_list(idx);
         uint32_t possible_root = u;
         while(possible_root > 0 && first_occurrences.exists(curr_tree((possible_root-1)/2))) {
           possible_root = (possible_root-1)/2;
@@ -540,24 +479,16 @@ printf("Removed roots\n");
           select = u;
         }
       }
-//}
       for(uint32_t idx=0; idx<num_duplicates(id+1)-num_duplicates(id); idx++) {
         uint32_t u = duplicates(num_duplicates(id)+idx);
         labels(u) = SHIFT_DUPL;
         chunk_counters_sa(labels(u)) += 1;
       }
-//      for(uint32_t idx=0; idx<dup_list.size(); idx++) {
-//        labels(dup_list(idx)) = SHIFT_DUPL;
-//        chunk_counters_sa(labels(dup_list(idx))) += 1;
-//      }
       labels(select) = FIRST_OCUR;
       chunk_counters_sa(FIRST_OCUR) += 1;
       first_occur_d.insert(curr_tree(select), NodeID(select, chkpt_id));
     }
   });
-Kokkos::fence();
-printf("Selected leaves\n");
-printf("Number of first occurrences: %u\n", first_occur_d.size());
 
   // Build up forest of Merkle Trees
   level_beg = 0;
@@ -581,6 +512,7 @@ printf("Number of first occurrences: %u\n", first_occur_d.size());
           tree_roots.push(0);
       }
     });
+//    Kokkos::fence();
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
   }
@@ -624,12 +556,11 @@ printf("Number of first occurrences: %u\n", first_occur_d.size());
     });
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
+//    Kokkos::fence();
   }
-Kokkos::fence();
-printf("Built up forest of trees\n");
 
   // Count regions
-  Kokkos::parallel_for(tree_roots.size(), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Count regions", Kokkos::RangePolicy<>(0,tree_roots.size()), KOKKOS_LAMBDA(const uint32_t i) {
     auto chunk_counters_sa = chunk_counters_sv.access();
     auto region_counters_sa = region_counters_sv.access();
     uint32_t root = tree_roots.vector_d(i);
@@ -638,30 +569,13 @@ printf("Built up forest of trees\n");
       NodeID node = first_occur_d.value_at(first_occur_d.find(curr_tree(root)));
       if(labels(root) == FIRST_OCUR) {
         first_ocur_updates.insert(root, node);
-printf("First Ocur: %u\n", root);
+//printf("First Ocur: %u\n", root);
       } else if(labels(root) == SHIFT_DUPL) {
         shift_dupl_updates.insert(root, node);
-printf("Shift Dupl: %u\n", root);
+//printf("Shift Dupl: %u\n", root);
       }
     }
   });
-
-//  Kokkos::deep_copy(tree_roots.vector_h, tree_roots.vector_d);
-//  auto labels_h = Kokkos::create_mirror_view(labels);
-//  Kokkos::deep_copy(labels_h, labels);
-//  std::set<uint32_t> tree_root_set;
-//  for(uint32_t i=0; i<tree_roots.size(); i++) {
-//    uint32_t root = tree_roots.vector_h(i);
-//    tree_root_set.insert(root);
-//  }
-//  
-//  for(auto iter = tree_root_set.begin(); iter != tree_root_set.end(); iter++) {
-//    if(labels_h(*iter) == FIRST_OCUR) {
-//STDOUT_PRINT("%u FIRST_OCUR\n", *iter);
-//    } else if(labels_h(*iter) == SHIFT_DUPL) {
-//STDOUT_PRINT("%u SHIFT_DUPL\n", *iter);
-//    }
-//  }
 
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
   Kokkos::fence();
