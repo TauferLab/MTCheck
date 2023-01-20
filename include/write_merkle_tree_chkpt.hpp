@@ -161,7 +161,9 @@ write_incr_chkpt_hashtree_local_mode(
   STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_h(0));
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - distinct_size;
+  return std::make_pair(distinct_size, size_metadata);
 }
 
 std::pair<uint64_t,uint64_t> 
@@ -314,7 +316,9 @@ STDOUT_PRINT("Number of current repeats: %u\n", counter_h(0));
   STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_h(0));
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - distinct_size;
+  return std::make_pair(distinct_size, size_metadata);
 }
 
 std::pair<uint64_t,uint64_t> 
@@ -464,7 +468,9 @@ write_incr_chkpt_hashtree_global_mode(
   STDOUT_PRINT("Number of bytes written for compact incremental checkpoint: %lu\n", sizeof(header_t) + num_bytes_h(0));
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - distinct_size;
+  return std::make_pair(distinct_size, size_metadata);
 }
 
 std::pair<uint64_t,uint64_t> 
@@ -525,6 +531,7 @@ write_incr_chkpt_hashtree_local_mode(
   });
 
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
+  uint32_t first_ocur_size = num_bytes_h(0);
   Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
   num_bytes_h(0) += shared.size()*(sizeof(uint32_t)+sizeof(uint32_t));
   Kokkos::deep_copy(max_reg_h, max_reg);
@@ -649,7 +656,9 @@ write_incr_chkpt_hashtree_local_mode(
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - first_ocur_size;
+  return std::make_pair(first_ocur_size, size_metadata);
 }
 
 std::pair<uint64_t,uint64_t> 
@@ -794,6 +803,7 @@ write_incr_chkpt_hashtree_global_mode(
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
+  uint32_t first_ocur_size = num_bytes_h(0);
   buffer_d = Kokkos::View<uint8_t*>("Buffer", sizeof(header_t)+num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t));
 
   Kokkos::deep_copy(num_bytes_d, 0);
@@ -912,7 +922,9 @@ write_incr_chkpt_hashtree_global_mode(
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - first_ocur_size;
+  return std::make_pair(first_ocur_size, size_metadata);
 }
 
 template<typename DataView>
@@ -1065,6 +1077,8 @@ write_incr_chkpt_hashtree_global_mode(
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
+  Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
+  uint32_t first_ocur_size = num_bytes_data_h(0);
   uint64_t buffer_len = sizeof(header_t)+num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t);
   buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_len);
 
@@ -1197,7 +1211,9 @@ write_incr_chkpt_hashtree_global_mode(
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - first_ocur_size;
+  return std::make_pair(first_ocur_size, size_metadata);
 }
 
 template<typename DataView>
@@ -1328,6 +1344,7 @@ write_incr_chkpt_hashtree_global_mode(
   });
 
   DEBUG_PRINT("Length of buffer: %lu\n", num_bytes_h(0)+2*sizeof(uint32_t)*num_prior_chkpts);
+  uint32_t first_ocur_size = num_bytes_h(0);
   uint64_t buffer_len = sizeof(header_t)+num_bytes_h(0)+2*sizeof(uint32_t)*chkpts_needed.count()+sizeof(uint32_t);
   buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_len);
 
@@ -1443,7 +1460,9 @@ write_incr_chkpt_hashtree_global_mode(
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_bytes_data_h(0));
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + num_bytes_metadata_h(0));
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - first_ocur_size;
+  return std::make_pair(first_ocur_size, size_metadata);
 }
 
 #endif // WRITE_MERKLE_TREE_CHKPT_HPP

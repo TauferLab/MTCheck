@@ -3166,7 +3166,9 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - header.distinct_size*chunk_size;
+  return std::make_pair(header.distinct_size*chunk_size, size_metadata);
 }
 
 std::pair<uint64_t,uint64_t> 
@@ -3277,7 +3279,9 @@ write_incr_chkpt_hashlist_local(
 
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
-  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+  uint64_t size_metadata = buffer_d.size() - header.distinct_size*chunk_size;
+  return std::make_pair(header.distinct_size*chunk_size, size_metadata);
 }
 
 template<typename DataView>
@@ -3464,12 +3468,14 @@ write_incr_chkpt_hashlist_global(
   DEBUG_PRINT("Closed file\n");
   first_ocur.clear();
   shift_dupl.clear();
-  return std::make_pair(data_size, sizeof(header_t) + metadata_size);
+//  return std::make_pair(data_size, sizeof(header_t) + metadata_size);
 //  if(prior_chkpt_id == chkpt_id) {
 //    return num_written;
 //  } else {
 //    return std::make_pair(data_size, sizeof(header_t) + metadata_size);
 //  }
+  uint64_t size_metadata = buffer_d.size() - header.distinct_size*chunk_size;
+  return std::make_pair(header.distinct_size*chunk_size, size_metadata);
 }
 
 template<typename DataView>
@@ -3641,8 +3647,10 @@ write_incr_chkpt_hashlist_global(
 //  if(prior_chkpt_id == chkpt_id) {
 //    return num_written;
 //  } else {
-    return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
+////    return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
 //  }
+  uint64_t size_metadata = buffer_d.size() - header.distinct_size*chunk_size;
+  return std::make_pair(header.distinct_size*chunk_size, size_metadata);
 }
 
 #endif

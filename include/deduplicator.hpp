@@ -47,6 +47,18 @@ void write_metadata_breakdown2(std::fstream& fs,
   STDOUT_PRINT("Distinct bytes: %lu\n", header.distinct_size*sizeof(uint32_t));
   // Write size of header and metadata for First occurrence chunks
   fs << 40 << "," << header.distinct_size*sizeof(uint32_t) << ",";
+  uint64_t distinct_bytes = 0;
+  uint32_t num_chunks = header.datalen/header.chunk_size;
+  if(header.chunk_size*num_chunks < header.datalen)
+    num_chunks += 1;
+  uint32_t num_nodes = 2*num_chunks-1;
+  for(uint32_t i=0; i<header.distinct_size; i++) {
+    uint32_t node;
+    memcpy(&node, buffer.data()+sizeof(header_t)+i*sizeof(uint32_t), sizeof(uint32_t));
+    uint32_t size = num_leaf_descendents(node, num_nodes);
+    distinct_bytes += size*header.chunk_size;
+  }
+  STDOUT_PRINT("Size of Data region: %lu\n", distinct_bytes);
   // Check whether this is the reference checkpoint. Reference is a special case
   if(header.ref_id != header.chkpt_id) {
     // Write size of repeat map

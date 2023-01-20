@@ -1230,8 +1230,8 @@ public:
 
 KOKKOS_FORCEINLINE_FUNCTION
 void hash(const void* data, int len, uint8_t* digest) {
-//  kokkos_md5::hash(data, len, digest);
-  kokkos_murmur3::hash(data, len, digest);
+  kokkos_md5::hash(data, len, digest);
+//  kokkos_murmur3::hash(data, len, digest);
 }
 
 using DefaultHash = SHA1;
