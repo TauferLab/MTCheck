@@ -10,7 +10,7 @@
 #include "restart_merkle_tree.hpp"
 #include "kokkos_hash_list.hpp"
 #include "update_pattern_analysis.hpp"
-#include "restart_approaches.hpp"
+//#include "restart_approaches.hpp"
 #include "deduplicator.hpp"
 #include <libgen.h>
 #include <iostream>

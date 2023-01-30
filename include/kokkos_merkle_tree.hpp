@@ -15,17 +15,17 @@ class MerkleTree {
 public:
   Kokkos::View<HashDigest*> tree_d;
   Kokkos::View<HashDigest*>::HostMirror tree_h;
-  Kokkos::View<uint8_t*> distinct_children_d;
-  Kokkos::View<uint8_t*>::HostMirror distinct_children_h;
+//  Kokkos::View<uint8_t*> distinct_children_d;
+//  Kokkos::View<uint8_t*>::HostMirror distinct_children_h;
 
   MerkleTree() {}
 
   MerkleTree(const uint32_t num_leaves) {
     tree_d = Kokkos::View<HashDigest*>("Merkle tree", (2*num_leaves-1));
     tree_h = Kokkos::create_mirror_view(tree_d);
-    distinct_children_d = Kokkos::View<uint8_t*>("Num distinct children", (2*num_leaves-1));
-    distinct_children_h = Kokkos::create_mirror_view(distinct_children_d);
-    Kokkos::deep_copy(distinct_children_d, 0);
+//    distinct_children_d = Kokkos::View<uint8_t*>("Num distinct children", (2*num_leaves-1));
+//    distinct_children_h = Kokkos::create_mirror_view(distinct_children_d);
+//    Kokkos::deep_copy(distinct_children_d, 0);
   }
   
   KOKKOS_INLINE_FUNCTION HashDigest& operator()(int32_t i) const {

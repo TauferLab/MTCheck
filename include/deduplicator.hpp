@@ -27,32 +27,30 @@ void write_metadata_breakdown2(std::fstream& fs,
   STDOUT_PRINT("Current chkpt           : %u\n" , header.chkpt_id);
   STDOUT_PRINT("Memory size             : %lu\n", header.datalen);
   STDOUT_PRINT("Chunk size              : %u\n" , header.chunk_size);
-  STDOUT_PRINT("Window size             : %u\n" , header.window_size);
-  STDOUT_PRINT("Num distinct            : %u\n" , header.distinct_size);
-  STDOUT_PRINT("Num repeats for current : %u\n" , header.curr_repeat_size);
-  STDOUT_PRINT("Num repeats for previous: %u\n" , header.prev_repeat_size);
+  STDOUT_PRINT("Num first ocur          : %u\n" , header.num_first_ocur);
+  STDOUT_PRINT("Num shift dupl          : %u\n" , header.num_shift_dupl);
   STDOUT_PRINT("Num prior chkpts        : %u\n" , header.num_prior_chkpts);
   STDOUT_PRINT("==========Header==========\n");
   // Print repeat map
   STDOUT_PRINT("==========Repeat Map==========\n");
   for(uint32_t i=0; i<header.num_prior_chkpts; i++) {
     uint32_t chkpt = 0, num = 0;
-    uint64_t header_offset = sizeof(header_t)+header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+    uint64_t header_offset = sizeof(header_t)+header.num_first_ocur*sizeof(uint32_t)+i*2*sizeof(uint32_t);
     memcpy(&chkpt, buffer.data()+header_offset, sizeof(uint32_t));
     memcpy(&num, buffer.data()+header_offset+sizeof(uint32_t), sizeof(uint32_t));
     STDOUT_PRINT("%u:%u\n", chkpt, num);
   }
   STDOUT_PRINT("==========Repeat Map==========\n");
   STDOUT_PRINT("Header bytes: %lu\n", 40);
-  STDOUT_PRINT("Distinct bytes: %lu\n", header.distinct_size*sizeof(uint32_t));
+  STDOUT_PRINT("Distinct bytes: %lu\n", header.num_first_ocur*sizeof(uint32_t));
   // Write size of header and metadata for First occurrence chunks
-  fs << 40 << "," << header.distinct_size*sizeof(uint32_t) << ",";
+  fs << sizeof(header_t) << "," << header.num_first_ocur*sizeof(uint32_t) << ",";
   uint64_t distinct_bytes = 0;
   uint32_t num_chunks = header.datalen/header.chunk_size;
   if(header.chunk_size*num_chunks < header.datalen)
     num_chunks += 1;
   uint32_t num_nodes = 2*num_chunks-1;
-  for(uint32_t i=0; i<header.distinct_size; i++) {
+  for(uint32_t i=0; i<header.num_first_ocur; i++) {
     uint32_t node;
     memcpy(&node, buffer.data()+sizeof(header_t)+i*sizeof(uint32_t), sizeof(uint32_t));
     uint32_t size = num_leaf_descendents(node, num_nodes);
@@ -69,7 +67,7 @@ void write_metadata_breakdown2(std::fstream& fs,
       if(i < header.num_prior_chkpts) {
         // Write bytes for shifted duplicates from checkpoint i
         uint32_t chkpt = 0, num = 0;
-        uint64_t repeat_map_offset = sizeof(header_t)+header.distinct_size*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+        uint64_t repeat_map_offset = sizeof(header_t)+header.num_first_ocur*sizeof(uint32_t)+i*2*sizeof(uint32_t);
         memcpy(&chkpt, buffer.data()+repeat_map_offset, sizeof(uint32_t));
         memcpy(&num, buffer.data()+repeat_map_offset+sizeof(uint32_t), sizeof(uint32_t));
         STDOUT_PRINT("Repeat bytes for %u: %lu\n", chkpt, num*2*sizeof(uint32_t));
@@ -86,8 +84,8 @@ void write_metadata_breakdown2(std::fstream& fs,
     STDOUT_PRINT("Repeat map bytes: %lu\n", 0);
     fs << 0 << ",";
     // Write amount of metadata for shifted duplicates
-    STDOUT_PRINT("Repeat bytes for %u: %lu\n", header.chkpt_id, header.curr_repeat_size*2*sizeof(uint32_t));
-    fs << header.curr_repeat_size*2*sizeof(uint32_t);
+    STDOUT_PRINT("Repeat bytes for %u: %lu\n", header.chkpt_id, header.num_shift_dupl*2*sizeof(uint32_t));
+    fs << header.num_shift_dupl*2*sizeof(uint32_t);
     // Write 0s for remaining checkpoints
     for(uint32_t i=1; i<num_chkpts; i++) {
       STDOUT_PRINT("Repeat bytes for %u: %lu\n", i, 0);;
@@ -358,8 +356,10 @@ class Deduplicator {
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
-          create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, 
-                                           first_ocur_d, shift_dupl_updates_d);
+//          create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, 
+//                                           first_ocur_d, shift_dupl_updates_d);
+          deduplicate_data_deterministic_baseline(data, chunk_size, hash_func, tree, current_id, 
+                                         first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           baseline_id = current_id;
         } else {
 //          if((mode == Tree) || (mode == TreeLowOffset)) {
@@ -376,6 +376,8 @@ class Deduplicator {
             dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           }
+          if(current_id == 0 || make_baseline)
+            baseline_id = current_id;
           STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
                  first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
           STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
@@ -423,11 +425,11 @@ class Deduplicator {
 //        }
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-        if((current_id == 0) || make_baseline) {
-          datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
-                                                           first_ocur_d, shift_dupl_updates_d, 
-                                                           baseline_id, current_id, header);
-        } else {
+//        if((current_id == 0) || make_baseline) {
+//          datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
+//                                                           first_ocur_d, shift_dupl_updates_d, 
+//                                                           baseline_id, current_id, header);
+//        } else {
           datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
                                                             first_ocur_updates_d, 
                                                             shift_dupl_updates_d, 
@@ -435,7 +437,7 @@ class Deduplicator {
 //          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, tree, first_ocur_d,
 //                                                            first_ocur_vec, shift_dupl_vec, 
 //                                                            baseline_id, current_id, header);
-        }
+//        }
       }
 
       Kokkos::Profiling::popRegion();

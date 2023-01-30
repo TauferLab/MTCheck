@@ -24,15 +24,9 @@ typedef struct header_t {
   uint32_t chkpt_id;         // ID of checkpoint
   uint64_t datalen;          // Length of memory region in bytes
   uint32_t chunk_size;       // Size of chunks
-  uint32_t window_size;      // Number of prior checkpoints to use 
-  uint32_t distinct_size;    // Number of distinct entries
-  uint32_t curr_repeat_size; // Number of repeat entries from current checkpoint
-  uint32_t prev_repeat_size; // Number of repeat entries from prior checkpoints
+  uint32_t num_first_ocur;    // Number of first occurrence entries
   uint32_t num_prior_chkpts;
-  uint32_t repeat_size;      // Number of repeat entries
-//  uint32_t num_first_ocur;
-//  uint32_t num_chkpts;
-//  uint32_t num_shift_dupl;
+  uint32_t num_shift_dupl;      // Number of duplicate entries
 } header_t;
 
 enum DedupMode {
