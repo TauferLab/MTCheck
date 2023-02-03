@@ -89,10 +89,6 @@ void deduplicate_data_deterministic_baseline(DataView& data,
                       DistinctNodeIDMap& first_occur_d, 
                       CompactTable& shift_dupl_updates,
                       CompactTable& first_ocur_updates) {
-//  const char FIRST_OCUR = 0;
-//  const char FIXED_DUPL = 1;
-//  const char SHIFT_DUPL = 2;
-//  const char DONE = 3;
   Kokkos::View<uint64_t[3]> chunk_counters("Chunk counters");
   Kokkos::View<uint64_t[3]> region_counters("Region counters");
   Kokkos::deep_copy(chunk_counters, 0);
@@ -211,7 +207,6 @@ void deduplicate_data_deterministic_baseline(DataView& data,
         } else if(labels(child_l) == FIXED_DUPL) { // Children are both fixed duplicates
           labels(node) = FIXED_DUPL;
         } else if(labels(child_l) == SHIFT_DUPL) { // Children are both shifted duplicates
-//          hasher.hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
 //          hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           if(first_occur_d.exists(curr_tree(node))) { // This node is also a shifted duplicate
             labels(node) = SHIFT_DUPL;
@@ -224,10 +219,10 @@ void deduplicate_data_deterministic_baseline(DataView& data,
         }
       }
     });
+    Kokkos::fence();
     Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
-        uint32_t child_r = 2*node+2;
         hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
         first_occur_d.insert(curr_tree(node), NodeID(node, chkpt_id));
       }
@@ -294,10 +289,6 @@ void deduplicate_data_deterministic(DataView& data,
                       DistinctNodeIDMap& first_occur_d, 
                       CompactTable& shift_dupl_updates,
                       CompactTable& first_ocur_updates) {
-//  const char FIRST_OCUR = 0;
-//  const char FIXED_DUPL = 1;
-//  const char SHIFT_DUPL = 2;
-//  const char DONE = 3;
   Kokkos::View<uint64_t[3]> chunk_counters("Chunk counters");
   Kokkos::View<uint64_t[3]> region_counters("Region counters");
   Kokkos::deep_copy(chunk_counters, 0);
@@ -428,6 +419,14 @@ void deduplicate_data_deterministic(DataView& data,
         }
       }
     });
+//    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+//      if(node < num_chunks-1) {
+//        uint32_t child_l = 2*node+1;
+//        uint32_t child_r = 2*node+2;
+//        hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+//        first_occur_d.insert(curr_tree(node), NodeID(node, chkpt_id));
+//      }
+//    });
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
   }

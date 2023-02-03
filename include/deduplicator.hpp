@@ -302,9 +302,9 @@ class Deduplicator {
         }
         if(first_ocur_chunks_d.capacity() < first_ocur_chunks_d.size()+num_chunks)
           first_ocur_chunks_d.rehash(first_ocur_chunks_d.size()+num_chunks);
-        l_first_ocur_chunks = DistinctNodeIDMap(num_chunks);
-        l_shift_dupl_chunks = SharedNodeIDMap(num_chunks);
-        l_fixed_dupl_chunks = SharedNodeIDMap(num_chunks);
+//        l_first_ocur_chunks = DistinctNodeIDMap(num_chunks);
+//        l_shift_dupl_chunks = SharedNodeIDMap(num_chunks);
+//        l_fixed_dupl_chunks = SharedNodeIDMap(num_chunks);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if(current_id == 0) {
@@ -347,12 +347,12 @@ class Deduplicator {
 //        } else {
           compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
 //        }
-        STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
-               first_ocur_d.capacity(), first_ocur_d.size());
-        STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
-               first_ocur_chunks_d.capacity(), first_ocur_chunks_d.size());
-        STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
-               l_shift_dupl_chunks.capacity(), l_shift_dupl_chunks.size());
+//        STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
+//               first_ocur_d.capacity(), first_ocur_d.size());
+//        STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
+//               first_ocur_chunks_d.capacity(), first_ocur_chunks_d.size());
+//        STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
+//               l_shift_dupl_chunks.capacity(), l_shift_dupl_chunks.size());
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
