@@ -244,7 +244,9 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
       distinct_map.insert(NodeID(node,cur_id), i*chunk_size);
     });
 
-    Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    using TeamMember = Kokkos::TeamPolicy<>::member_type;
+    auto chunk_policy = Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO());
+    Kokkos::parallel_for("Restart Hashlist first occurrence", chunk_policy, KOKKOS_LAMBDA(const TeamMember& team_member) {
       uint32_t i = team_member.league_rank();
       if(node_list(i).tree == current_id) {
         NodeID id = node_list(i);
@@ -1567,7 +1569,6 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
-//  return std::make_pair(num_bytes_data_h(0), sizeof(header_t) + num_bytes_metadata_h(0));
   uint64_t size_metadata = buffer_d.size() - header.num_first_ocur*chunk_size;
   return std::make_pair(header.num_first_ocur*chunk_size, size_metadata);
 }
@@ -1647,26 +1648,49 @@ write_incr_chkpt_hashlist_global(
       memcpy(buffer_d.data()+sizeof(header_t)+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
     }
   });
+//Kokkos::fence();
+STDOUT_PRINT("Write duplicate counts\n");
   // Calculate repeat indices so that we can separate entries by source ID
   Kokkos::parallel_scan("Calc repeat end indices", prior_counter_d.size(), KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
     partial_sum += prior_counter_d(i);
     if(is_final) prior_counter_d(i) = partial_sum;
   });
+//Kokkos::fence();
+STDOUT_PRINT("Calculated duplicate offsets\n");
 
   size_t prior_start = sizeof(header_t)+first_ocur.size()*sizeof(uint32_t)+chkpts_needed.count()*2*sizeof(uint32_t);
   Kokkos::View<uint32_t*> chkpt_id_keys("Source checkpoint IDs", shift_dupl.size());
+  Kokkos::deep_copy(chkpt_id_keys, 0);
   Kokkos::parallel_for(shift_dupl.size(), KOKKOS_LAMBDA(const uint32_t i) {
+if(!first_occur_d.valid_at(first_occur_d.find(list(shift_dupl(i)))))
+STDOUT_PRINT("Invalid index!\n");
     NodeID prev = first_occur_d.value_at(first_occur_d.find(list(shift_dupl(i))));
     chkpt_id_keys(i) = prev.tree;
   });
-  auto keys = chkpt_id_keys;
-  using key_type = decltype(keys);
+  uint32_t max_key = 0;
+  Kokkos::parallel_reduce("Get max key", Kokkos::RangePolicy<>(0, shift_dupl.size()), KOKKOS_LAMBDA(const uint32_t i, uint32_t& max) {
+    if(chkpt_id_keys(i) > max)
+      max = chkpt_id_keys(i);
+  }, Kokkos::Max<uint32_t>(max_key));
+//Kokkos::fence();
+STDOUT_PRINT("Updated chkpt ID keys for sorting\n");
+  using key_type = decltype(chkpt_id_keys);
   using Comparator = Kokkos::BinOp1D<key_type>;
-  Comparator comp(shift_dupl.size(), 0, shift_dupl.size());
-  Kokkos::BinSort<key_type, Comparator> bin_sort(keys, 0, shift_dupl.size(), comp, 0);
+  Comparator comp(shift_dupl.size(), 0, max_key);
+//Kokkos::fence();
+STDOUT_PRINT("Created comparator\n");
+  Kokkos::BinSort<key_type, Comparator> bin_sort(chkpt_id_keys, 0, shift_dupl.size(), comp, 0);
+//Kokkos::fence();
+STDOUT_PRINT("Created BinSort\n");
   bin_sort.create_permute_vector();
+//Kokkos::fence();
+STDOUT_PRINT("Created permute vector\n");
   bin_sort.sort(shift_dupl.vector_d);
+//Kokkos::fence();
+STDOUT_PRINT("Sorted duplicate offsets\n");
   bin_sort.sort(chkpt_id_keys);
+//Kokkos::fence();
+STDOUT_PRINT("Sorted chkpt id keys\n");
 
   // Write repeat entries
   Kokkos::parallel_for("Write repeat bytes", Kokkos::RangePolicy<>(0, shift_dupl.size()), KOKKOS_LAMBDA(const uint32_t i) {
@@ -1675,6 +1699,8 @@ write_incr_chkpt_hashlist_global(
     memcpy(buffer_d.data()+prior_start+i*2*sizeof(uint32_t), &node, sizeof(uint32_t));
     memcpy(buffer_d.data()+prior_start+i*2*sizeof(uint32_t)+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
   });
+//Kokkos::fence();
+STDOUT_PRINT("Wrote duplicates\n");
 
 //  // Write repeat entries
 //  Kokkos::parallel_for("Write repeat bytes", Kokkos::RangePolicy<>(0, shift_dupl.size()), KOKKOS_LAMBDA(const uint32_t i) {
@@ -1727,6 +1753,8 @@ write_incr_chkpt_hashlist_global(
       buffer_d(sizeof(header_t)+offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
     });
   });
+//Kokkos::fence();
+STDOUT_PRINT("Wrote chunks\n");
 
   Kokkos::fence();
   header.ref_id = prior_chkpt_id;
