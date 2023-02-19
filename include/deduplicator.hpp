@@ -3,6 +3,7 @@
 #include <Kokkos_Core.hpp>
 #include <Kokkos_Random.hpp>
 #include <Kokkos_UnorderedMap.hpp>
+#include <Kokkos_Bitset.hpp>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -18,6 +19,7 @@
 #define VERIFY_OUTPUT
 
 void write_metadata_breakdown2(std::fstream& fs, 
+                              DedupMode mode,
                               header_t& header, 
                               Kokkos::View<uint8_t*>::HostMirror& buffer, 
                               uint32_t num_chkpts) {
@@ -41,7 +43,7 @@ void write_metadata_breakdown2(std::fstream& fs,
     STDOUT_PRINT("%u:%u\n", chkpt, num);
   }
   STDOUT_PRINT("==========Repeat Map==========\n");
-  STDOUT_PRINT("Header bytes: %lu\n", 40);
+  STDOUT_PRINT("Header bytes: %lu\n", sizeof(header_t));
   STDOUT_PRINT("Distinct bytes: %lu\n", header.num_first_ocur*sizeof(uint32_t));
   // Write size of header and metadata for First occurrence chunks
   fs << sizeof(header_t) << "," << header.num_first_ocur*sizeof(uint32_t) << ",";
@@ -53,7 +55,12 @@ void write_metadata_breakdown2(std::fstream& fs,
   for(uint32_t i=0; i<header.num_first_ocur; i++) {
     uint32_t node;
     memcpy(&node, buffer.data()+sizeof(header_t)+i*sizeof(uint32_t), sizeof(uint32_t));
-    uint32_t size = num_leaf_descendents(node, num_nodes);
+    uint32_t size;
+    if(mode == Basic || mode == List) {
+      size = 1;
+    } else {
+      size = num_leaf_descendents(node, num_nodes);
+    }
     distinct_bytes += size*header.chunk_size;
   }
   STDOUT_PRINT("Size of Data region: %lu\n", distinct_bytes);
@@ -108,7 +115,6 @@ class Deduplicator {
     DistinctNodeIDMap first_ocur_chunks_d;
     SharedNodeIDMap shift_dupl_chunks_d;
     SharedNodeIDMap fixed_dupl_chunks_d;
-    Vector<uint32_t> changes_vec;
     Vector<uint32_t> first_ocur_vec;
     Vector<uint32_t> shift_dupl_vec;
     uint32_t chunk_size;
@@ -121,6 +127,7 @@ class Deduplicator {
     std::pair<uint64_t,uint64_t> datasizes;
     double timers[3];
     double restart_timers[2];
+    Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
 
     Deduplicator() {
       tree = MerkleTree(1);
@@ -196,7 +203,7 @@ class Deduplicator {
                   << chunk_size << ","        // Chunk size
                   << datasizes.first << ","   // Size of data
                   << datasizes.second << ","; // Size of metadata
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
       } else if(mode == List) {
         result_data << timers[0] << ',' 
                     << timers[1] << ',' 
@@ -215,7 +222,7 @@ class Deduplicator {
                   << chunk_size << "," 
                   << datasizes.first << "," 
                   << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         std::string approach("Tree");
@@ -245,7 +252,7 @@ class Deduplicator {
                   << chunk_size << "," 
                   << datasizes.first << "," 
                   << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, header, diff_h, num_chkpts);
+        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
       }
     }
 
@@ -272,42 +279,34 @@ class Deduplicator {
         num_chunks += 1;
       num_nodes = 2*num_chunks-1;
 
-      HashList list;
-      Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
-
-      DistinctNodeIDMap l_first_ocur_chunks; 
-      SharedNodeIDMap l_shift_dupl_chunks; 
-      SharedNodeIDMap l_fixed_dupl_chunks; 
-
       if(mode == Basic) {
-        Kokkos::resize(leaves.list_d, num_chunks);
-        Kokkos::resize(leaves.list_h, num_chunks);
-        list = HashList(num_chunks);
-        changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
-        changes_vec = Vector<uint32_t>(num_chunks);
-        first_ocur_vec = Vector<uint32_t>(num_chunks);
-        shift_dupl_vec = Vector<uint32_t>(num_chunks);
+        if(make_baseline) {
+          leaves = HashList(num_chunks);
+          first_ocur_vec = Vector<uint32_t>(num_chunks);
+          changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+        }
+        if(leaves.list_d.size() < num_chunks) {
+          Kokkos::resize(leaves.list_d, num_chunks);
+          Kokkos::resize(leaves.list_h, num_chunks);
+        }
+//        changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+//        changes_bitset.reset();
       } else if(mode == List) {
-        if(current_id == 0) {
+        if(make_baseline) {
           leaves = HashList(num_chunks);
           first_ocur_chunks_d = DistinctNodeIDMap(num_chunks);
-          shift_dupl_chunks_d = SharedNodeIDMap(num_chunks);
-          fixed_dupl_chunks_d = SharedNodeIDMap(num_chunks);
           first_ocur_vec = Vector<uint32_t>(num_chunks);
           shift_dupl_vec = Vector<uint32_t>(num_chunks);
         }
         if(leaves.list_d.size() < num_chunks) {
-          Kokkos::resize(leaves.list_d, num_nodes);
-          Kokkos::resize(leaves.list_h, num_nodes);
+          Kokkos::resize(leaves.list_d, num_chunks);
+          Kokkos::resize(leaves.list_h, num_chunks);
         }
         if(first_ocur_chunks_d.capacity() < first_ocur_chunks_d.size()+num_chunks)
           first_ocur_chunks_d.rehash(first_ocur_chunks_d.size()+num_chunks);
-//        l_first_ocur_chunks = DistinctNodeIDMap(num_chunks);
-//        l_shift_dupl_chunks = SharedNodeIDMap(num_chunks);
-//        l_fixed_dupl_chunks = SharedNodeIDMap(num_chunks);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-        if(current_id == 0) {
+        if(make_baseline) {
           tree = MerkleTree(num_chunks);
           first_ocur_d = DigestNodeIDMap(num_nodes);
           first_ocur_updates_d = CompactTable(num_chunks);
@@ -320,8 +319,8 @@ class Deduplicator {
         if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
           first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
         if(num_chunks != first_ocur_updates_d.capacity()) {
-          first_ocur_updates_d.rehash(num_nodes);
-          shift_dupl_updates_d.rehash(num_nodes);
+          first_ocur_updates_d.rehash(num_chunks);
+          shift_dupl_updates_d.rehash(num_chunks);
         }
         first_ocur_updates_d.clear();
         shift_dupl_updates_d.clear();
@@ -334,35 +333,34 @@ class Deduplicator {
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
 
       if(mode == Basic) {
-//        compare_lists_basic(hash_func, leaves, list, changes_bitset, current_id, data, chunk_size);
-//        compare_lists_basic(hash_func, leaves, list, changes_vec, current_id, data, chunk_size);
-        compare_lists_basic(hash_func, leaves, changes_vec, current_id, data, chunk_size);
+//        compare_lists_basic(hash_func, leaves, changes_bitset, current_id, data, chunk_size);
+        compare_lists_basic(hash_func, leaves, first_ocur_vec, current_id, data, chunk_size);
+printf("Number of changed chunks: %u\n", first_ocur_vec.size());
+//changes_bitset.set();
+//printf("(Bitset) Post set. Number of changed chunks: %u\n", changes_bitset.count());
+if(current_id == 0) {
+////changes_bitset.set();
+//  auto bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+//  bitset.reset();
+//  first_ocur_vec.clear();
+//  Kokkos::sort(first_ocur_vec.vector_d, 0, first_ocur_vec.size());
+//  Kokkos::parallel_for(first_ocur_vec.size(), KOKKOS_LAMBDA(const uint32_t i) {
+//    bitset.set(i);
+//    first_ocur_vec.vector_d(i) = i;
+//    if(i == 0)
+//      first_ocur_vec.len_d(0) = first_ocur_vec.capacity();
+//  });
+//  printf("Bitset count: %u\n", bitset.count());
+}
       } else if(mode == List) {
-//        compare_lists_global(hash_func, leaves, current_id, data, chunk_size, 
-//                             l_fixed_dupl_chunks, l_shift_dupl_chunks, first_ocur_chunks_d, 
-//                             fixed_dupl_chunks_d, shift_dupl_chunks_d, first_ocur_chunks_d);
-//        compare_lists_global_short(leaves, current_id, data, chunk_size, first_ocur_chunks_d, l_shift_dupl_chunks, first_ocur_chunks_d);
-//        if(current_id == 0) {
-//          compare_lists_global_short(leaves, current_id, data, chunk_size, first_ocur_chunks_d, l_shift_dupl_chunks, first_ocur_chunks_d);
-//        } else {
-          compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
-//        }
-//        STDOUT_PRINT("First occurrence map capacity:    %lu, size: %lu\n", 
-//               first_ocur_d.capacity(), first_ocur_d.size());
-//        STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
-//               first_ocur_chunks_d.capacity(), first_ocur_chunks_d.size());
-//        STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
-//               l_shift_dupl_chunks.capacity(), l_shift_dupl_chunks.size());
+        compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
-//          create_merkle_tree_deterministic(hash_func, tree, data, chunk_size, current_id, 
-//                                           first_ocur_d, shift_dupl_updates_d);
           deduplicate_data_deterministic_baseline(data, chunk_size, hash_func, tree, current_id, 
                                          first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           baseline_id = current_id;
         } else {
-//          if((mode == Tree) || (mode == TreeLowOffset)) {
           if((mode == TreeLowOffset)) {
             deduplicate_data_deterministic(data, chunk_size, hash_func, tree, current_id, 
                                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
@@ -389,13 +387,6 @@ class Deduplicator {
       Timer::time_point end_create_tree0 = Timer::now();
       timers[0] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
 
-      if(mode == Basic) {
-//  	    Kokkos::deep_copy(leaves.list_d, list.list_d);
-      } else if(mode == List) {
-        Kokkos::deep_copy(shift_dupl_chunks_d, l_shift_dupl_chunks);
-        Kokkos::deep_copy(fixed_dupl_chunks_d, l_fixed_dupl_chunks);
-      }
-
       // ==========================================================================================
       // Create Diff
       // ==========================================================================================
@@ -408,36 +399,22 @@ class Deduplicator {
       if(mode == Full) {
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
-        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_vec, 
+        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, first_ocur_vec, 
                                                     0, current_id, header);
 //        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
 //                                                    0, current_id, header);
+//        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, 0, current_id, header);
+//        datasizes = write_incr_chkpt_hashlist_basic_test(data, diff, chunk_size, first_ocur_vec, 
+//                                                    0, current_id, header);
       } else if(mode == List) {
-//        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
-//                                                     first_ocur_chunks_d, l_shift_dupl_chunks, 
-//                                                     0, current_id, header);
-//        if(current_id == 0) {
-//          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, 
-//                                                       first_ocur_chunks_d, l_shift_dupl_chunks, 
-//                                                       0, current_id, header);
-//        } else {
           datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, 0, current_id, header);
 //        }
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-//        if((current_id == 0) || make_baseline) {
-//          datasizes = write_incr_chkpt_hashtree_local_mode(data, diff, chunk_size, 
-//                                                           first_ocur_d, shift_dupl_updates_d, 
-//                                                           baseline_id, current_id, header);
-//        } else {
           datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
                                                             first_ocur_updates_d, 
                                                             shift_dupl_updates_d, 
                                                             baseline_id, current_id, header);
-//          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, tree, first_ocur_d,
-//                                                            first_ocur_vec, shift_dupl_vec, 
-//                                                            baseline_id, current_id, header);
-//        }
       }
 
       Kokkos::Profiling::popRegion();
@@ -461,10 +438,7 @@ class Deduplicator {
 
       if(mode == Full) {
         Kokkos::deep_copy(diff_h, data);
-      } else if(mode == Basic) {
-        Kokkos::deep_copy(diff_h, diff);
-        memcpy(diff_h.data(), &header, sizeof(header_t));
-      } else if((mode == List) || (mode == Tree) || 
+      } else if((mode == Basic) || (mode == List) || (mode == Tree) || 
                 (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         Kokkos::deep_copy(diff_h, diff);
@@ -553,6 +527,7 @@ class Deduplicator {
         restart_timers[1] = 0.0;
       } else if(dedup_mode == Basic) {
         auto basic_list_times = restart_incr_chkpt_basic(chkpts, chkpt_id, data);
+//        auto basic_list_times = restart_list(chkpts, chkpt_id, data);
         restart_timers[0] = basic_list_times.first;
         restart_timers[1] = basic_list_times.second;
       } else if(dedup_mode == List) {

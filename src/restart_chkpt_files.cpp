@@ -89,13 +89,15 @@ int main(int argc, char** argv) {
         // Full checkpoint
         //====================================================================
         std::vector<Kokkos::View<uint8_t*>::HostMirror> chkpts;
+//        std::vector<Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace>> chkpts;
         for(uint32_t i=0; i<num_chkpts; i++) {
           std::fstream file;
           auto fileflags = std::ifstream::in | std::ifstream::binary | std::ifstream::ate;
           file.open(full_chkpt_files[i], fileflags);
           size_t filesize = file.tellg();
           file.seekg(0);
-          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+//          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+          Kokkos::View<uint8_t*>::HostMirror chkpt("Chkpt", filesize);
           Kokkos::deep_copy(chkpt, 0);
           file.read((char*)(chkpt.data()), filesize);
           file.close();
@@ -120,7 +122,8 @@ int main(int argc, char** argv) {
           file.open(basic_chkpt_files[i], fileflags);
           size_t filesize = file.tellg();
           file.seekg(0);
-          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+//          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+          Kokkos::View<uint8_t*>::HostMirror chkpt("Chkpt", filesize);
           Kokkos::deep_copy(chkpt, 0);
           file.read((char*)(chkpt.data()), filesize);
           file.close();
@@ -146,7 +149,8 @@ int main(int argc, char** argv) {
           file.open(hashlist_chkpt_files[i], fileflags);
           size_t filesize = file.tellg();
           file.seekg(0);
-          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+//          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+          Kokkos::View<uint8_t*>::HostMirror chkpt("Chkpt", filesize);
           Kokkos::deep_copy(chkpt, 0);
           file.read((char*)(chkpt.data()), filesize);
           file.close();
@@ -172,7 +176,8 @@ int main(int argc, char** argv) {
           file.open(hashtree_chkpt_files[i], fileflags);
           size_t filesize = file.tellg();
           file.seekg(0);
-          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+//          Kokkos::View<uint8_t*, Kokkos::DefaultHostExecutionSpace> chkpt("Chkpt", filesize);
+          Kokkos::View<uint8_t*>::HostMirror chkpt("Chkpt", filesize);
           Kokkos::deep_copy(chkpt, 0);
           file.read((char*)(chkpt.data()), filesize);
           file.close();

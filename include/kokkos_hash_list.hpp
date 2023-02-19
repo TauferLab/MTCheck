@@ -4,6 +4,7 @@
 #include <Kokkos_UnorderedMap.hpp>
 #include <Kokkos_ScatterView.hpp>
 #include <Kokkos_Sort.hpp>
+#include <Kokkos_Bitset.hpp>
 #include <climits>
 #include <chrono>
 #include <fstream>
@@ -60,7 +61,7 @@ public:
 template<class Hasher, typename DataView>
 void compare_lists_basic( Hasher& hasher, 
                     const HashList& list, 
-                    Vector<uint32_t>& changed_chunks,
+                    Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,
                     const uint32_t list_id, 
                     const DataView& data, 
                     const uint32_t chunk_size 
@@ -68,12 +69,7 @@ void compare_lists_basic( Hasher& hasher,
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
-  #ifdef STATS
-  Kokkos::View<uint64_t[1]> num_same_d("Num same");
-  Kokkos::View<uint64_t[1]>::HostMirror num_same_h = Kokkos::create_mirror_view(num_same_d);
-  Kokkos::deep_copy(num_same_d, 0);
-  #endif
-  Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,list.list_d.extent(0)), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
     uint32_t num_bytes = chunk_size;
     if(i == num_chunks-1)
       num_bytes = data.size()-i*chunk_size;
@@ -82,23 +78,77 @@ void compare_lists_basic( Hasher& hasher,
     if(list_id > 0) {
       if(!digests_same(digest, list.list_d(i))) {
         list.list_d(i) = digest;
-        changed_chunks.push(i);
-      #ifdef STATS
-      } else {
-        Kokkos::atomic_add(&num_same_d(0), 1);
-      #endif
+        changes.set(i);
       }
     } else {
-      changed_chunks.push(i);
+      changes.set(i);
       list.list_d(i) = digest;
     }
   });
   Kokkos::fence();
-  #ifdef STATS
-  Kokkos::deep_copy(num_same_h, num_same_d);
-  printf("Number of identical chunks: %lu\n", num_same_h(0));
-  printf("Number of changes: %u\n", changes.count());
-  #endif
+  STDOUT_PRINT("(Bitset): Number of changed chunks: %u\n", changes.count());
+}
+
+template<class Hasher, typename DataView>
+void compare_lists_basic( Hasher& hasher, 
+                    const HashList& list, 
+                    Vector<uint32_t>& changed_chunks,
+                    const uint32_t list_id, 
+                    const DataView& data, 
+                    const uint32_t chunk_size 
+                    ) {
+//  uint32_t num_chunks = data.size()/chunk_size;
+//  if(num_chunks*chunk_size < data.size())
+//    num_chunks += 1;
+//  changed_chunks.clear();
+//  Kokkos::deep_copy(changed_chunks.vector_d, UINT32_MAX);
+//  if(list_id == 0) {
+//    Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//      if(i == 0)
+//        changed_chunks.len_d(0) = num_chunks;
+//      changed_chunks.vector_d(i) = i;
+//      uint32_t num_bytes = chunk_size;
+//      if(i == num_chunks-1)
+//        num_bytes = data.size()-i*chunk_size;
+//      hash(data.data()+(i*chunk_size), num_bytes, list.list_d(i).digest);
+//    });
+//  } else {
+//    Kokkos::parallel_for("Find distinct chunks", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//      uint32_t num_bytes = chunk_size;
+//      if(i == num_chunks-1)
+//        num_bytes = data.size()-i*chunk_size;
+//      HashDigest digest;
+//      hash(data.data()+(i*chunk_size), num_bytes, digest.digest);
+//      if(list_id > 0) {
+//        if(!digests_same(digest, list.list_d(i))) {
+//          changed_chunks.push(i);
+//        }
+//      } else {
+//        changed_chunks.push(i);
+//      }
+//      list.list_d(i) = digest;
+//    });
+//  }
+//  Kokkos::fence();
+//  STDOUT_PRINT("Number of changed chunks: %u\n", changed_chunks.size());
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size())
+    num_chunks += 1;
+  changed_chunks.clear();
+  Kokkos::parallel_for("Dedup chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+    uint32_t num_bytes = chunk_size;
+    if(i == num_chunks-1)
+      num_bytes = data.size()-i*chunk_size;
+    HashDigest new_hash;
+    hash(data.data()+(i*chunk_size), num_bytes, new_hash.digest);
+    if(!digests_same(list(i), new_hash)) {
+      changed_chunks.push(i);
+      list(i) = new_hash;
+    }
+  });
+  Kokkos::fence();
+  STDOUT_PRINT("Comparing Lists\n");
+  STDOUT_PRINT("Number of first occurrences: %u\n", changed_chunks.size());
 }
 
 template<typename DataView>
@@ -169,50 +219,62 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
 
   STDOUT_PRINT("Checkpoint %u\n", cur_id);
   STDOUT_PRINT("Checkpoint size: %lu\n", size);
+  STDOUT_PRINT("Num First occurrences: %u\n", num_first_ocur);
   STDOUT_PRINT("Distinct offset: %lu\n", sizeof(header_t));
   STDOUT_PRINT("Data offset: %lu\n", data_offset);
 
   Kokkos::UnorderedMap<NodeID, size_t> distinct_map(num_first_ocur);
-  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
-    uint32_t i = team_member.league_rank();
+//  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+//    uint32_t i = team_member.league_rank();
+//    uint32_t node;
+//    if(team_member.team_rank() == 0) {
+//      memcpy(&node, distinct.data() + i*sizeof(uint32_t), sizeof(uint32_t));
+//      distinct_map.insert(NodeID(node, cur_id), i*chunk_size);
+//      node_list(node) = NodeID(node, cur_id);
+//    }
+//    team_member.team_broadcast(node, 0);
+//    uint32_t datasize = chunk_size;
+//    if(node == num_chunks-1)
+//      datasize = datalen - node*chunk_size;
+//
+//    uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+i*chunk_size);
+//    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*node);
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
+//      data_u32[j] = buffer_u32[j];
+//    });
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
+//      data(chunk_size*node+((datasize/4)*4)+j) = data_subview(i*chunk_size+((datasize/4)*4)+j);
+//    });
+//  });
+  Kokkos::parallel_for("Restart first occurrence", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
     uint32_t node;
-    if(team_member.team_rank() == 0) {
-      memcpy(&node, distinct.data() + i*sizeof(uint32_t), sizeof(uint32_t));
-      distinct_map.insert(NodeID(node, cur_id), i*chunk_size);
-      node_list(node) = NodeID(node, cur_id);
-    }
-    team_member.team_broadcast(node, 0);
+    memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
     uint32_t datasize = chunk_size;
     if(node == num_chunks-1)
       datasize = datalen - node*chunk_size;
-
-    uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+i*chunk_size);
-    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*node);
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
-      data_u32[j] = buffer_u32[j];
-    });
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
-      data(chunk_size*node+((datasize/4)*4)+j) = data_subview(i*chunk_size+((datasize/4)*4)+j);
-    });
+    memcpy(data.data()+node*chunk_size, data_subview.data()+i*chunk_size, datasize);
+    node_list(node) = NodeID(node, cur_id);
   });
 
   Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
     NodeID entry = node_list(i);
     if(entry.node == UINT_MAX) {
       node_list(i) = NodeID(i, cur_id-1);
+if(cur_id == ref_id)
+printf("Error some chunks not filled %u\n", i);
     }
   });
   Kokkos::fence();
 
   for(int idx=static_cast<int>(chkpt_idx)-1; idx>=static_cast<int>(ref_id); idx--) {
-    STDOUT_PRINT("Processing checkpoint %u\n", idx);
     size_t chkpt_size = incr_chkpts[idx].size();
+    STDOUT_PRINT("Processing checkpoint %u\n", idx);
+    STDOUT_PRINT("Checkpoint size: %lu\n", chkpt_size);
     Kokkos::View<uint8_t*> chkpt_buffer_d("Checkpoint buffer", chkpt_size);
     auto chkpt_buffer_h = Kokkos::create_mirror_view(chkpt_buffer_d);
     memcpy(chkpt_buffer_h.data(), incr_chkpts[idx].data(), chkpt_size);
     header_t chkpt_header;
     memcpy(&chkpt_header, chkpt_buffer_h.data(), sizeof(header_t));
-    uint32_t current_id = chkpt_header.chkpt_id;
     datalen = chkpt_header.datalen;
     chunk_size = chkpt_header.chunk_size;
     Kokkos::deep_copy(chkpt_buffer_d, chkpt_buffer_h);
@@ -237,7 +299,6 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
 
     distinct_map.clear();
     distinct_map.rehash(chkpt_header.num_first_ocur);
-    Kokkos::UnorderedMap<uint32_t, NodeID> repeat_map(chkpt_header.num_shift_dupl);
     Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
@@ -248,7 +309,7 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
     auto chunk_policy = Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO());
     Kokkos::parallel_for("Restart Hashlist first occurrence", chunk_policy, KOKKOS_LAMBDA(const TeamMember& team_member) {
       uint32_t i = team_member.league_rank();
-      if(node_list(i).tree == current_id) {
+      if(node_list(i).tree == cur_id) {
         NodeID id = node_list(i);
         if(distinct_map.exists(id)) {
           size_t offset = distinct_map.value_at(distinct_map.find(id));
@@ -264,10 +325,64 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
             data(chunk_size*i + ((writesize/4)*4) + j) = data_subview(offset+((writesize/4)*4)+j);
           });
         } else if(team_member.team_rank() == 0) {
-          node_list(i) = NodeID(node_list(i).node, current_id-1);
+          node_list(i) = NodeID(i, cur_id-1);
         }
       }
     });
+//    distinct_map.clear();
+//    distinct_map.rehash(chkpt_header.num_first_ocur);
+//    Kokkos::parallel_for("Restart first occurrences", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+//      uint32_t node;
+//      memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
+//      distinct_map.insert(NodeID(node,cur_id), i*chunk_size);
+//      if(node_list(node).tree == cur_id) {
+//        uint32_t writesize = chunk_size;
+//        if(node == num_chunks-1) 
+//          writesize = datalen-node*chunk_size;
+//        memcpy(data.data()+node*chunk_size, data_subview.data()+i*chunk_size, writesize);
+//        node_list(node) = NodeID(node, cur_id+1);
+//      } else {
+//        node_list(node) = NodeID(node, cur_id-1);
+//      }
+//    });
+//    Kokkos::parallel_for("Update node list", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//      if((node_list(i).tree == cur_id)) {
+//        node_list(i) = NodeID(i, cur_id-1);
+//      }
+//    });
+//    Kokkos::fence();
+//    distinct_map.clear();
+//    distinct_map.rehash(chkpt_header.num_first_ocur);
+//    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+//      uint32_t node;
+//      memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
+//      distinct_map.insert(NodeID(node,cur_id), i*chunk_size);
+//    });
+//
+//    using TeamMember = Kokkos::TeamPolicy<>::member_type;
+//    auto chunk_policy = Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO());
+//    Kokkos::parallel_for("Restart Hashlist first occurrence", chunk_policy, KOKKOS_LAMBDA(const TeamMember& team_member) {
+//      uint32_t i = team_member.league_rank();
+//      if(node_list(i).tree == cur_id) {
+//        NodeID id = node_list(i);
+//        if(distinct_map.exists(id)) {
+//          size_t offset = distinct_map.value_at(distinct_map.find(id));
+//          uint32_t writesize = chunk_size;
+//          if(i*chunk_size+writesize > datalen) 
+//            writesize = datalen-i*chunk_size;
+//          uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+offset);
+//          uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*i);
+//          Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
+//            data_u32[j] = buffer_u32[j];
+//          });
+//          Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
+//            data(chunk_size*i + ((writesize/4)*4) + j) = data_subview(offset+((writesize/4)*4)+j);
+//          });
+//        } else if(team_member.team_rank() == 0) {
+//          node_list(i) = NodeID(node_list(i).node, cur_id-1);
+//        }
+//      }
+//    });
   }
 
   Kokkos::fence();
@@ -346,7 +461,6 @@ std::pair<double,double> restart_chkpt_basic(std::vector<std::string>& chkpt_fil
     file.close();
     header_t chkpt_header;
     memcpy(&chkpt_header, chkpt_buffer_h.data(), sizeof(header_t));
-    uint32_t current_id = chkpt_header.chkpt_id;
     datalen = chkpt_header.datalen;
     chunk_size = chkpt_header.chunk_size;
     Kokkos::deep_copy(chkpt_buffer_d, chkpt_buffer_h);
@@ -370,7 +484,6 @@ std::pair<double,double> restart_chkpt_basic(std::vector<std::string>& chkpt_fil
 
     distinct_map.clear();
     distinct_map.rehash(chkpt_header.num_first_ocur);
-    Kokkos::UnorderedMap<uint32_t, NodeID> repeat_map(header.num_shift_dupl);
     Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
@@ -378,16 +491,16 @@ std::pair<double,double> restart_chkpt_basic(std::vector<std::string>& chkpt_fil
     });
 
     Kokkos::parallel_for("Fill data middle chkpts", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-      if(node_list(i).tree == current_id) {
+      if(node_list(i).tree == cur_id) {
         NodeID id = node_list(i);
         if(distinct_map.exists(id)) {
           size_t offset = distinct_map.value_at(distinct_map.find(id));
           uint32_t writesize = chunk_size;
-          if(i*chunk_size+writesize > datalen) 
+          if(i == num_chunks-1) 
             writesize = datalen-i*chunk_size;
           memcpy(data.data()+chunk_size*i, data_subview.data()+offset, writesize);
         } else {
-          node_list(i) = NodeID(node_list(i).node, current_id-1);
+          node_list(i) = NodeID(i, cur_id-1);
         }
       }
     });
@@ -875,9 +988,9 @@ restart_incr_chkpt_basic( std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_
   STDOUT_PRINT("Chkpt ID: %u\n",             header.chkpt_id);
   STDOUT_PRINT("Data len: %lu\n",            header.datalen);
   STDOUT_PRINT("Chunk size: %u\n",           header.chunk_size);
-  STDOUT_PRINT("Num first ocur: %u\n",        header.num_first_ocur);
-  STDOUT_PRINT("Num prior chkpts: %u\n",      header.num_prior_chkpts);
-  STDOUT_PRINT("Num shift dupl: %u\n",        header.num_shift_dupl);
+  STDOUT_PRINT("Num first ocur: %u\n",       header.num_first_ocur);
+  STDOUT_PRINT("Num prior chkpts: %u\n",     header.num_prior_chkpts);
+  STDOUT_PRINT("Num shift dupl: %u\n",       header.num_shift_dupl);
 
   Kokkos::View<uint8_t*> buffer_d("Buffer", filesize);
   Kokkos::deep_copy(buffer_d, 0);
@@ -1379,18 +1492,26 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
   }
   uint64_t buffer_size = sizeof(header_t);
   buffer_size += changes.size()*(sizeof(uint32_t) + chunk_size);
+//  size_t data_offset = changes.size()*sizeof(uint32_t);
+
+  STDOUT_PRINT("Changes: %u\n", changes.size());
+  STDOUT_PRINT("Buffer size: %lu\n", buffer_size);
+  Kokkos::resize(buffer_d, buffer_size);
+//  buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_size);
+
+//  Kokkos::sort(changes.vector_d, 0, changes.size());
+
+//  Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > changes_bytes((uint8_t*)(changes.data()), changes.size()*sizeof(uint32_t));
+////  auto buffer_h = Kokkos::create_mirror_view(buffer_d);
+////  auto data_subview = Kokkos::subview(buffer_h, std::make_pair(sizeof(header_t), sizeof(header_t)+changes.size()*sizeof(uint32_t)));
+//  auto data_subview = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), sizeof(header_t)+changes.size()*sizeof(uint32_t)));
+//  Kokkos::deep_copy(data_subview, changes_bytes);
+////  Kokkos::deep_copy(changes.vector_h, changes.vector_d);
+
   size_t data_offset = changes.size()*sizeof(uint32_t);
-
-  DEBUG_PRINT("Changes: %u\n", changes.size());
-  DEBUG_PRINT("Buffer size: %lu\n", buffer_size);
-  buffer_d = Kokkos::View<uint8_t*>("Buffer", buffer_size);
-
   Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > changes_bytes((uint8_t*)(changes.data()), changes.size()*sizeof(uint32_t));
-//  auto buffer_h = Kokkos::create_mirror_view(buffer_d);
-//  auto data_subview = Kokkos::subview(buffer_h, std::make_pair(sizeof(header_t), sizeof(header_t)+changes.size()*sizeof(uint32_t)));
   auto data_subview = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), sizeof(header_t)+changes.size()*sizeof(uint32_t)));
   Kokkos::deep_copy(data_subview, changes_bytes);
-  Kokkos::deep_copy(changes.vector_h, changes.vector_d);
 
 //  uint32_t num_streams = 4;
 ////  cudaStream_t* streams = new cudaStream_t[changes.size()];
@@ -1425,16 +1546,37 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 //  cudaDeviceSynchronize();
 //Kokkos::deep_copy(buffer_d, buffer_h);
   
+//  auto bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
+//  bitset.reset();
+//
+//  printf("Hashlist Bitset count: %u\n", bitset.count());
+//  uint32_t num_changes = changes.size();
+//  printf("Number of changes: %u\n", num_changes);
 //  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
 //    uint32_t chunk = changes(i);
-////    memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &chunk, sizeof(uint32_t));
-//    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
+//    bitset.set(chunk);
+//    uint64_t offset = static_cast<uint64_t>(num_changes)*sizeof(uint32_t);
 //    uint32_t writesize = chunk_size;
-//    if((chunk+1)*chunk_size > data.size()) {
+//    if(chunk == num_chunks-1) {
 //      writesize = data.size()-chunk*chunk_size;
 //    }
-//    memcpy(buffer_d.data()+sizeof(header_t)+offset, data.data()+chunk_size*chunk, writesize);
+//if(i < 100) {
+//    printf("Writing entry %u data %lu to buffer offset %lu (i:%u, offset:%lu, num_changes:%u)\n", i, static_cast<uint64_t>(chunk_size*chunk), offset+i*chunk_size, i, offset, num_changes);
+//}
+//    memcpy(buffer_d.data()+sizeof(header_t)+i*sizeof(uint32_t), &chunk, sizeof(uint32_t));
+//    memcpy(buffer_d.data()+sizeof(header_t)+offset+i*chunk_size, data.data()+chunk_size*chunk, writesize);
 //  });
+//  printf("Hashlist Bitset count: %u\n", bitset.count());
+
+  // Write data
+  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
+    uint32_t chunk = changes(i);
+    uint32_t writesize = chunk_size;
+    if((chunk+1)*chunk_size > data.size()) {
+      writesize = data.size()-chunk*chunk_size;
+    }
+    memcpy(buffer_d.data()+sizeof(header_t)+data_offset+i*chunk_size, data.data()+chunk_size*chunk, writesize);
+  });
 
 //  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(changes.size(), Kokkos::AUTO()), 
 //                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
@@ -1450,25 +1592,24 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 //    });
 //  });
 
-  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(changes.size(), Kokkos::AUTO()), 
-                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
-    uint32_t i = team_member.league_rank();
-    uint32_t chunk = changes(i);
-    uint32_t writesize = chunk_size;
-    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
-    if((chunk+1)*chunk_size > data.size()) {
-      writesize = data.size()-chunk*chunk_size;
-    }
-    uint32_t* buffer_u32 = (uint32_t*)(buffer_d.data()+sizeof(header_t)+offset);
-    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*chunk);
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
-//      buffer_d(sizeof(header_t)+offset+j) = data(chunk_size*chunk+j);
-      buffer_u32[j] = data_u32[j];
-    });
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
-      buffer_d(sizeof(header_t)+offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
-    });
-  });
+//  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(changes.size(), Kokkos::AUTO()), 
+//                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+//    uint32_t i = team_member.league_rank();
+//    uint32_t chunk = changes(i);
+//    uint32_t writesize = chunk_size;
+//    uint64_t offset = changes.size()*sizeof(uint32_t)+i*chunk_size;
+//    if(chunk == num_chunks-1) {
+//      writesize = data.size()-chunk*chunk_size;
+//    }
+//    uint32_t* buffer_u32 = (uint32_t*)(buffer_d.data()+sizeof(header_t)+offset);
+//    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*chunk);
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
+//      buffer_u32[j] = data_u32[j];
+//    });
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
+//      buffer_d(sizeof(header_t)+offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
+//    });
+//  });
 
   Kokkos::fence();
   header.ref_id = prior_chkpt_id;
@@ -1478,14 +1619,14 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
   header.num_first_ocur = changes.size();
   header.num_shift_dupl = 0;
   header.num_prior_chkpts = 0;
-  DEBUG_PRINT("Ref ID: %u\n"          , header.ref_id);
-  DEBUG_PRINT("Chkpt ID: %u\n"        , header.chkpt_id);
-  DEBUG_PRINT("Data len: %lu\n"       , header.datalen);
-  DEBUG_PRINT("Chunk size: %u\n"      , header.chunk_size);
-  DEBUG_PRINT("Num first ocur: %u\n"  , header.num_first_ocur);
-  DEBUG_PRINT("Num shift dupl: %u\n"  , header.num_shift_dupl);
-  DEBUG_PRINT("Num prior chkpts: %u\n", header.num_prior_chkpts);
-  uint64_t num_data     = header.num_first_ocur*chunk_size;
+  STDOUT_PRINT("Ref ID: %u\n"          , header.ref_id);
+  STDOUT_PRINT("Chkpt ID: %u\n"        , header.chkpt_id);
+  STDOUT_PRINT("Data len: %lu\n"       , header.datalen);
+  STDOUT_PRINT("Chunk size: %u\n"      , header.chunk_size);
+  STDOUT_PRINT("Num first ocur: %u\n"  , header.num_first_ocur);
+  STDOUT_PRINT("Num shift dupl: %u\n"  , header.num_shift_dupl);
+  STDOUT_PRINT("Num prior chkpts: %u\n", header.num_prior_chkpts);
+  uint64_t num_data     = static_cast<uint64_t>(header.num_first_ocur)*static_cast<uint64_t>(chunk_size);
   uint64_t num_metadata = header.num_first_ocur*sizeof(uint32_t);
   STDOUT_PRINT("Number of bytes written for incremental checkpoint: %lu\n", sizeof(header_t) + num_data+num_metadata);
   STDOUT_PRINT("Number of bytes written for data: %lu\n", num_data);
@@ -1537,7 +1678,7 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
       size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
       memcpy(buffer_d.data()+sizeof(header_t) + pos, &i, sizeof(uint32_t));
       uint32_t writesize = chunk_size;
-      if((i+1)*chunk_size > data.size()) {
+      if(i==num_chunks-1) {
         writesize = data.size()-i*chunk_size;
       }
       memcpy(buffer_d.data()+sizeof(header_t) + data_offset+(pos/sizeof(uint32_t))*chunk_size, data.data()+chunk_size*i, writesize);
@@ -1569,6 +1710,114 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
 
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
+  uint64_t size_metadata = buffer_d.size() - header.num_first_ocur*chunk_size;
+  return std::make_pair(header.num_first_ocur*chunk_size, size_metadata);
+}
+
+template<typename DataView>
+std::pair<uint64_t,uint64_t> 
+write_incr_chkpt_hashlist_basic_test(
+                           const DataView& data, 
+                           Kokkos::View<uint8_t*>& buffer_d, 
+                           uint32_t chunk_size, 
+                           Vector<uint32_t>& first_ocur,
+                           uint32_t prior_chkpt_id,
+                           uint32_t chkpt_id,
+                           header_t& header) {
+  uint32_t num_chunks = data.size()/chunk_size;
+  if(num_chunks*chunk_size < data.size()) {
+    num_chunks += 1;
+  }
+  STDOUT_PRINT("Num first occurrences: %lu\n", first_ocur.size());
+
+  Kokkos::fence();
+  STDOUT_PRINT("Counted shifted duplicates\n");
+
+  size_t data_offset = first_ocur.size()*sizeof(uint32_t);
+  uint64_t buffer_size = sizeof(header_t);
+  buffer_size += first_ocur.size()*(sizeof(uint32_t)+chunk_size);
+  Kokkos::resize(buffer_d, buffer_size);
+  STDOUT_PRINT("Resized buffer\n");
+
+  STDOUT_PRINT("Data len: %lu\n", data.size());
+  STDOUT_PRINT("Buffer length: %lu\n", buffer_size);
+  STDOUT_PRINT("Data offset: %zu\n", data_offset);
+  Kokkos::sort(first_ocur.vector_d, 0, first_ocur.size());
+
+  // Copy first occurrence metadata
+  Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > first_ocur_bytes((uint8_t*)(first_ocur.data()), first_ocur.size()*sizeof(uint32_t));
+  auto data_subview = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t), sizeof(header_t)+first_ocur.size()*sizeof(uint32_t)));
+  Kokkos::deep_copy(data_subview, first_ocur_bytes);
+  STDOUT_PRINT("Wrote first occurrence metadata\n");
+
+  // Write data
+  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, first_ocur.size()), KOKKOS_LAMBDA(const uint32_t i) {
+    uint32_t chunk = first_ocur(i);
+    uint32_t writesize = chunk_size;
+    if((chunk+1)*chunk_size > data.size()) {
+      writesize = data.size()-chunk*chunk_size;
+    }
+    memcpy(buffer_d.data()+sizeof(header_t)+data_offset+i*chunk_size, data.data()+chunk_size*chunk, writesize);
+  });
+
+//  //Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(first_ocur.size(), Kokkos::AUTO), 
+//  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(first_ocur.size(), 64), 
+//                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+//    uint32_t i = team_member.league_rank();
+//    uint32_t chunk = first_ocur(i);
+//    uint32_t writesize = chunk_size;
+//    if((chunk+1)*chunk_size > data.size()) {
+//      writesize = data.size()-chunk*chunk_size;
+//    }
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize), [&] (const uint64_t& j) {
+//      buffer_d(sizeof(header_t)+data_offset+i*chunk_size+j) = data(chunk_size*chunk+j);
+//    });
+//  });
+  
+//  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(first_ocur.size(), Kokkos::AUTO()), 
+//                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+//    uint32_t i = team_member.league_rank();
+//    uint32_t chunk = first_ocur(i);
+//    uint32_t writesize = chunk_size;
+//    uint64_t offset = sizeof(header_t)+data_offset+i*chunk_size;
+//    if((chunk+1)*chunk_size > data.size()) {
+//      writesize = data.size()-chunk*chunk_size;
+//    }
+//    uint32_t* buffer_u32 = (uint32_t*)(buffer_d.data()+offset);
+//    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*chunk);
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
+//      buffer_u32[j] = data_u32[j];
+//    });
+//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
+//      buffer_d(offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
+//    });
+//  });
+Kokkos::fence();
+STDOUT_PRINT("Wrote chunks\n");
+
+  Kokkos::fence();
+  header.ref_id = prior_chkpt_id;
+  header.chkpt_id = chkpt_id;
+  header.datalen = data.size();
+  header.chunk_size = chunk_size;
+  header.num_first_ocur = first_ocur.size();
+  header.num_shift_dupl = 0;
+  header.num_prior_chkpts = 0;
+  DEBUG_PRINT("Ref ID: %u\n"          , header.ref_id);
+  DEBUG_PRINT("Chkpt ID: %u\n"        , header.chkpt_id);
+  DEBUG_PRINT("Data len: %lu\n"       , header.datalen);
+  DEBUG_PRINT("Chunk size: %u\n"      , header.chunk_size);
+  DEBUG_PRINT("Num first ocur: %u\n"  , header.num_first_ocur);
+  DEBUG_PRINT("Num shift dupl: %u\n"  , header.num_shift_dupl);
+  DEBUG_PRINT("Num prior chkpts: %u\n", header.num_prior_chkpts);
+  size_t data_size = chunk_size*first_ocur.size();
+  size_t metadata_size = first_ocur.size()*sizeof(uint32_t);
+  STDOUT_PRINT("Number of bytes written for incremental checkpoint: %lu\n", sizeof(header_t) + data_size + metadata_size);
+  STDOUT_PRINT("Number of bytes written for data: %lu\n", data_size);
+  STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + metadata_size);
+  DEBUG_PRINT("Trying to close file\n");
+  DEBUG_PRINT("Closed file\n");
+  first_ocur.clear();
   uint64_t size_metadata = buffer_d.size() - header.num_first_ocur*chunk_size;
   return std::make_pair(header.num_first_ocur*chunk_size, size_metadata);
 }
@@ -1750,7 +1999,7 @@ STDOUT_PRINT("Wrote duplicates\n");
       buffer_u32[j] = data_u32[j];
     });
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
-      buffer_d(sizeof(header_t)+offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
+      buffer_d(offset+((writesize/4)*4)+j) = data(chunk_size*chunk+((writesize/4)*4)+j);
     });
   });
 //Kokkos::fence();
