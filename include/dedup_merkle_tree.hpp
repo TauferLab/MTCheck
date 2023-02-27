@@ -25,8 +25,8 @@ void create_merkle_tree_deterministic(Hasher& hasher,
                         DistinctNodeIDMap& distinct_map, 
                         SharedNodeIDMap& shared_map) {
   // Calculate important constants
-  uint32_t num_chunks = static_cast<uint32_t>(data.size()/chunk_size);
-  if(num_chunks*chunk_size < data.size())
+  uint32_t num_chunks = static_cast<uint32_t>(data.size()/static_cast<uint64_t>(chunk_size));
+  if(static_cast<uint64_t>(num_chunks)*static_cast<uint64_t>(chunk_size) < data.size())
     num_chunks += 1;
   const uint32_t num_nodes = 2*num_chunks-1;
   const uint32_t num_levels = static_cast<uint32_t>(ceil(log2(num_nodes+1)));
@@ -47,12 +47,13 @@ void create_merkle_tree_deterministic(Hasher& hasher,
     Kokkos::parallel_for("Build tree", range_policy, KOKKOS_LAMBDA(const uint32_t i) {
       // Number of bytes in the chunk
       uint32_t num_bytes = chunk_size;
+      uint64_t offset = static_cast<uint64_t>(i-leaf_start)*static_cast<uint64_t>(chunk_size);
       if((i-leaf_start) == num_chunks-1)
-        num_bytes = data.size()-((i-leaf_start)*chunk_size);
+        num_bytes = data.size()-offset;
       // Calc hash for leaf chunk or hash of child hashes
       if(i >= leaf_start) {
 //        hasher.hash(data.data()+((i-leaf_start)*chunk_size), 
-        hash(data.data()+((i-leaf_start)*chunk_size), 
+        hash(data.data()+offset, 
                     num_bytes, 
                     (uint8_t*)(tree(i).digest));
       } else {
@@ -118,12 +119,13 @@ void deduplicate_data_deterministic_baseline(DataView& data,
     auto chunk_counters_sa = chunk_counters_sv.access();
     auto region_counters_sa = region_counters_sv.access();
     uint32_t num_bytes = chunk_size;
+    uint64_t offset = static_cast<uint64_t>(leaf-num_chunks+1)*static_cast<uint64_t>(chunk_size);
     if(leaf == num_nodes-1) // Calculate how much data to hash
-      num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
+      num_bytes = data.size()-offset;
     // Hash chunk
     HashDigest digest;
 //    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
-    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+    hash(data.data()+offset, num_bytes, digest.digest);
     // Insert into table
     auto result = first_occur_d.insert(digest, NodeID(leaf, chkpt_id)); 
     if(digests_same(digest, curr_tree(leaf))) { // Fixed duplicate chunk
@@ -318,12 +320,13 @@ void deduplicate_data_deterministic(DataView& data,
     auto chunk_counters_sa = chunk_counters_sv.access();
     auto region_counters_sa = region_counters_sv.access();
     uint32_t num_bytes = chunk_size;
+    uint64_t offset = static_cast<uint64_t>(leaf-(num_chunks-1))*static_cast<uint64_t>(chunk_size);
     if(leaf == num_nodes-1) // Calculate how much data to hash
-      num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
+      num_bytes = data.size()-offset;
     // Hash chunk
     HashDigest digest;
 //    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
-    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+    hash(data.data()+offset, num_bytes, digest.digest);
     // Insert into table
     auto result = first_occur_d.insert(digest, NodeID(leaf, chkpt_id)); 
     if(digests_same(digest, curr_tree(leaf))) { // Fixed duplicate chunk
@@ -527,12 +530,13 @@ void dedup_low_root(DataView& data,
   Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
     auto chunk_counters_sa = chunk_counters_sv.access();
     uint32_t num_bytes = chunk_size;
+    uint64_t offset = static_cast<uint64_t>(leaf-(num_chunks-1))*static_cast<uint64_t>(chunk_size);
     if(leaf == num_nodes-1) // Calculate how much data to hash
-      num_bytes = data.size()-(leaf-(num_chunks-1))*chunk_size;
+      num_bytes = data.size()-offset;
     // Hash chunk
     HashDigest digest;
 //    hasher.hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
-    hash(data.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, digest.digest);
+    hash(data.data()+offset, num_bytes, digest.digest);
     if(digests_same(curr_tree(leaf), digest)) {
       labels(leaf) = FIXED_DUPL;
       chunk_counters_sa(labels(leaf)) += 1;

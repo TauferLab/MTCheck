@@ -62,7 +62,7 @@ void print_mode_help() {
 }
 
 DedupMode get_mode(int argc, char** argv) {
-  for(uint32_t i=0; i<argc; i++) {
+  for(int i=0; i<argc; i++) {
     if((strcmp(argv[i], "--run-full-chkpt") == 0)) {
       return Full;
     } else if(strcmp(argv[i], "--run-basic-chkpt") == 0) {

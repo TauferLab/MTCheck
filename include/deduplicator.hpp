@@ -81,21 +81,21 @@ void write_metadata_breakdown2(std::fstream& fs,
         fs << "," << num*2*sizeof(uint32_t);
       } else {
         // No bytes associated with checkpoint i
-        STDOUT_PRINT("Repeat bytes for %u: %lu\n", i, 0);;
+        STDOUT_PRINT("Repeat bytes for %u: %u\n", i, 0);;
         fs << "," << 0;
       }
     }
     fs << std::endl;
   } else {
     // Repeat map is unnecessary for the baseline
-    STDOUT_PRINT("Repeat map bytes: %lu\n", 0);
+    STDOUT_PRINT("Repeat map bytes: %u\n", 0);
     fs << 0 << ",";
     // Write amount of metadata for shifted duplicates
     STDOUT_PRINT("Repeat bytes for %u: %lu\n", header.chkpt_id, header.num_shift_dupl*2*sizeof(uint32_t));
     fs << header.num_shift_dupl*2*sizeof(uint32_t);
     // Write 0s for remaining checkpoints
     for(uint32_t i=1; i<num_chkpts; i++) {
-      STDOUT_PRINT("Repeat bytes for %u: %lu\n", i, 0);;
+      STDOUT_PRINT("Repeat bytes for %u: %u\n", i, 0);;
       fs << "," << 0;
     }
     fs << std::endl;
@@ -275,22 +275,20 @@ class Deduplicator {
       mode = dedup_mode;
       data_len = data.size();
       num_chunks = data_len/chunk_size;
-      if(num_chunks*chunk_size < data_len)
+      if(static_cast<uint64_t>(num_chunks)*static_cast<uint64_t>(chunk_size) < data_len)
         num_chunks += 1;
       num_nodes = 2*num_chunks-1;
 
       if(mode == Basic) {
         if(make_baseline) {
           leaves = HashList(num_chunks);
-          first_ocur_vec = Vector<uint32_t>(num_chunks);
+//          first_ocur_vec = Vector<uint32_t>(num_chunks);
           changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
         }
         if(leaves.list_d.size() < num_chunks) {
           Kokkos::resize(leaves.list_d, num_chunks);
           Kokkos::resize(leaves.list_h, num_chunks);
         }
-//        changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
-//        changes_bitset.reset();
       } else if(mode == List) {
         if(make_baseline) {
           leaves = HashList(num_chunks);
@@ -318,7 +316,7 @@ class Deduplicator {
         }
         if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
           first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
-        if(num_chunks != first_ocur_updates_d.capacity()) {
+        if(num_chunks < first_ocur_updates_d.capacity()) {
           first_ocur_updates_d.rehash(num_chunks);
           shift_dupl_updates_d.rehash(num_chunks);
         }
@@ -332,26 +330,12 @@ class Deduplicator {
       Timer::time_point start_create_tree0 = Timer::now();
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
 
+      if((current_id == 0) || make_baseline) {
+        baseline_id = current_id;
+      }
       if(mode == Basic) {
-//        compare_lists_basic(hash_func, leaves, changes_bitset, current_id, data, chunk_size);
-        compare_lists_basic(hash_func, leaves, first_ocur_vec, current_id, data, chunk_size);
-printf("Number of changed chunks: %u\n", first_ocur_vec.size());
-//changes_bitset.set();
-//printf("(Bitset) Post set. Number of changed chunks: %u\n", changes_bitset.count());
-if(current_id == 0) {
-////changes_bitset.set();
-//  auto bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
-//  bitset.reset();
-//  first_ocur_vec.clear();
-//  Kokkos::sort(first_ocur_vec.vector_d, 0, first_ocur_vec.size());
-//  Kokkos::parallel_for(first_ocur_vec.size(), KOKKOS_LAMBDA(const uint32_t i) {
-//    bitset.set(i);
-//    first_ocur_vec.vector_d(i) = i;
-//    if(i == 0)
-//      first_ocur_vec.len_d(0) = first_ocur_vec.capacity();
-//  });
-//  printf("Bitset count: %u\n", bitset.count());
-}
+        compare_lists_basic(hash_func, leaves, changes_bitset, current_id, data, chunk_size);
+//        compare_lists_basic(hash_func, leaves, first_ocur_vec, current_id, data, chunk_size);
       } else if(mode == List) {
         compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
@@ -374,11 +358,9 @@ if(current_id == 0) {
             dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
                            first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
           }
-          if(current_id == 0 || make_baseline)
-            baseline_id = current_id;
-          STDOUT_PRINT("First occurrence update capacity: %lu, size: %lu\n", 
+          STDOUT_PRINT("First occurrence update capacity: %u, size: %u\n", 
                  first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-          STDOUT_PRINT("Shift duplicate update capacity:  %lu, size: %lu\n", 
+          STDOUT_PRINT("Shift duplicate update capacity:  %u, size: %u\n", 
                  shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
         }
       }
@@ -399,16 +381,13 @@ if(current_id == 0) {
       if(mode == Full) {
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
-        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, first_ocur_vec, 
-                                                    0, current_id, header);
-//        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
+//        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, first_ocur_vec, 
 //                                                    0, current_id, header);
-//        datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, 0, current_id, header);
-//        datasizes = write_incr_chkpt_hashlist_basic_test(data, diff, chunk_size, first_ocur_vec, 
-//                                                    0, current_id, header);
+        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
+                                                    baseline_id, current_id, header);
       } else if(mode == List) {
-          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, 0, current_id, header);
-//        }
+          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, 
+            first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
           datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
@@ -421,16 +400,20 @@ if(current_id == 0) {
       Timer::time_point end_collect = Timer::now();
       timers[1] = std::chrono::duration_cast<Duration>(end_collect - start_collect).count();
 
-      if(mode == Full) {
-        Kokkos::resize(diff, data.size());
-        Kokkos::deep_copy(diff, data);
-      }
+//      if(mode == Full) {
+//        Kokkos::resize(diff, data.size());
+//        Kokkos::deep_copy(diff, data);
+//      }
       
       // ==========================================================================================
       // Copy diff to host 
       // ==========================================================================================
 //      auto diff_h = Kokkos::create_mirror_view(diff);
-      Kokkos::resize(diff_h, diff.size());
+      if(mode == Full) {
+        Kokkos::resize(diff_h, data.size());
+      } else {
+        Kokkos::resize(diff_h, diff.size());
+      }
       Timer::time_point start_write = Timer::now();
       std::string write_region_name = std::string("Copy diff to host ") 
                                       + std::to_string(current_id);
@@ -516,12 +499,10 @@ if(current_id == 0) {
         // Full checkpoint
         Kokkos::resize(data, chkpts[chkpt_id].size());
         // Total time
-        Timer::time_point t1 = Timer::now();
         // Copy checkpoint to GPU
         Timer::time_point c1 = Timer::now();
         Kokkos::deep_copy(data, chkpts[chkpt_id]);
         Timer::time_point c2 = Timer::now();
-        Timer::time_point t2 = Timer::now();
         // Update timers
         restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
         restart_timers[1] = 0.0;

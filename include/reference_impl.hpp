@@ -42,7 +42,7 @@ int dedup_low_offset_ref(DataView& data_d,
   printf("Num chunks: %u\n", num_chunks);
   printf("Num nodes: %u\n", num_nodes);
 
-  std::vector<char> labels(num_nodes, DONE);
+  std::vector<uint8_t> labels(num_nodes, DONE);
   std::set<uint32_t> tree_roots;
   std::unordered_map<std::string, std::vector<uint32_t>> first_ocur_dupl;
 
@@ -174,7 +174,7 @@ int dedup_low_root_ref(DataView& data_d,
   printf("Num chunks: %u\n", num_chunks);
   printf("Num nodes: %u\n", num_nodes);
 
-  std::vector<char> labels(num_nodes, DONE);
+  std::vector<uint8_t> labels(num_nodes, DONE);
   std::set<uint32_t> tree_roots;
   std::unordered_map<std::string, std::vector<uint32_t>> first_ocur_dupl;
 
