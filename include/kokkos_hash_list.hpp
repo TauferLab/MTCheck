@@ -202,47 +202,49 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
 
   Kokkos::UnorderedMap<NodeID, size_t> distinct_map(num_first_ocur);
   Kokkos::fence();
-//  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
-//    uint32_t i = team_member.league_rank();
+  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    uint32_t i = team_member.league_rank();
+    uint64_t src_offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+    uint32_t node;
+    if(team_member.team_rank() == 0) {
+      memcpy(&node, metadata_subview.data() + i*sizeof(uint32_t), sizeof(uint32_t));
+      distinct_map.insert(NodeID(node, cur_id), src_offset);
+      node_list(node) = NodeID(node, cur_id);
+    }
+    team_member.team_broadcast(node, 0);
+    uint64_t dst_offset = static_cast<uint64_t>(node)*static_cast<uint64_t>(chunk_size);
+    uint32_t datasize = chunk_size;
+    if(node == num_chunks-1)
+      datasize = datalen - dst_offset;
+
+    uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+src_offset);
+    uint32_t* data_u32 = (uint32_t*)(data.data()+dst_offset);
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
+      data_u32[j] = buffer_u32[j];
+    });
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
+      data(dst_offset+((datasize/4)*4)+j) = data_subview(src_offset+((datasize/4)*4)+j);
+    });
+  });
+//  Kokkos::parallel_for("Restart first occurrence", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
 //    uint32_t node;
-//    if(team_member.team_rank() == 0) {
-//      memcpy(&node, metadata_subview.data() + i*sizeof(uint32_t), sizeof(uint32_t));
-//      distinct_map.insert(NodeID(node, cur_id), i*chunk_size);
-//      node_list(node) = NodeID(node, cur_id);
-//    }
-//    team_member.team_broadcast(node, 0);
+//    memcpy(&node, metadata_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
 //    uint32_t datasize = chunk_size;
 //    if(node == num_chunks-1)
 //      datasize = datalen - node*chunk_size;
-//
-//    uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+i*chunk_size);
-//    uint32_t* data_u32 = (uint32_t*)(data.data()+chunk_size*node);
-//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
-//      data_u32[j] = buffer_u32[j];
-//    });
-//    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
-//      data(chunk_size*node+((datasize/4)*4)+j) = data_subview(i*chunk_size+((datasize/4)*4)+j);
-//    });
+////if(node < 100)
+////    printf("Reading entry %u data %lu to buffer offset %lu (i:%u, offset:%lu, num_changes:%u, chunk:%u)\n", i, static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(node), data_offset-sizeof(header_t)+static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size), i, data_offset-sizeof(header_t), num_first_ocur, node);
+//    memcpy(data.data()+static_cast<uint64_t>(node)*static_cast<uint64_t>(chunk_size), data_subview.data()+static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size), datasize);
+//    node_list(node) = NodeID(node, cur_id);
 //  });
-  Kokkos::parallel_for("Restart first occurrence", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
-    uint32_t node;
-    memcpy(&node, metadata_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
-    uint32_t datasize = chunk_size;
-    if(node == num_chunks-1)
-      datasize = datalen - node*chunk_size;
-//if(node < 100)
-//    printf("Reading entry %u data %lu to buffer offset %lu (i:%u, offset:%lu, num_changes:%u, chunk:%u)\n", i, static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(node), data_offset-sizeof(header_t)+static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size), i, data_offset-sizeof(header_t), num_first_ocur, node);
-    memcpy(data.data()+static_cast<uint64_t>(node)*static_cast<uint64_t>(chunk_size), data_subview.data()+static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size), datasize);
-    node_list(node) = NodeID(node, cur_id);
-  });
   Kokkos::fence();
 
   Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
     NodeID entry = node_list(i);
     if(entry.node == UINT_MAX) {
       node_list(i) = NodeID(i, cur_id-1);
-if(cur_id == ref_id)
-printf("Error some chunks not filled %u\n", i);
+//if(cur_id == ref_id)
+//printf("Error some chunks not filled %u\n", i);
     }
   });
   Kokkos::fence();
@@ -1653,17 +1655,46 @@ write_incr_chkpt_hashlist_basic( const DataView& data,
   Kokkos::resize(buffer_d, buffer_size);
 
   Kokkos::fence();
-  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
+//  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::RangePolicy<>(0, changes.size()), KOKKOS_LAMBDA(const uint32_t i) {
+//    if(changes.test(i)) {
+//      Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
+//      Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
+//      size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
+//      memcpy(buffer_d.data()+sizeof(header_t) + pos, &i, sizeof(uint32_t));
+//      uint32_t writesize = chunk_size;
+//      if(i==num_chunks-1) {
+//        writesize = data.size()-static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+//      }
+//      memcpy(buffer_d.data()+sizeof(header_t) + data_offset+(pos/sizeof(uint32_t))*static_cast<uint64_t>(chunk_size), data.data()+static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(i), writesize);
+//    }
+//  });
+  Kokkos::parallel_for("Make incremental checkpoint", Kokkos::TeamPolicy<>(changes.size(), Kokkos::AUTO()), 
+                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    uint32_t i = team_member.league_rank();
     if(changes.test(i)) {
-      Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
-      Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
-      size_t pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
-      memcpy(buffer_d.data()+sizeof(header_t) + pos, &i, sizeof(uint32_t));
+      size_t pos = 0;
+      if(team_member.team_rank() == 0) {
+        Kokkos::atomic_add(&num_bytes_metadata_d(0), sizeof(uint32_t));
+        Kokkos::atomic_add(&num_bytes_data_d(0), static_cast<uint64_t>(chunk_size));
+        pos = Kokkos::atomic_fetch_add(&num_bytes_d(0), sizeof(uint32_t));
+        memcpy(buffer_d.data()+sizeof(header_t) + pos, &i, sizeof(uint32_t));
+      }
+      team_member.team_broadcast(pos, 0);
       uint32_t writesize = chunk_size;
       if(i==num_chunks-1) {
         writesize = data.size()-static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
       }
-      memcpy(buffer_d.data()+sizeof(header_t) + data_offset+(pos/sizeof(uint32_t))*static_cast<uint64_t>(chunk_size), data.data()+static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(i), writesize);
+//      memcpy(buffer_d.data()+sizeof(header_t) + data_offset+(pos/sizeof(uint32_t))*static_cast<uint64_t>(chunk_size), data.data()+static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(i), writesize);
+      uint64_t dst_offset = data_offset+(pos/sizeof(uint32_t))*static_cast<uint64_t>(chunk_size);
+      uint64_t src_offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+      uint32_t* buffer_u32 = (uint32_t*)(buffer_d.data()+sizeof(header_t)+dst_offset);
+      uint32_t* data_u32 = (uint32_t*)(data.data()+src_offset);
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
+        buffer_u32[j] = data_u32[j];
+      });
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
+        buffer_d(sizeof(header_t)+dst_offset+((writesize/4)*4)+j) = data(src_offset+((writesize/4)*4)+j);
+      });
     }
   });
   Kokkos::fence();
