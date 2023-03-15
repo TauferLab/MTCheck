@@ -420,7 +420,7 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
             uint64_t leaf_offset = static_cast<uint64_t>(leaf-start)*static_cast<uint64_t>(chunk_size);
             auto result = distinct_map.insert(NodeID(u, cur_id), offset + leaf_offset);
             if(result.failed())
-              printf("Failed to insert (%u,%u): %u\n", u, cur_id, offset+leaf_offset);
+              printf("Failed to insert (%u,%u): %lu\n", u, cur_id, offset+leaf_offset);
           });
           team_member.team_barrier();
           left = 2*left+1;

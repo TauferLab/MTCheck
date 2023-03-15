@@ -8,6 +8,7 @@
 #include "map_helpers.hpp"
 #include "kokkos_md5.hpp"
 #include "kokkos_murmur3.hpp"
+#include "kokkos_wyhash.hpp"
 
 void calc_and_print_md5(Kokkos::View<uint8_t*>& data_d) {
   HashDigest correct;
@@ -61,25 +62,6 @@ std::string digest_to_str(HashDigest& dig) {
   return ref_digest;
 }
 
-template<typename KView>
-std::string calculate_digest_host(KView& data_h) {
-  HashDigest hash;
-  MD5((uint8_t*)(data_h.data()), data_h.size(), hash.digest);
-  static const char hexchars[] = "0123456789ABCDEF";
-  std::string digest_str;
-  for(int k=0; k<16; k++) {
-    unsigned char b = hash.digest[k];
-    char hex[3];
-    hex[0] = hexchars[b >> 4];
-    hex[1] = hexchars[b & 0xF];
-    hex[2] = 0;
-    digest_str.append(hex);
-    if(k%4 == 3)
-      digest_str.append(" ");
-  }
-  return digest_str;
-}
-
 enum HashFunc {
   SHA1Hash=0,
   Murmur3Hash
@@ -97,7 +79,7 @@ class Hasher {
   virtual std::string hash_name() = 0;
 
   KOKKOS_FORCEINLINE_FUNCTION
-  virtual void hash(const void* data, int len, uint8_t* digest) const = 0;
+  virtual void hash(const void* data, uint64_t len, uint8_t* digest) const = 0;
 
   KOKKOS_FORCEINLINE_FUNCTION
   virtual uint32_t digest_size() const = 0;
@@ -364,7 +346,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void full_hash(const void* data, int len, uint8_t* digest) const {
+  void full_hash(const void* data, uint64_t len, uint8_t* digest) const {
     SHA1_CTX context;
     SHA1_Init(&context);
     SHA1_Update(&context, (const uint8_t*)(data), len);
@@ -372,7 +354,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest) const {
+  void hash(const void* data, uint64_t len, uint8_t* digest) const {
     uint8_t temp_digest[20];
     SHA1_CTX context;
     SHA1_Init(&context);
@@ -418,9 +400,9 @@ public:
   }
   
   KOKKOS_FORCEINLINE_FUNCTION
-  void MurmurHash3_x86_32(const void* key, int len, uint32_t seed, void* out) const {
+  void MurmurHash3_x86_32(const void* key, uint64_t len, uint32_t seed, void* out) const {
     const uint8_t* data = static_cast<const uint8_t*>(key);
-    const int nblocks   = len / 4;
+    const uint64_t nblocks   = len / 4;
   
     uint32_t h1 = seed;
   
@@ -430,7 +412,7 @@ public:
     //----------
     // body
   
-    for (int i = 0; i < nblocks; ++i) {
+    for (uint64_t i = 0; i < nblocks; ++i) {
       uint32_t k1 = getblock32(data, i);
   
       k1 *= c1;
@@ -528,7 +510,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest) const {
+  void hash(const void* data, uint64_t len, uint8_t* digest) const {
     MurmurHash3_x86_32(data, len, 0, digest);
   }
 
@@ -575,9 +557,9 @@ public:
   }
   
   KOKKOS_FORCEINLINE_FUNCTION
-  void MurmurHash3_x86_128(const void* key, int len, uint32_t seed, void* out) const {
+  void MurmurHash3_x86_128(const void* key, uint64_t len, uint32_t seed, void* out) const {
     const uint8_t * data = (const uint8_t*)key;
-    const int nblocks = len / 16;
+    const uint64_t nblocks = len / 16;
   
     uint32_t h1 = seed;
     uint32_t h2 = seed;
@@ -594,12 +576,12 @@ public:
   
     const uint32_t * blocks = (const uint32_t *)(data + nblocks*16);
 
-    for(int i = -nblocks; i; i++)
+    for(uint64_t i = 0; i<nblocks; i++)
     {
-      uint32_t k1 = getblock32((const uint8_t*)blocks,i*4+0);
-      uint32_t k2 = getblock32((const uint8_t*)blocks,i*4+1);
-      uint32_t k3 = getblock32((const uint8_t*)blocks,i*4+2);
-      uint32_t k4 = getblock32((const uint8_t*)blocks,i*4+3);
+      uint32_t k1 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+0);
+      uint32_t k2 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+1);
+      uint32_t k3 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+2);
+      uint32_t k4 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+3);
 
       k1 *= c1; k1  = rotl32(k1,15); k1 *= c2; h1 ^= k1;
 
@@ -736,7 +718,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest) const {
+  void hash(const void* data, uint64_t len, uint8_t* digest) const {
     MurmurHash3_x86_128(data, len, 0, digest);
   }
 
@@ -778,9 +760,9 @@ public:
   }
   
   KOKKOS_FORCEINLINE_FUNCTION
-  void MurmurHash3_x64_128(const void* key, int len, uint32_t seed, void* out) const {
+  void MurmurHash3_x64_128(const void* key, uint64_t len, uint32_t seed, void* out) const {
     const uint8_t * data = (const uint8_t*)key;
-    const int nblocks = len / 16;
+    const uint64_t nblocks = len / 16;
   
     uint32_t h1 = seed;
     uint32_t h2 = seed;
@@ -793,7 +775,7 @@ public:
   
     const uint64_t * blocks = (const uint64_t *)(data);
 
-    for(int i = 0; i < nblocks; i++)
+    for(uint64_t i = 0; i < nblocks; i++)
     {
       uint64_t k1 = getblock64((const uint8_t*)blocks,i*2+0);
       uint64_t k2 = getblock64((const uint8_t*)blocks,i*2+1);
@@ -914,7 +896,7 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest) const {
+  void hash(const void* data, uint64_t len, uint8_t* digest) const {
     uint64_t temp[2];
     MurmurHash3_x64_128(data, len, 0, temp);
     memcpy(digest, temp, 16);
@@ -1215,26 +1197,120 @@ public:
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest) const {
+  void hash(const void* data, uint64_t len, uint8_t* digest) const {
+printf("Calculating MD5 hash\n");
     #ifdef __CUDA_ARCH__
+printf("Kokkos version\n");
       md5_context md5_ctx;
       md5_starts(&md5_ctx);
       md5_ctx.state[0] ^= 0;
-      md5_update( &md5_ctx, (uint8_t*)(data), len);
+      if(len > INT_MAX) {
+        int chunk_size = 128;
+        uint64_t max = len / static_cast<uint64_t>(chunk_size);
+printf("Number of blocks: %lu\n", max);
+        for(uint64_t i=0; i<max; i++) {
+          int num_bytes = 128;
+          if(i == max-1)
+            num_bytes = len % 128;
+          md5_update( &md5_ctx, (uint8_t*)(data)+(i*128), num_bytes);
+        }
+      } else {
+        md5_update( &md5_ctx, (uint8_t*)(data), static_cast<int32_t>(len));
+      }
       md5_finish( &md5_ctx, digest);
     #else
-      MD5((uint8_t*)(data), len, digest);
+printf("OpenSSL version\n");
+      MD5_CTX ctx;
+      MD5_Init(&ctx);
+      if(len > static_cast<uint64_t>(INT_MAX)) {
+        int chunk_size = 128;
+        uint64_t max = len / static_cast<uint64_t>(chunk_size);
+printf("Number of blocks: %lu\n", max);
+        for(uint64_t i=0; i<max; i++) {
+          int num_bytes = chunk_size;
+          if(i == max-1)
+            num_bytes = len % 128;
+          MD5_Update(&ctx, (uint8_t*)(data)+static_cast<uint64_t>(i)*128, num_bytes);
+        }
+      } else {
+        MD5_Update(&ctx, data, static_cast<int32_t>(len));
+      }
+      MD5_Final(digest, &ctx);
+//      MD5((uint8_t*)(data), len, digest);
     #endif
   }
 };
 
 KOKKOS_FORCEINLINE_FUNCTION
-void hash(const void* data, int len, uint8_t* digest) {
-  kokkos_md5::hash(data, len, digest);
-//  kokkos_murmur3::hash(data, len, digest);
+void hash(const void* data, uint64_t len, uint8_t* digest) {
+//  kokkos_md5::hash(data, len, digest);
+  kokkos_murmur3::hash(data, len, digest);
+//  kokkos_wyhash::hash(data, len, digest);
 }
 
 using DefaultHash = SHA1;
+
+template<typename KView>
+std::string calculate_digest_device(KView& data, uint64_t len) {
+  Kokkos::View<uint8_t[16]> digest("Hash digest");
+  Kokkos::deep_copy(digest, 0);
+  Kokkos::parallel_for(1, KOKKOS_LAMBDA(const uint32_t i) {
+    hash((uint8_t*)(data.data()), len, digest.data());
+  });
+  auto digest_h = Kokkos::create_mirror_view(digest);
+  Kokkos::deep_copy(digest_h, digest);
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string digest_str;
+  for(int k=0; k<16; k++) {
+    unsigned char b = digest_h(k);
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    digest_str.append(hex);
+    if(k%4 == 3)
+      digest_str.append(" ");
+  }
+  return digest_str;
+}
+
+template<typename KView>
+std::string calculate_digest_host(KView& data_h, uint64_t len) {
+  HashDigest dig;
+  hash((uint8_t*)(data_h.data()), len, dig.digest);
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string digest_str;
+  for(int k=0; k<16; k++) {
+    unsigned char b = dig.digest[k];
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    digest_str.append(hex);
+    if(k%4 == 3)
+      digest_str.append(" ");
+  }
+  return digest_str;
+}
+
+template<typename KView>
+std::string calculate_digest_host(KView& data_h) {
+  HashDigest dig;
+  hash((uint8_t*)(data_h.data()), data_h.size(), dig.digest);
+  static const char hexchars[] = "0123456789ABCDEF";
+  std::string digest_str;
+  for(int k=0; k<16; k++) {
+    unsigned char b = dig.digest[k];
+    char hex[3];
+    hex[0] = hexchars[b >> 4];
+    hex[1] = hexchars[b & 0xF];
+    hex[2] = 0;
+    digest_str.append(hex);
+    if(k%4 == 3)
+      digest_str.append(" ");
+  }
+  return digest_str;
+}
 
 
 #endif // __HASH_FUNCTIONS_HPP

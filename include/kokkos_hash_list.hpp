@@ -70,21 +70,46 @@ void compare_lists_basic( Hasher& hasher,
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
   changes.reset();
-  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-    uint32_t num_bytes = chunk_size;
-    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-    if(i == num_chunks-1)
-      num_bytes = data.size()-offset;
-    HashDigest digest;
-    hash(data.data()+offset, num_bytes, digest.digest);
-    if(list_id > 0) {
-      if(!digests_same(digest, list.list_d(i))) {
-        list.list_d(i) = digest;
-        changes.set(i);
+//  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0,num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t num_bytes = chunk_size;
+//    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+//    if(i == num_chunks-1)
+//      num_bytes = data.size()-offset;
+//    HashDigest digest;
+//    hash(data.data()+offset, num_bytes, digest.digest);
+//    if(list_id > 0) {
+//      if(!digests_same(digest, list.list_d(i))) {
+//        list.list_d(i) = digest;
+//        changes.set(i);
+//      }
+//    } else {
+//      changes.set(i);
+//      list.list_d(i) = digest;
+//    }
+//  });
+  using member_type = Kokkos::TeamPolicy<>::member_type;
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
+  Kokkos::parallel_for("Dedup chunks", team_policy, 
+  KOKKOS_LAMBDA(member_type team_member) {
+    uint32_t i=team_member.league_rank();
+    uint32_t j=team_member.team_rank();
+    uint32_t block_idx = i*team_member.team_size()+j;
+    if(block_idx < num_chunks) {
+      uint32_t num_bytes = chunk_size;
+      uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
+      if(block_idx == num_chunks-1)
+        num_bytes = data.size()-offset;
+      HashDigest new_hash;
+      hash(data.data()+offset, num_bytes, new_hash.digest);
+      if(list_id > 0) {
+        if(!digests_same(list(block_idx), new_hash)) {
+          list(block_idx) = new_hash;
+          changes.set(block_idx);
+        }
+      } else {
+        changes.set(block_idx);
+        list(block_idx) = new_hash;
       }
-    } else {
-      changes.set(i);
-      list.list_d(i) = digest;
     }
   });
   Kokkos::fence();
@@ -103,21 +128,46 @@ void compare_lists_basic( Hasher& hasher,
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
   changed_chunks.clear();
-  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-    uint32_t num_bytes = chunk_size;
-    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-    if(i == num_chunks-1)
-      num_bytes = data.size()-offset;
-    HashDigest new_hash;
-    hash(data.data()+offset, num_bytes, new_hash.digest);
-    if(list_id > 0) {
-      if(!digests_same(list(i), new_hash)) {
-        changed_chunks.push(i);
-        list(i) = new_hash;
+//  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t num_bytes = chunk_size;
+//    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+//    if(i == num_chunks-1)
+//      num_bytes = data.size()-offset;
+//    HashDigest new_hash;
+//    hash(data.data()+offset, num_bytes, new_hash.digest);
+//    if(list_id > 0) {
+//      if(!digests_same(list(i), new_hash)) {
+//        changed_chunks.push(i);
+//        list(i) = new_hash;
+//      }
+//    } else {
+//      changed_chunks.push(i);
+//      list(i) = new_hash;
+//    }
+//  });
+  using member_type = Kokkos::TeamPolicy<>::member_type;
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
+  Kokkos::parallel_for("Dedup chunks", team_policy, 
+  KOKKOS_LAMBDA(member_type team_member) {
+    uint32_t i=team_member.league_rank();
+    uint32_t j=team_member.team_rank();
+    uint32_t block_idx = i*team_member.team_size()+j;
+    if(block_idx < num_chunks) {
+      uint32_t num_bytes = chunk_size;
+      uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
+      if(block_idx == num_chunks-1)
+        num_bytes = data.size()-offset;
+      HashDigest new_hash;
+      hash(data.data()+offset, num_bytes, new_hash.digest);
+      if(list_id > 0) {
+        if(!digests_same(list(block_idx), new_hash)) {
+          changed_chunks.push(block_idx);
+          list(block_idx) = new_hash;
+        }
+      } else {
+        changed_chunks.push(block_idx);
+        list(block_idx) = new_hash;
       }
-    } else {
-      changed_chunks.push(i);
-      list(i) = new_hash;
     }
   });
   Kokkos::fence();
@@ -139,25 +189,51 @@ void compare_lists_global(//Hasher& hasher,
     num_chunks += 1;
   shift_dupl.clear();
   first_ocur.clear();
-  Kokkos::parallel_for("Dedup chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-    uint32_t num_bytes = chunk_size;
-    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-    if(i == num_chunks-1)
-      num_bytes = data.size()-offset;
-//      num_bytes = data.size()-i*chunk_size;
-//    hasher.hash(data.data()+(i*chunk_size), 
-    HashDigest new_hash;
-//    hash(data.data()+i*chunk_size, num_bytes, new_hash.digest);
-    hash(data.data()+offset, num_bytes, new_hash.digest);
-    if(!digests_same(list(i), new_hash)) {
-      NodeID info(i, list_id);
-      auto result = first_occur_d.insert(new_hash, info);
-      if(result.success()) {
-        first_ocur.push(i);
-      } else if(result.existing()) {
-        shift_dupl.push(i);
+//  Kokkos::parallel_for("Dedup chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+//    uint32_t num_bytes = chunk_size;
+//    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+//    if(i == num_chunks-1)
+//      num_bytes = data.size()-offset;
+////      num_bytes = data.size()-i*chunk_size;
+////    hasher.hash(data.data()+(i*chunk_size), 
+//    HashDigest new_hash;
+////    hash(data.data()+i*chunk_size, num_bytes, new_hash.digest);
+//    hash(data.data()+offset, num_bytes, new_hash.digest);
+//    if(!digests_same(list(i), new_hash)) {
+//      NodeID info(i, list_id);
+//      auto result = first_occur_d.insert(new_hash, info);
+//      if(result.success()) {
+//        first_ocur.push(i);
+//      } else if(result.existing()) {
+//        shift_dupl.push(i);
+//      }
+//      list(i) = new_hash;
+//    }
+//  });
+  using member_type = Kokkos::TeamPolicy<>::member_type;
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
+  Kokkos::parallel_for("Dedup chunks", team_policy, 
+  KOKKOS_LAMBDA(member_type team_member) {
+    uint32_t i=team_member.league_rank();
+    uint32_t j=team_member.team_rank();
+    uint32_t block_idx = i*team_member.team_size()+j;
+    if(block_idx < num_chunks) {
+      uint32_t num_bytes = chunk_size;
+      uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
+      if(block_idx == num_chunks-1)
+        num_bytes = data.size()-offset;
+      HashDigest new_hash;
+      hash(data.data()+offset, num_bytes, new_hash.digest);
+      if(!digests_same(list(block_idx), new_hash)) {
+        NodeID info(block_idx, list_id);
+        auto result = first_occur_d.insert(new_hash, info);
+        if(result.success()) {
+          first_ocur.push(block_idx);
+        } else if(result.existing()) {
+          shift_dupl.push(block_idx);
+        }
+        list(block_idx) = new_hash;
       }
-      list(i) = new_hash;
     }
   });
   Kokkos::fence();
@@ -1853,7 +1929,7 @@ STDOUT_PRINT("Sorted duplicate offsets\n");
 STDOUT_PRINT("Sorted chkpt id keys\n");
 
   // Write repeat entries
-  size_t prior_start = sizeof(header_t)+num_first_ocur*sizeof(uint32_t)+num_chkpts*2*sizeof(uint32_t);
+//  size_t prior_start = sizeof(header_t)+num_first_ocur*sizeof(uint32_t)+num_chkpts*2*sizeof(uint32_t);
 //STDOUT_PRINT("Duplicate entries\n");
   Kokkos::parallel_for("Write repeat bytes", Kokkos::RangePolicy<>(0, shift_dupl.size()), KOKKOS_LAMBDA(const uint32_t i) {
     uint32_t node = shift_dupl(i);
@@ -1962,7 +2038,7 @@ STDOUT_PRINT("Wrote chunks\n");
 //  size_t data_size = chunk_size*first_ocur.size();
 //  size_t metadata_size = header.num_prior_chkpts*2*sizeof(uint32_t)+2*sizeof(uint32_t)*shift_dupl.size();
   size_t data_size = static_cast<size_t>(chunk_size)*num_first_ocur;
-  size_t metadata_size = num_first_ocur*sizeof(uint32_t) + num_chkpts*2*sizeof(uint32_t) + 2*sizeof(uint32_t)*num_shift_dupl;
+//  size_t metadata_size = num_first_ocur*sizeof(uint32_t) + num_chkpts*2*sizeof(uint32_t) + 2*sizeof(uint32_t)*num_shift_dupl;
   STDOUT_PRINT("Number of bytes written for incremental checkpoint: %lu\n", sizeof(header_t) + data_size + metadata_size);
   STDOUT_PRINT("Number of bytes written for data: %lu\n", data_size);
   STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + metadata_size);

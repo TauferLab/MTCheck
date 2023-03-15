@@ -8,16 +8,27 @@
 namespace kokkos_murmur3 {
   // MurmurHash3 was written by Austin Appleby, and is placed in the public
   // domain. The author hereby disclaims copyright to this source code.
+
+  #define BIG_CONSTANT(x) (x##LLU)
+
   KOKKOS_FORCEINLINE_FUNCTION
-  uint32_t getblock32(const uint8_t* p, int i) {
+  uint32_t getblock32(const uint8_t* p, uint64_t i) {
     // used to avoid aliasing error which could cause errors with
     // forced inlining
     return ((uint32_t)p[i * 4 + 0]) | ((uint32_t)p[i * 4 + 1] << 8) |
            ((uint32_t)p[i * 4 + 2] << 16) | ((uint32_t)p[i * 4 + 3] << 24);
   }
+
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint64_t getblock64( const uint64_t * p, uint64_t i) {
+    return p[i];
+  }
   
   KOKKOS_FORCEINLINE_FUNCTION
   uint32_t rotl32(uint32_t x, int8_t r) { return (x << r) | (x >> (32 - r)); }
+  
+  KOKKOS_FORCEINLINE_FUNCTION
+  uint32_t rotl64(uint64_t x, int8_t r) { return (x << r) | (x >> (64 - r)); }
   
   KOKKOS_FORCEINLINE_FUNCTION
   uint32_t fmix32(uint32_t h) {
@@ -29,33 +40,97 @@ namespace kokkos_murmur3 {
   
     return h;
   }
+
+  KOKKOS_FORCEINLINE_FUNCTION 
+  uint64_t fmix64(uint64_t k) {
+    k ^= k >> 33;
+    k *= BIG_CONSTANT(0xff51afd7ed558ccd);
+    k ^= k >> 33;
+    k *= BIG_CONSTANT(0xc4ceb9fe1a85ec53);
+    k ^= k >> 33;
+
+    return k;
+  }
   
+  KOKKOS_INLINE_FUNCTION
+  uint32_t MurmurHash3_x86_32(const void* key, int len, uint32_t seed) {
+    const uint8_t* data = static_cast<const uint8_t*>(key);
+    const int nblocks   = len / 4;
+  
+    uint32_t h1 = seed;
+  
+    const uint32_t c1 = 0xcc9e2d51;
+    const uint32_t c2 = 0x1b873593;
+  
+    //----------
+    // body
+  
+    for (int i = 0; i < nblocks; ++i) {
+      uint32_t k1 = getblock32(data, i);
+  
+      k1 *= c1;
+      k1 = rotl32(k1, 15);
+      k1 *= c2;
+  
+      h1 ^= k1;
+      h1 = rotl32(h1, 13);
+      h1 = h1 * 5 + 0xe6546b64;
+    }
+  
+    //----------
+    // tail
+  
+    const uint8_t* tail = (const uint8_t*)(data + nblocks * 4);
+  
+    uint32_t k1 = 0;
+  
+    switch (len & 3) {
+      case 3: k1 ^= tail[2] << 16; KOKKOS_IMPL_FALLTHROUGH
+      case 2: k1 ^= tail[1] << 8; KOKKOS_IMPL_FALLTHROUGH
+      case 1:
+        k1 ^= tail[0];
+        k1 *= c1;
+        k1 = rotl32(k1, 15);
+        k1 *= c2;
+        h1 ^= k1;
+    };
+  
+    //----------
+    // finalization
+  
+    h1 ^= len;
+  
+    h1 = fmix32(h1);
+  
+    return h1;
+  }
+
   KOKKOS_FORCEINLINE_FUNCTION
-  void MurmurHash3_x86_128(const void* key, int len, uint32_t seed, void* out) {
+  void MurmurHash3_x86_128(const void* key, uint64_t len, uint32_t seed, void* out) {
     const uint8_t * data = (const uint8_t*)key;
-    const int nblocks = len / 16;
+    const uint64_t nblocks = len / 16;
   
     uint32_t h1 = seed;
     uint32_t h2 = seed;
     uint32_t h3 = seed;
     uint32_t h4 = seed;
   
-    const uint32_t c1 = 0x239b961b; 
-    const uint32_t c2 = 0xab0e9789;
-    const uint32_t c3 = 0x38b34ae5; 
-    const uint32_t c4 = 0xa1e38b93;
+    constexpr uint32_t c1 = 0x239b961b; 
+    constexpr uint32_t c2 = 0xab0e9789;
+    constexpr uint32_t c3 = 0x38b34ae5; 
+    constexpr uint32_t c4 = 0xa1e38b93;
   
     //----------
     // body
   
     const uint32_t * blocks = (const uint32_t *)(data + nblocks*16);
 
-    for(int i = -nblocks; i; i++)
+    for(uint64_t i = 0; i < nblocks; i++)
     {
-      uint32_t k1 = getblock32((const uint8_t*)blocks,i*4+0);
-      uint32_t k2 = getblock32((const uint8_t*)blocks,i*4+1);
-      uint32_t k3 = getblock32((const uint8_t*)blocks,i*4+2);
-      uint32_t k4 = getblock32((const uint8_t*)blocks,i*4+3);
+      uint32_t k1 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+0);
+      uint32_t k2 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+1);
+      uint32_t k3 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+2);
+      uint32_t k4 = getblock32((const uint8_t*)blocks,(i-nblocks)*4+3);
 
       k1 *= c1; k1  = rotl32(k1,15); k1 *= c2; h1 ^= k1;
 
@@ -135,6 +210,168 @@ namespace kokkos_murmur3 {
     return;
   }
   
+  KOKKOS_FORCEINLINE_FUNCTION
+  void MurmurHash3_x64_128(const void* key, uint64_t len, uint32_t seed, void* out) {
+    const uint8_t * data = (const uint8_t*)key;
+    const uint64_t nblocks = len / 16;
+  
+    uint64_t h1 = seed;
+    uint64_t h2 = seed;
+  
+    const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
+    const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
+  
+    //----------
+    // body
+  
+    const uint64_t * blocks = (const uint64_t *)(data);
+
+    for(uint64_t i = 0; i < nblocks; i++)
+    {
+      uint64_t k1 = getblock64(blocks,i*2+0);
+      uint64_t k2 = getblock64(blocks,i*2+1);
+
+      k1 *= c1; k1  = rotl64(k1,31); k1 *= c2; h1 ^= k1;
+
+      h1 = rotl64(h1,27); h1 += h2; h1 = h1*5+0x52dce729;
+
+      k2 *= c2; k2  = rotl64(k2,33); k2 *= c1; h2 ^= k2;
+
+      h2 = rotl64(h2,31); h2 += h1; h2 = h2*5+0x38495ab5;
+    }
+  
+    //----------
+    // tail
+  
+    const uint8_t * tail = (const uint8_t*)(data + nblocks*16);
+
+    uint64_t k1 = 0;
+    uint64_t k2 = 0;
+  
+    switch(len & 15)
+    {
+    case 15: k2 ^= ((uint64_t)tail[14]) << 48;
+    case 14: k2 ^= ((uint64_t)tail[13]) << 40;
+    case 13: k2 ^= ((uint64_t)tail[12]) << 32;
+    case 12: k2 ^= ((uint64_t)tail[11]) << 24;
+    case 11: k2 ^= ((uint64_t)tail[10]) << 16;
+    case 10: k2 ^= ((uint64_t)tail[ 9]) << 8;
+    case  9: k2 ^= ((uint64_t)tail[ 8]) << 0;
+             k2 *= c2; k2  = rotl64(k2,33); k2 *= c1; h2 ^= k2;
+
+    case  8: k1 ^= ((uint64_t)tail[ 7]) << 56;
+    case  7: k1 ^= ((uint64_t)tail[ 6]) << 48;
+    case  6: k1 ^= ((uint64_t)tail[ 5]) << 40;
+    case  5: k1 ^= ((uint64_t)tail[ 4]) << 32;
+    case  4: k1 ^= ((uint64_t)tail[ 3]) << 24;
+    case  3: k1 ^= ((uint64_t)tail[ 2]) << 16;
+    case  2: k1 ^= ((uint64_t)tail[ 1]) << 8;
+    case  1: k1 ^= ((uint64_t)tail[ 0]) << 0;
+             k1 *= c1; k1  = rotl64(k1,31); k1 *= c2; h1 ^= k1;
+    };
+
+  
+    //----------
+    // finalization
+  
+    h1 ^= len; h2 ^= len; 
+
+    h1 += h2; 
+    h2 += h1; 
+  
+    h1 = fmix64(h1);
+    h2 = fmix64(h2);
+  
+    h1 += h2; 
+    h2 += h1; 
+  
+    ((uint64_t*)out)[0] = h1;
+    ((uint64_t*)out)[1] = h2;
+
+    return;
+  }
+  
+  KOKKOS_FORCEINLINE_FUNCTION
+  void MurmurHash3_x64_64(const void* key, uint64_t len, uint32_t seed, void* out) {
+    const uint8_t * data = (const uint8_t*)key;
+    const uint64_t nblocks = len / 16;
+  
+    uint64_t h1 = seed;
+    uint64_t h2 = seed;
+  
+    const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
+    const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
+  
+    //----------
+    // body
+  
+    const uint64_t * blocks = (const uint64_t *)(data);
+
+    for(uint64_t i = 0; i < nblocks; i++)
+    {
+      uint64_t k1 = getblock64(blocks,i*2+0);
+      uint64_t k2 = getblock64(blocks,i*2+1);
+
+      k1 *= c1; k1  = rotl64(k1,31); k1 *= c2; h1 ^= k1;
+
+      h1 = rotl64(h1,27); h1 += h2; h1 = h1*5+0x52dce729;
+
+      k2 *= c2; k2  = rotl64(k2,33); k2 *= c1; h2 ^= k2;
+
+      h2 = rotl64(h2,31); h2 += h1; h2 = h2*5+0x38495ab5;
+    }
+  
+    //----------
+    // tail
+  
+    const uint8_t * tail = (const uint8_t*)(data + nblocks*16);
+
+    uint64_t k1 = 0;
+    uint64_t k2 = 0;
+  
+    switch(len & 15)
+    {
+    case 15: k2 ^= ((uint64_t)tail[14]) << 48;
+    case 14: k2 ^= ((uint64_t)tail[13]) << 40;
+    case 13: k2 ^= ((uint64_t)tail[12]) << 32;
+    case 12: k2 ^= ((uint64_t)tail[11]) << 24;
+    case 11: k2 ^= ((uint64_t)tail[10]) << 16;
+    case 10: k2 ^= ((uint64_t)tail[ 9]) << 8;
+    case  9: k2 ^= ((uint64_t)tail[ 8]) << 0;
+             k2 *= c2; k2  = rotl64(k2,33); k2 *= c1; h2 ^= k2;
+
+    case  8: k1 ^= ((uint64_t)tail[ 7]) << 56;
+    case  7: k1 ^= ((uint64_t)tail[ 6]) << 48;
+    case  6: k1 ^= ((uint64_t)tail[ 5]) << 40;
+    case  5: k1 ^= ((uint64_t)tail[ 4]) << 32;
+    case  4: k1 ^= ((uint64_t)tail[ 3]) << 24;
+    case  3: k1 ^= ((uint64_t)tail[ 2]) << 16;
+    case  2: k1 ^= ((uint64_t)tail[ 1]) << 8;
+    case  1: k1 ^= ((uint64_t)tail[ 0]) << 0;
+             k1 *= c1; k1  = rotl64(k1,31); k1 *= c2; h1 ^= k1;
+    };
+
+  
+    //----------
+    // finalization
+  
+    h1 ^= len; h2 ^= len; 
+
+    h1 += h2; 
+    h2 += h1; 
+  
+    h1 = fmix64(h1);
+    h2 = fmix64(h2);
+  
+    h1 += h2; 
+    h2 += h1; 
+  
+    ((uint64_t*)out)[0] = h1;
+//    ((uint64_t*)out)[1] = h2;
+
+    return;
+  }
+  
   #if defined(__GNUC__) /* GNU C   */ || defined(__GNUG__) /* GNU C++ */ || \
       defined(__clang__)
   
@@ -192,11 +429,11 @@ namespace kokkos_murmur3 {
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
-  void hash(const void* data, int len, uint8_t* digest)  {
-//    uint64_t temp[2];
-//    MurmurHash3_x86_128(data, len, 0, temp);
-//    memcpy(digest, temp, 16);
-    MurmurHash3_x86_128(data, len, 0, digest);
+  void hash(const void* data, uint64_t len, uint8_t* digest)  {
+//    uint32_t* dig_u32 = (uint32_t*)(digest);
+//    *digest = MurmurHash3_x86_32(data, len, 0);
+//    MurmurHash3_x64_64(data, len, 0, digest);
+    MurmurHash3_x64_128(data, len, 0, digest);
   }
 }
 

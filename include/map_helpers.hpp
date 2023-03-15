@@ -5,12 +5,6 @@
 #include <climits>
 #include "kokkos_vector.hpp"
 
-//union Storage {
-//  uint8_t digest[16];
-//  uint32_t count[4];
-//};
-
-//template<uint32_t N> 
 struct alignas(16) HashDigest {
   uint8_t digest[16];
 };
@@ -23,7 +17,7 @@ uint32_t digest_to_u32(HashDigest& digest) {
 
 struct CompareHashDigest {
   bool operator() (const HashDigest& lhs, const HashDigest& rhs) const {
-    for(int i=0; i<16; i++) {
+    for(int i=0; i<sizeof(HashDigest); i++) {
       if(lhs.digest[i] != rhs.digest[i]) {
         return false;
       }
@@ -34,7 +28,13 @@ struct CompareHashDigest {
 
 KOKKOS_INLINE_FUNCTION
 bool digests_same(const HashDigest& lhs, const HashDigest& rhs) {
-  for(int i=0; i<16; i++) {
+//  uint64_t* left  = (uint64_t*)(lhs.digest);
+//  uint64_t* right = (uint64_t*)(rhs.digest);
+//  for(int i=0; i<sizeof(HashDigest)/sizeof(uint64_t); i++) {
+//    if(left[i] != right[i])
+//      return false;
+//  }
+  for(int i=0; i<sizeof(HashDigest); i++) {
     if(lhs.digest[i] != rhs.digest[i]) {
       return false;
     }
@@ -160,24 +160,32 @@ struct digest_hash {
 
   KOKKOS_FORCEINLINE_FUNCTION
   uint32_t operator()(HashDigest const& digest) const {
-    uint32_t result = 0;
-    uint32_t* digest_ptr = (uint32_t*) digest.digest;
-    result ^= digest_ptr[0];
-    result ^= digest_ptr[1];
-    result ^= digest_ptr[2];
-    result ^= digest_ptr[3];
-    return result;
+//    uint32_t result = 0;
+//    uint32_t* digest_ptr = (uint32_t*) digest.digest;
+//    for(uint32_t i=0; i<sizeof(HashDigest)/sizeof(uint32_t); i++) {
+//      result ^= digest_ptr[i];
+//    }
+////    result ^= digest_ptr[0];
+////    result ^= digest_ptr[1];
+////    result ^= digest_ptr[2];
+////    result ^= digest_ptr[3];
+//    return result;
+    return *((uint32_t*)(digest.digest));
   }
 
   KOKKOS_FORCEINLINE_FUNCTION
   uint32_t operator()(HashDigest const& digest, uint32_t seed) const {
-    uint32_t result = 0;
-    uint32_t* digest_ptr = (uint32_t*) digest.digest;
-    result ^= digest_ptr[0];
-    result ^= digest_ptr[1];
-    result ^= digest_ptr[2];
-    result ^= digest_ptr[3];
-    return result;
+//    uint32_t result = 0;
+//    uint32_t* digest_ptr = (uint32_t*) digest.digest;
+//    for(uint32_t i=0; i<sizeof(HashDigest)/sizeof(uint32_t); i++) {
+//      result ^= digest_ptr[i];
+//    }
+////    result ^= digest_ptr[0];
+////    result ^= digest_ptr[1];
+////    result ^= digest_ptr[2];
+////    result ^= digest_ptr[3];
+//    return result;
+    return *((uint32_t*)(digest.digest));
   }
 };
 
@@ -232,12 +240,6 @@ using NodeMap = Kokkos::UnorderedMap<uint32_t, Node, Kokkos::DefaultExecutionSpa
 
 using DigestNodeIDMap = DistinctNodeIDMap;
 using RootNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
-
-//using DigestListMap = Kokkos::UnorderedMap<HashDigest, 
-//                                           Vector<uint32_t>, 
-//                                           Kokkos::DefaultExecutionSpace, 
-//                                           digest_hash, 
-//                                           digest_equal_to>;
 
 using DigestListMap = Kokkos::UnorderedMap<HashDigest, 
                                            uint32_t,
