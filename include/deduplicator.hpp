@@ -127,7 +127,7 @@ class Deduplicator {
     uint64_t data_len;
     DedupMode mode;
     std::pair<uint64_t,uint64_t> datasizes;
-    double timers[3];
+    double timers[4];
     double restart_timers[2];
     Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
 
@@ -157,24 +157,38 @@ class Deduplicator {
       std::string result_logname = logname+".chunk_size."+std::to_string(chunk_size)+".csv";
       std::string size_logname = logname+".chunk_size."+std::to_string(chunk_size)+".size.csv";
       std::string timing_logname = logname+".chunk_size."+std::to_string(chunk_size)+".timing.csv";
-      result_data.open(result_logname, std::fstream::out | std::fstream::app);
+      result_data.open(result_logname, std::fstream::ate | std::fstream::out | std::fstream::app);
       size_file.open(size_logname, std::fstream::out | std::fstream::app);
       timing_file.open(timing_logname, std::fstream::out | std::fstream::app);
+      if(result_data.tellp() == 0) {
+        result_data << "Approach,Chkpt ID,Chunk Size,Uncompressed Size,Compressed Size,Data Size,Metadata Size,Setup Time,Comparison Time,Gather Time,Write Time" << std::endl;
+      }
 
       uint32_t num_chkpts = 10;
 
       if(mode == Full) {
-        result_data << "0.0" << ","          // Comparison time
-                    << "0.0" << ","          // Collection time
-                    << timers[2] << ","     // Write time
-                    << datasizes.first << ',' // Size of data
-                    << "0" << ',';           // Size of metadata
+        result_data << "Full" << "," // Approach
+                    << current_id << "," // Chkpt ID
+                    << chunk_size << "," // Chunk size
+                    << data_len << "," // Uncompressed size
+                    << datasizes.first+datasizes.second << "," // Compressed size
+                    << datasizes.first << "," // Compressed data size
+                    << datasizes.second << "," // Compressed metadata size
+                    << timers[0] << "," // Compression setup time
+                    << timers[1] << "," // Compression comparison time
+                    << timers[2] << "," // Compression gather chunks time
+                    << timers[3] << std::endl; // Compression copy diff to host
+//        result_data << "0.0" << ","          // Comparison time
+//                    << "0.0" << ","          // Collection time
+//                    << timers[3] << ","     // Write time
+//                    << datasizes.first << ',' // Size of data
+//                    << "0" << ',';           // Size of metadata
         timing_file << "Full" << ","     // Approach
                     << current_id << ","        // Checkpoint ID
                     << chunk_size << "," // Chunk size
                     << "0.0" << ","      // Comparison time
                     << "0.0" << ","      // Collection time
-                    << timers[2]        // Write time
+                    << timers[3]        // Write time
                     << std::endl;
         size_file << "Full" << ","         // Approach
                   << current_id << ","            // Checkpoint ID
@@ -189,17 +203,28 @@ class Deduplicator {
         }
         size_file << std::endl;
       } else if(mode == Basic) {
-        result_data << timers[0] << ','      // Comparison time
-                    << timers[1] << ','      // Collection time  
-                    << timers[2] << ','        // Write time
-                    << datasizes.first << ','   // Size of data     
-                    << datasizes.second << ','; // Size of metadata 
+//        result_data << timers[1] << ','      // Comparison time
+//                    << timers[2] << ','      // Collection time  
+//                    << timers[3] << ','        // Write time
+//                    << datasizes.first << ','   // Size of data     
+//                    << datasizes.second << ','; // Size of metadata 
+        result_data << "Basic" << "," // Approach
+                    << current_id << "," // Chkpt ID
+                    << chunk_size << "," // Chunk size
+                    << data_len << "," // Uncompressed size
+                    << datasizes.first+datasizes.second << "," // Compressed size
+                    << datasizes.first << "," // Compressed data size
+                    << datasizes.second << "," // Compressed metadata size
+                    << timers[0] << "," // Compression setup time
+                    << timers[1] << "," // Compression comparison time
+                    << timers[2] << "," // Compression gather chunks time
+                    << timers[3] << std::endl; // Compression copy diff to host
         timing_file << "Basic" << ","      // Approach
                     << current_id << ","          // Checkpoint ID
                     << chunk_size << ","   // Chunk size      
-                    << timers[0] << "," // Comparison time 
-                    << timers[1] << "," // Collection time 
-                    << timers[2]          // Write time
+                    << timers[1] << "," // Comparison time 
+                    << timers[2] << "," // Collection time 
+                    << timers[3]          // Write time
                     << std::endl;
         size_file << "Basic" << ","           // Approach
                   << current_id << ","               // Checkpoint ID
@@ -208,17 +233,28 @@ class Deduplicator {
                   << datasizes.second << ","; // Size of metadata
         write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
       } else if(mode == List) {
-        result_data << timers[0] << ',' 
-                    << timers[1] << ',' 
-                    << timers[2] << ',' 
-                    << datasizes.first << ',' 
-                    << datasizes.second << ',';
+//        result_data << timers[1] << ',' 
+//                    << timers[2] << ',' 
+//                    << timers[3] << ',' 
+//                    << datasizes.first << ',' 
+//                    << datasizes.second << ',';
+        result_data << "List" << "," // Approach
+                    << current_id << "," // Chkpt ID
+                    << chunk_size << "," // Chunk size
+                    << data_len << "," // Uncompressed size
+                    << datasizes.first+datasizes.second << "," // Compressed size
+                    << datasizes.first << "," // Compressed data size
+                    << datasizes.second << "," // Compressed metadata size
+                    << timers[0] << "," // Compression setup time
+                    << timers[1] << "," // Compression comparison time
+                    << timers[2] << "," // Compression gather chunks time
+                    << timers[3] << std::endl; // Compression copy diff to host
         timing_file << "List" << "," 
                     << current_id << "," 
                     << chunk_size << "," 
-                    << timers[0] << "," // Comparison time 
-                    << timers[1] << "," // Collection time 
-                    << timers[2]          // Write time
+                    << timers[1] << "," // Comparison time 
+                    << timers[2] << "," // Collection time 
+                    << timers[3]          // Write time
                     << std::endl;
         size_file << "List" << "," 
                   << current_id << "," 
@@ -239,17 +275,28 @@ class Deduplicator {
           approach = std::string("TreeLowRoot");
         }
 
-        result_data << timers[0] << ',' 
-                    << timers[1] << ',' 
-                    << timers[2] << ',' 
-                    << datasizes.first << ',' 
-                    << datasizes.second << std::endl;
+//        result_data << timers[1] << ',' 
+//                    << timers[2] << ',' 
+//                    << timers[3] << ',' 
+//                    << datasizes.first << ',' 
+//                    << datasizes.second << std::endl;
+        result_data << approach << "," // Approach
+                    << current_id << "," // Chkpt ID
+                    << chunk_size << "," // Chunk size
+                    << data_len << "," // Uncompressed size
+                    << datasizes.first+datasizes.second << "," // Compressed size
+                    << datasizes.first << "," // Compressed data size
+                    << datasizes.second << "," // Compressed metadata size
+                    << timers[0] << "," // Compression setup time
+                    << timers[1] << "," // Compression comparison time
+                    << timers[2] << "," // Compression gather chunks time
+                    << timers[3] << std::endl; // Compression copy diff to host
         timing_file << approach << "," 
                     << current_id << "," 
                     << chunk_size << "," 
-                    << timers[0] << "," 
                     << timers[1] << "," 
-                    << timers[2] << std::endl;
+                    << timers[2] << "," 
+                    << timers[3] << std::endl;
         size_file << approach << "," 
                   << current_id << "," 
                   << chunk_size << "," 
@@ -350,6 +397,7 @@ class Deduplicator {
 
       std::string dedup_region_name = std::string("Deduplication chkpt ") + std::to_string(current_id);
       Timer::time_point start_create_tree0 = Timer::now();
+      timers[0] = std::chrono::duration_cast<Duration>(start_create_tree0 - beg_chkpt).count();
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
 
       if((current_id == 0) || make_baseline) {
@@ -390,16 +438,16 @@ class Deduplicator {
             dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           }
-          STDOUT_PRINT("First occurrence update capacity: %u, size: %u\n", 
-                 first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-          STDOUT_PRINT("Shift duplicate update capacity:  %u, size: %u\n", 
-                 shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
+//          STDOUT_PRINT("First occurrence update capacity: %u, size: %u\n", 
+//                 first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
+//          STDOUT_PRINT("Shift duplicate update capacity:  %u, size: %u\n", 
+//                 shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
         }
       }
 
       Kokkos::Profiling::popRegion();
       Timer::time_point end_create_tree0 = Timer::now();
-      timers[0] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
+      timers[1] = std::chrono::duration_cast<Duration>(end_create_tree0 - start_create_tree0).count();
 
       // ==========================================================================================
       // Create Diff
@@ -422,40 +470,28 @@ class Deduplicator {
             first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-//if(make_baseline) {
-//          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
-//                                                            first_ocur_updates_d, 
-//                                                            shift_dupl_updates_d, 
-//                                                            baseline_id, current_id, header);
-//} else {
           datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
                                                             tree, first_ocur_d, 
                                                             first_ocur_vec, shift_dupl_vec,
                                                             baseline_id, current_id, header);
-//}
       }
 
       Kokkos::Profiling::popRegion();
       Timer::time_point end_collect = Timer::now();
-      timers[1] = std::chrono::duration_cast<Duration>(end_collect - start_collect).count();
+      timers[2] = std::chrono::duration_cast<Duration>(end_collect - start_collect).count();
 
-//      if(mode == Full) {
-//        Kokkos::resize(diff, data.size());
-//        Kokkos::deep_copy(diff, data);
-//      }
       Timer::time_point end_chkpt = Timer::now();
-      std::cout << "Checkpoint time (excluding copying to host): " << std::chrono::duration_cast<Duration>(end_chkpt-beg_chkpt).count() << std::endl;
       
       // ==========================================================================================
       // Copy diff to host 
       // ==========================================================================================
 //      auto diff_h = Kokkos::create_mirror_view(diff);
+      Timer::time_point start_write = Timer::now();
       if(mode == Full) {
         Kokkos::resize(diff_h, data.size());
       } else {
         Kokkos::resize(diff_h, diff.size());
       }
-      Timer::time_point start_write = Timer::now();
       std::string write_region_name = std::string("Copy diff to host ") 
                                       + std::to_string(current_id);
       Kokkos::Profiling::pushRegion(write_region_name.c_str());
@@ -471,7 +507,7 @@ class Deduplicator {
 
       Kokkos::Profiling::popRegion();
       Timer::time_point end_write = Timer::now();
-      timers[2] = std::chrono::duration_cast<Duration>(end_write - start_write).count();
+      timers[3] = std::chrono::duration_cast<Duration>(end_write - start_write).count();
     }
 
     void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
