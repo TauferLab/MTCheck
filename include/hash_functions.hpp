@@ -1086,6 +1086,7 @@ public:
       P( B, C, D, A,  9, 21, 0xEB86D391 );
   
   #undef F
+  #undef P
   
       ctx->state[0] += A;
       ctx->state[1] += B;

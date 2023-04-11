@@ -178,11 +178,6 @@ class Deduplicator {
                     << timers[1] << "," // Compression comparison time
                     << timers[2] << "," // Compression gather chunks time
                     << timers[3] << std::endl; // Compression copy diff to host
-//        result_data << "0.0" << ","          // Comparison time
-//                    << "0.0" << ","          // Collection time
-//                    << timers[3] << ","     // Write time
-//                    << datasizes.first << ',' // Size of data
-//                    << "0" << ',';           // Size of metadata
         timing_file << "Full" << ","     // Approach
                     << current_id << ","        // Checkpoint ID
                     << chunk_size << "," // Chunk size
@@ -203,11 +198,6 @@ class Deduplicator {
         }
         size_file << std::endl;
       } else if(mode == Basic) {
-//        result_data << timers[1] << ','      // Comparison time
-//                    << timers[2] << ','      // Collection time  
-//                    << timers[3] << ','        // Write time
-//                    << datasizes.first << ','   // Size of data     
-//                    << datasizes.second << ','; // Size of metadata 
         result_data << "Basic" << "," // Approach
                     << current_id << "," // Chkpt ID
                     << chunk_size << "," // Chunk size
@@ -233,11 +223,6 @@ class Deduplicator {
                   << datasizes.second << ","; // Size of metadata
         write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
       } else if(mode == List) {
-//        result_data << timers[1] << ',' 
-//                    << timers[2] << ',' 
-//                    << timers[3] << ',' 
-//                    << datasizes.first << ',' 
-//                    << datasizes.second << ',';
         result_data << "List" << "," // Approach
                     << current_id << "," // Chkpt ID
                     << chunk_size << "," // Chunk size
@@ -275,11 +260,6 @@ class Deduplicator {
           approach = std::string("TreeLowRoot");
         }
 
-//        result_data << timers[1] << ',' 
-//                    << timers[2] << ',' 
-//                    << timers[3] << ',' 
-//                    << datasizes.first << ',' 
-//                    << datasizes.second << std::endl;
         result_data << approach << "," // Approach
                     << current_id << "," // Chkpt ID
                     << chunk_size << "," // Chunk size

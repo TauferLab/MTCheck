@@ -93,6 +93,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
       chunk_len(i) = len;
 //      DEBUG_PRINT("Region %u, node %u with length %u\n", i, node, len);
     });
+
     // Perform exclusive prefix scan to determine where to write chunks for each region
     Kokkos::parallel_scan("Tree:Main:Calc offsets", num_first_ocur, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       const uint32_t len = chunk_len(i);
@@ -103,6 +104,8 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
     Kokkos::View<uint32_t[1]> total_region_size("Total region size");
     Kokkos::View<uint32_t[1]>::HostMirror total_region_size_h = Kokkos::create_mirror_view(total_region_size);
     Kokkos::deep_copy(total_region_size, 0);
+
+STDOUT_PRINT("Calculated offsets\n");
 
     // Restart distinct entries by reading and inserting full tree into distinct map
 //    Kokkos::parallel_for("Tree:Main:Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
@@ -224,7 +227,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
       if(is_final) repeat_region_sizes(i) = partial_sum;
     });
 
-    DEBUG_PRINT("Num repeats: %u\n", num_shift_dupl);
+    STDOUT_PRINT("Num repeats: %u\n", num_shift_dupl);
     // Load repeat entries and fill in metadata for chunks
 //    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::RangePolicy<>(0, header.curr_repeat_size+header.prev_repeat_size), KOKKOS_LAMBDA(const uint32_t i) {
 //      uint32_t node;
@@ -267,8 +270,12 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
             tree = j;
           }
         }
-//        uint32_t idx = distinct_map.find(NodeID(prev, tree));
-        offset = distinct_map.value_at(distinct_map.find(NodeID(prev, tree)));
+        uint32_t idx = distinct_map.find(NodeID(prev, tree));
+        if(distinct_map.valid_at(idx)) {
+          offset = distinct_map.value_at(idx);
+        } else {
+          offset = 0;
+        }
       }
       team_member.team_broadcast(node, 0);
       team_member.team_broadcast(prev, 0);

@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
 
       // Read checkpoint file and load it into the device
       Kokkos::View<uint8_t*> current("Current region", data_len);
-      Kokkos::View<uint8_t*, Kokkos::CudaHostPinnedSpace> current_h("Current region mirror", data_len);
+      Kokkos::View<uint8_t*>::HostMirror current_h("Current region mirror", data_len);
       f.read((char*)(current_h.data()), data_len);
       Kokkos::deep_copy(current, current_h);
       f.close();
