@@ -546,7 +546,7 @@ write_incr_chkpt_hashtree_global_mode(
   Kokkos::deep_copy(prior_counter_d, 0);
   Kokkos::Experimental::ScatterView<uint64_t*> prior_counter_sv(prior_counter_d);
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Setup counters\n");
 
   // Filter and count space used for distinct entries
@@ -573,7 +573,7 @@ write_incr_chkpt_hashtree_global_mode(
       }
     }
   });
-  Kokkos::fence();
+//  Kokkos::fence();
 
   DEBUG_PRINT("Count distinct bytes\n");
 
@@ -581,7 +581,7 @@ write_incr_chkpt_hashtree_global_mode(
   Kokkos::Bitset<Kokkos::DefaultExecutionSpace> chkpts_needed(chkpt_id+1);
   chkpts_needed.reset();
   
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Setup chkpt bitset\n");
 
   // Calculate space needed for repeat entries and number of entries per checkpoint
@@ -600,17 +600,17 @@ write_incr_chkpt_hashtree_global_mode(
       chkpts_needed.set(prev.tree);
     }
   });
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Count repeat bytes\n");
   Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
   prior_counter_sv.reset_except(prior_counter_d);
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Collect prior counter\n");
 
   uint32_t num_prior_chkpts = chkpts_needed.count();
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Number of checkpoints needed: %u\n", num_prior_chkpts);
 
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
@@ -752,13 +752,13 @@ write_incr_chkpt_hashtree_global_mode(
 //  });
 
   DEBUG_PRINT("Wrote shared metadata\n");
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Finished collecting data\n");
   Kokkos::deep_copy(num_bytes_h, num_bytes_d);
   Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
   Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
   Kokkos::deep_copy(num_curr_repeat_h, num_curr_repeat_d);
-  Kokkos::fence();
+//  Kokkos::fence();
   header.ref_id = prior_chkpt_id;
   header.chkpt_id = chkpt_id;
   header.datalen = data.size();
@@ -831,7 +831,7 @@ write_incr_chkpt_hashtree_global_mode(
   Kokkos::deep_copy(prior_counter_d, 0);
   Kokkos::Experimental::ScatterView<uint64_t*> prior_counter_sv(prior_counter_d);
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Setup counters\n");
 
   Kokkos::Profiling::popRegion();
@@ -856,7 +856,7 @@ write_incr_chkpt_hashtree_global_mode(
         printf("Distinct node with different node/tree. Shouldn't happen.\n");
       }
   });
-  Kokkos::fence();
+//  Kokkos::fence();
   std::string alloc_bitset_label = std::string("Checkpoint ") + std::to_string(chkpt_id) + std::string(": Gather: Allocate bitset");
   Kokkos::Profiling::pushRegion(alloc_bitset_label);
 
@@ -866,7 +866,7 @@ write_incr_chkpt_hashtree_global_mode(
   Kokkos::Bitset<Kokkos::DefaultExecutionSpace> chkpts_needed(chkpt_id+1);
   chkpts_needed.reset();
   
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Setup chkpt bitset\n");
   Kokkos::Profiling::popRegion();
 
@@ -882,19 +882,19 @@ write_incr_chkpt_hashtree_global_mode(
       prior_counter_sa(prev.tree) += 1;
       chkpts_needed.set(prev.tree);
   });
-  Kokkos::fence();
+//  Kokkos::fence();
   std::string contrib_label = std::string("Checkpoint ") + std::to_string(chkpt_id) + std::string(": Gather: Contribute shift dupl");
   Kokkos::Profiling::pushRegion(contrib_label);
   DEBUG_PRINT("Count repeat bytes\n");
   Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
   prior_counter_sv.reset_except(prior_counter_d);
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Collect prior counter\n");
 
   uint32_t num_prior_chkpts = chkpts_needed.count();
 
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Number of checkpoints needed: %u\n", num_prior_chkpts);
 
 //  Kokkos::deep_copy(num_bytes_h, num_bytes_d);
@@ -1057,12 +1057,12 @@ write_incr_chkpt_hashtree_global_mode(
 //  });
 
   DEBUG_PRINT("Wrote shared metadata\n");
-  Kokkos::fence();
+//  Kokkos::fence();
   DEBUG_PRINT("Finished collecting data\n");
 //  Kokkos::deep_copy(num_bytes_h, num_bytes_d);
 //  Kokkos::deep_copy(num_bytes_data_h, num_bytes_data_d);
 //  Kokkos::deep_copy(num_bytes_metadata_h, num_bytes_metadata_d);
-  Kokkos::fence();
+//  Kokkos::fence();
   header.ref_id = prior_chkpt_id;
   header.chkpt_id = chkpt_id;
   header.datalen = data.size();

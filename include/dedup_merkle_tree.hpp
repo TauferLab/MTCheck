@@ -330,7 +330,7 @@ void deduplicate_data_deterministic_baseline(DataView& data,
         }
       }
     });
-    Kokkos::fence();
+//    Kokkos::fence();
     Kokkos::parallel_for("Baseline: Build Forest: Insert entries", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
@@ -604,7 +604,7 @@ void deduplicate_data_deterministic_baseline(DataView& data,
         }
       }
     });
-    Kokkos::fence();
+//    Kokkos::fence();
     Kokkos::parallel_for("Baseline: Build Forest: Insert entries", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
@@ -651,7 +651,7 @@ void deduplicate_data_deterministic_baseline(DataView& data,
 //  }
 
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
-  Kokkos::fence();
+//  Kokkos::fence();
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);
   Kokkos::deep_copy(region_counters_h, region_counters);
 
@@ -1564,7 +1564,7 @@ void dedup_low_root(DataView& data,
   });
 
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
-  Kokkos::fence();
+//  Kokkos::fence();
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);
   Kokkos::deep_copy(region_counters_h, region_counters);
 
@@ -1882,7 +1882,7 @@ void dedup_low_root(DataView& data,
   });
 
   Kokkos::Experimental::contribute(region_counters, region_counters_sv);
-  Kokkos::fence();
+//  Kokkos::fence();
   Kokkos::deep_copy(chunk_counters_h, chunk_counters);
   Kokkos::deep_copy(region_counters_h, region_counters);
 
