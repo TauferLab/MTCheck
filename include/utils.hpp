@@ -4,7 +4,6 @@
 //#define STDOUT
 //#define DEBUG
 //#define STATS
-#define GLOBAL_TABLE
 
 #ifdef DEBUG
 //#define DEBUG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
@@ -17,6 +16,12 @@
 #define STDOUT_PRINT(...) do{ printf( __VA_ARGS__ ); } while( false )
 #else
 #define STDOUT_PRINT(...) do{ } while ( false )
+#endif
+
+#ifdef __CUDA_ARCH__
+#define TEAM_SIZE 32
+#else
+#define TEAM_SIZE 2
 #endif
 
 typedef struct header_t {

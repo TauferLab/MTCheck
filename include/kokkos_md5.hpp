@@ -7,6 +7,8 @@
 #include "map_helpers.hpp"
 
 namespace kokkos_md5 {
+  // "Derived from the RSA Data Security, Inc. MD5 Message Digest Algorithm"
+  
   struct md5_context {
     uint32_t total[2];
     uint32_t state[4];
@@ -317,7 +319,6 @@ namespace kokkos_md5 {
         MD5_Update(&ctx, data, static_cast<int32_t>(len));
       }
       MD5_Final(digest, &ctx);
-//      MD5((uint8_t*)(data), len, digest);
     #endif
   }
 }

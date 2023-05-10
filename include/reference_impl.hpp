@@ -16,7 +16,7 @@ int dedup_low_offset_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       MerkleTree& tree, 
                       const uint32_t chkpt_id,
-                      DistinctNodeIDMap& first_occur_d,
+                      DigestNodeIDDeviceMap& first_occur_d,
                       Vector<uint32_t>& shift_dupl_vec,
                       Vector<uint32_t>& first_ocur_vec) {
   Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data_d);
@@ -25,11 +25,11 @@ int dedup_low_offset_ref(DataView& data_d,
   Kokkos::deep_copy(prev_tree, tree.tree_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> curr_tree("Curr tree", tree.tree_h.extent(0));
 
-  DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
+  DigestNodeIDHostMap first_occur_h(first_occur_d.capacity());
   Kokkos::deep_copy(first_occur_h, first_occur_d);
 
-//  CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
-//  CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
+//  IdxNodeIDHostMap shift_dupl_map_h(shift_dupl_map_d.capacity());
+//  IdxNodeIDHostMap first_ocur_map_h(first_ocur_map_d.capacity());
 
 //  const char FIRST_OCUR = 0;
 //  const char FIXED_DUPL = 1;
@@ -116,7 +116,7 @@ int dedup_low_offset_ref(DataView& data_d,
     uint32_t root = *set_iter;
     if(labels[root] != DONE) {
       region_counters[labels[root]] += 1;
-      NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
+//      NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
       if(labels[root] == FIRST_OCUR) {
         first_ocur_vec.host_push(root);
 //        first_ocur_map_h.insert(root, node);
@@ -149,20 +149,20 @@ int dedup_low_offset_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       MerkleTree& tree, 
                       const uint32_t chkpt_id,
-                      DistinctNodeIDMap& first_occur_d,
-                      CompactTable& shift_dupl_map_d,
-                      CompactTable& first_ocur_map_d) {
+                      DigestNodeIDDeviceMap& first_occur_d,
+                      IdxNodeIDDeviceMap& shift_dupl_map_d,
+                      IdxNodeIDDeviceMap& first_ocur_map_d) {
   Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data_d);
   Kokkos::deep_copy(data_h, data_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> prev_tree("Prev tree", tree.tree_h.extent(0));
   Kokkos::deep_copy(prev_tree, tree.tree_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> curr_tree("Curr tree", tree.tree_h.extent(0));
 
-  DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
+  DigestNodeIDHostMap first_occur_h(first_occur_d.capacity());
   Kokkos::deep_copy(first_occur_h, first_occur_d);
 
-  CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
-  CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
+  IdxNodeIDHostMap shift_dupl_map_h(shift_dupl_map_d.capacity());
+  IdxNodeIDHostMap first_ocur_map_h(first_ocur_map_d.capacity());
 
 //  const char FIRST_OCUR = 0;
 //  const char FIXED_DUPL = 1;
@@ -280,7 +280,7 @@ int dedup_low_root_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       const MerkleTree& tree, 
                       const uint32_t chkpt_id,
-                      DistinctNodeIDMap& first_occur_d,
+                      DigestNodeIDDeviceMap& first_occur_d,
                       Vector<uint32_t>& shift_dupl_vec,
                       Vector<uint32_t>& first_ocur_vec) {
   Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data_d);
@@ -289,11 +289,11 @@ int dedup_low_root_ref(DataView& data_d,
   Kokkos::deep_copy(prev_tree, tree.tree_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> curr_tree("Curr tree", tree.tree_h.extent(0));
 
-  DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
+  DigestNodeIDHostMap first_occur_h(first_occur_d.capacity());
   Kokkos::deep_copy(first_occur_h, first_occur_d);
 
-//  CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
-//  CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
+//  IdxNodeIDHostMap shift_dupl_map_h(shift_dupl_map_d.capacity());
+//  IdxNodeIDHostMap first_ocur_map_h(first_ocur_map_d.capacity());
 
 //  const char FIRST_OCUR = 0;
 //  const char FIXED_DUPL = 1;
@@ -458,7 +458,7 @@ int dedup_low_root_ref(DataView& data_d,
     uint32_t root = *set_iter;
     if(labels[root] != DONE) {
       region_counters[labels[root]] += 1;
-      NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
+//      NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
       if(labels[root] == FIRST_OCUR) {
         first_ocur_vec.host_push(root);
 //        first_ocur_map_h.insert(root, node);
@@ -489,20 +489,20 @@ int dedup_low_root_ref(DataView& data_d,
                       const uint32_t chunk_size,
                       const MerkleTree& tree, 
                       const uint32_t chkpt_id,
-                      DistinctNodeIDMap& first_occur_d,
-                      CompactTable& shift_dupl_map_d,
-                      CompactTable& first_ocur_map_d) {
+                      DigestNodeIDDeviceMap& first_occur_d,
+                      IdxNodeIDDeviceMap& shift_dupl_map_d,
+                      IdxNodeIDDeviceMap& first_ocur_map_d) {
   Kokkos::View<uint8_t*>::HostMirror data_h = Kokkos::create_mirror_view(data_d);
   Kokkos::deep_copy(data_h, data_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> prev_tree("Prev tree", tree.tree_h.extent(0));
   Kokkos::deep_copy(prev_tree, tree.tree_d);
   Kokkos::View<HashDigest*,Kokkos::DefaultHostExecutionSpace> curr_tree("Curr tree", tree.tree_h.extent(0));
 
-  DistinctHostNodeIDMap first_occur_h(first_occur_d.capacity());
+  DigestNodeIDHostMap first_occur_h(first_occur_d.capacity());
   Kokkos::deep_copy(first_occur_h, first_occur_d);
 
-  CompactHostTable shift_dupl_map_h(shift_dupl_map_d.capacity());
-  CompactHostTable first_ocur_map_h(first_ocur_map_d.capacity());
+  IdxNodeIDHostMap shift_dupl_map_h(shift_dupl_map_d.capacity());
+  IdxNodeIDHostMap first_ocur_map_h(first_ocur_map_d.capacity());
 
 //  const char FIRST_OCUR = 0;
 //  const char FIXED_DUPL = 1;

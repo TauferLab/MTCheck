@@ -14,12 +14,9 @@
 #include "write_merkle_tree_chkpt.hpp"
 #include "kokkos_hash_list.hpp"
 #include "restart_merkle_tree.hpp"
-//#include "dedup_approaches.hpp"
 #include "utils.hpp"
 
-#define VERIFY_OUTPUT
-
-void write_metadata_breakdown2(std::fstream& fs, 
+void write_metadata_breakdown(std::fstream& fs, 
                               DedupMode mode,
                               header_t& header, 
                               Kokkos::View<uint8_t*>::HostMirror& buffer, 
@@ -38,7 +35,9 @@ void write_metadata_breakdown2(std::fstream& fs,
   STDOUT_PRINT("==========Repeat Map==========\n");
   for(uint32_t i=0; i<header.num_prior_chkpts; i++) {
     uint32_t chkpt = 0, num = 0;
-    uint64_t header_offset = sizeof(header_t)+header.num_first_ocur*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+    uint64_t header_offset = sizeof(header_t) + 
+                             header.num_first_ocur*sizeof(uint32_t) + 
+                             i*2*sizeof(uint32_t);
     memcpy(&chkpt, buffer.data()+header_offset, sizeof(uint32_t));
     memcpy(&num, buffer.data()+header_offset+sizeof(uint32_t), sizeof(uint32_t));
     STDOUT_PRINT("%u:%u\n", chkpt, num);
@@ -75,7 +74,9 @@ void write_metadata_breakdown2(std::fstream& fs,
       if(i < header.num_prior_chkpts) {
         // Write bytes for shifted duplicates from checkpoint i
         uint32_t chkpt = 0, num = 0;
-        uint64_t repeat_map_offset = sizeof(header_t)+header.num_first_ocur*sizeof(uint32_t)+i*2*sizeof(uint32_t);
+        uint64_t repeat_map_offset = sizeof(header_t) + 
+                                     header.num_first_ocur*sizeof(uint32_t) + 
+                                     i*2*sizeof(uint32_t);
         memcpy(&chkpt, buffer.data()+repeat_map_offset, sizeof(uint32_t));
         memcpy(&num, buffer.data()+repeat_map_offset+sizeof(uint32_t), sizeof(uint32_t));
         STDOUT_PRINT("Repeat bytes for %u: %lu\n", chkpt, num*2*sizeof(uint32_t));
@@ -103,19 +104,11 @@ void write_metadata_breakdown2(std::fstream& fs,
   }
 }
 
-template<typename HashFunc>
 class Deduplicator {
   public:
-    HashFunc hash_func;
     MerkleTree tree;
     HashList leaves;
-    DigestNodeIDMap first_ocur_d;
-    CompactTable first_ocur_updates_d;
-    CompactTable shift_dupl_updates_d;
-    // Hash list
-    DistinctNodeIDMap first_ocur_chunks_d;
-    SharedNodeIDMap shift_dupl_chunks_d;
-    SharedNodeIDMap fixed_dupl_chunks_d;
+    DigestNodeIDDeviceMap first_ocur_d;
     Vector<uint32_t> first_ocur_vec;
     Vector<uint32_t> shift_dupl_vec;
     Kokkos::View<char*> labels;
@@ -133,9 +126,7 @@ class Deduplicator {
 
     Deduplicator() {
       tree = MerkleTree(1);
-      first_ocur_d = DigestNodeIDMap(1);
-      first_ocur_updates_d = CompactTable(1);
-      shift_dupl_updates_d = CompactTable(1);
+      first_ocur_d = DigestNodeIDDeviceMap(1);
       chunk_size = 4096;
       current_id = 0;
       mode = Tree;
@@ -143,9 +134,7 @@ class Deduplicator {
 
     Deduplicator(uint32_t bytes_per_chunk) {
       tree = MerkleTree(1);
-      first_ocur_d = DigestNodeIDMap(1);
-      first_ocur_updates_d = CompactTable(1);
-      shift_dupl_updates_d = CompactTable(1);
+      first_ocur_d = DigestNodeIDDeviceMap(1);
       labels = Kokkos::View<char*>("Labels", 1);
       chunk_size = bytes_per_chunk;
       current_id = 0;
@@ -221,7 +210,7 @@ class Deduplicator {
                   << chunk_size << ","        // Chunk size
                   << datasizes.first << ","   // Size of data
                   << datasizes.second << ","; // Size of metadata
-        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
+        write_metadata_breakdown(size_file, mode, header, diff_h, num_chkpts);
       } else if(mode == List) {
         result_data << "List" << "," // Approach
                     << current_id << "," // Chkpt ID
@@ -246,7 +235,7 @@ class Deduplicator {
                   << chunk_size << "," 
                   << datasizes.first << "," 
                   << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
+        write_metadata_breakdown(size_file, mode, header, diff_h, num_chkpts);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         std::string approach("Tree");
@@ -282,7 +271,7 @@ class Deduplicator {
                   << chunk_size << "," 
                   << datasizes.first << "," 
                   << datasizes.second << ",";
-        write_metadata_breakdown2(size_file, mode, header, diff_h, num_chkpts);
+        write_metadata_breakdown(size_file, mode, header, diff_h, num_chkpts);
       }
     }
 
@@ -298,14 +287,19 @@ class Deduplicator {
     }
 
     template<typename DataView>
-    void checkpoint(DedupMode dedup_mode, header_t& header, DataView& data, Kokkos::View<uint8_t*>::HostMirror& diff_h, bool make_baseline) {
+    void checkpoint(DedupMode dedup_mode, 
+                    header_t& header, 
+                    DataView& data, 
+                    Kokkos::View<uint8_t*>::HostMirror& diff_h, 
+                    bool make_baseline) {
       using Timer = std::chrono::high_resolution_clock;
       using Duration = std::chrono::duration<double>;
       // ==========================================================================================
       // Deduplicate data
       // ==========================================================================================
       Timer::time_point beg_chkpt = Timer::now();
-      std::string setup_region_name = std::string("Deduplication chkpt ") + std::to_string(current_id) + std::string(": Setup");
+      std::string setup_region_name = std::string("Deduplication chkpt ") + 
+                                      std::to_string(current_id) + std::string(": Setup");
       Kokkos::Profiling::pushRegion(setup_region_name.c_str());
       mode = dedup_mode;
       data_len = data.size();
@@ -317,7 +311,6 @@ class Deduplicator {
       if(mode == Basic) {
         if(make_baseline) {
           leaves = HashList(num_chunks);
-//          first_ocur_vec = Vector<uint32_t>(num_chunks);
           changes_bitset = Kokkos::Bitset<Kokkos::DefaultExecutionSpace>(num_chunks);
         }
         if(leaves.list_d.size() < num_chunks) {
@@ -327,55 +320,60 @@ class Deduplicator {
       } else if(mode == List) {
         if(make_baseline) {
           leaves = HashList(num_chunks);
-          first_ocur_chunks_d = DistinctNodeIDMap(num_chunks);
+          first_ocur_d = DigestNodeIDDeviceMap(num_chunks);
           first_ocur_vec = Vector<uint32_t>(num_chunks);
           shift_dupl_vec = Vector<uint32_t>(num_chunks);
         }
+        first_ocur_vec.clear();
+        shift_dupl_vec.clear();
         if(leaves.list_d.size() < num_chunks) {
           Kokkos::resize(leaves.list_d, num_chunks);
           Kokkos::resize(leaves.list_h, num_chunks);
         }
-        if(first_ocur_chunks_d.capacity() < first_ocur_chunks_d.size()+num_chunks)
-          first_ocur_chunks_d.rehash(first_ocur_chunks_d.size()+num_chunks);
+        if(first_ocur_d.capacity() < first_ocur_d.size()+num_chunks)
+          first_ocur_d.rehash(first_ocur_d.size()+num_chunks);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if(make_baseline) {
           tree = MerkleTree(num_chunks);
-          first_ocur_d = DigestNodeIDMap(num_nodes);
-//          first_ocur_updates_d = CompactTable(num_chunks);
-//          shift_dupl_updates_d = CompactTable(num_chunks);
+          first_ocur_d = DigestNodeIDDeviceMap(num_nodes);
           first_ocur_vec = Vector<uint32_t>(num_chunks);
           shift_dupl_vec = Vector<uint32_t>(num_chunks);
           labels = Kokkos::View<char*>("Labels", num_nodes);
         }
-        std::string resize_tree_label = std::string("Deduplication chkpt ") + std::to_string(current_id) + std::string(": Setup: Resize Tree");
+        first_ocur_vec.clear();
+        shift_dupl_vec.clear();
+        std::string resize_tree_label = std::string("Deduplication chkpt ") + 
+                                        std::to_string(current_id) + 
+                                        std::string(": Setup: Resize Tree");
         Kokkos::Profiling::pushRegion(resize_tree_label.c_str());
         if(tree.tree_d.size() < num_nodes) {
           Kokkos::resize(tree.tree_d, num_nodes);
           Kokkos::resize(tree.tree_h, num_nodes);
         }
         Kokkos::Profiling::popRegion();
-        std::string resize_map_label = std::string("Deduplication chkpt ") + std::to_string(current_id) + std::string(": Setup: Resize First Ocur Map");
+        std::string resize_map_label = std::string("Deduplication chkpt ") + 
+                                       std::to_string(current_id) + 
+                                       std::string(": Setup: Resize First Ocur Map");
         Kokkos::Profiling::pushRegion(resize_map_label.c_str());
         if(first_ocur_d.capacity() < first_ocur_d.size()+num_nodes)
           first_ocur_d.rehash(first_ocur_d.size()+num_nodes);
         Kokkos::Profiling::popRegion();
-        std::string resize_updates_label = std::string("Deduplication chkpt ") + std::to_string(current_id) + std::string(": Setup: Resize Update Map");
+        std::string resize_updates_label = std::string("Deduplication chkpt ") + 
+                                           std::to_string(current_id) + 
+                                           std::string(": Setup: Resize Update Map");
         Kokkos::Profiling::pushRegion(resize_updates_label.c_str());
-        if(num_chunks > first_ocur_updates_d.capacity()) {
-//          first_ocur_updates_d.rehash(num_chunks);
-//          shift_dupl_updates_d.rehash(num_chunks);
-        }
         Kokkos::Profiling::popRegion();
-        std::string clear_updates_label = std::string("Deduplication chkpt ") + std::to_string(current_id) + std::string(": Setup: Clear Update Map");
+        std::string clear_updates_label = std::string("Deduplication chkpt ") + 
+                                          std::to_string(current_id) + 
+                                          std::string(": Setup: Clear Update Map");
         Kokkos::Profiling::pushRegion(clear_updates_label.c_str());
-//        first_ocur_updates_d.clear();
-//        shift_dupl_updates_d.clear();
         Kokkos::Profiling::popRegion();
       }
       Kokkos::Profiling::popRegion();
 
-      std::string dedup_region_name = std::string("Deduplication chkpt ") + std::to_string(current_id);
+      std::string dedup_region_name = std::string("Deduplication chkpt ") + 
+                                      std::to_string(current_id);
       Timer::time_point start_create_tree0 = Timer::now();
       timers[0] = std::chrono::duration_cast<Duration>(start_create_tree0 - beg_chkpt).count();
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
@@ -384,44 +382,30 @@ class Deduplicator {
         baseline_id = current_id;
       }
       if(mode == Basic) {
-        compare_lists_basic(hash_func, leaves, changes_bitset, current_id, data, chunk_size);
-//        compare_lists_basic(hash_func, leaves, first_ocur_vec, current_id, data, chunk_size);
+        compare_lists_basic(leaves, changes_bitset, current_id, data, chunk_size);
       } else if(mode == List) {
-        compare_lists_global(leaves, current_id, data, chunk_size, first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec);
+        compare_lists_global(leaves, current_id, data, chunk_size, 
+                             first_ocur_d, first_ocur_vec, shift_dupl_vec);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
-//          deduplicate_data_deterministic_baseline(data, chunk_size, hash_func, tree, current_id, 
-//                                         first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-          deduplicate_data_deterministic_baseline(data, chunk_size, hash_func, tree, current_id, 
+          deduplicate_data_deterministic_baseline(data, chunk_size, tree, current_id, 
                                          first_ocur_d, shift_dupl_vec, first_ocur_vec);
           baseline_id = current_id;
         } else {
-          if((mode == TreeLowOffset)) {
-//            deduplicate_data_deterministic(data, chunk_size, hash_func, tree, labels, current_id, 
-//                                           first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-            deduplicate_data_deterministic(data, chunk_size, hash_func, tree, labels, current_id, 
+          if((mode == Tree) || (mode == TreeLowOffset)) {
+            deduplicate_data_deterministic(data, chunk_size, tree, labels, current_id, 
                                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowOffsetRef)) {
-//            dedup_low_offset_ref(data, chunk_size, tree, current_id, 
-//                                 first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
             dedup_low_offset_ref(data, chunk_size, tree, current_id, 
                                  first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if(mode == TreeLowRootRef) {
-//            dedup_low_root_ref(data, chunk_size, tree, current_id, 
-//                               first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
             dedup_low_root_ref(data, chunk_size, tree, current_id, 
                                first_ocur_d, shift_dupl_vec, first_ocur_vec);
-          } else if((mode == Tree) || (mode == TreeLowRoot)) {
-//            dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
-//                           first_ocur_d, shift_dupl_updates_d, first_ocur_updates_d);
-            dedup_low_root(data, chunk_size, hash_func, tree, current_id, 
+          } else if((mode == TreeLowRoot)) {
+            dedup_low_root(data, chunk_size, tree, current_id, 
                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           }
-//          STDOUT_PRINT("First occurrence update capacity: %u, size: %u\n", 
-//                 first_ocur_updates_d.capacity(), first_ocur_updates_d.size());
-//          STDOUT_PRINT("Shift duplicate update capacity:  %u, size: %u\n", 
-//                 shift_dupl_updates_d.capacity(), shift_dupl_updates_d.size());
         }
       }
 
@@ -441,13 +425,11 @@ class Deduplicator {
       if(mode == Full) {
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
-//        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, first_ocur_vec, 
-//                                                    0, current_id, header);
         datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
                                                     baseline_id, current_id, header);
       } else if(mode == List) {
           datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, 
-            first_ocur_chunks_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
+            first_ocur_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
           datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
@@ -460,12 +442,9 @@ class Deduplicator {
       Timer::time_point end_collect = Timer::now();
       timers[2] = std::chrono::duration_cast<Duration>(end_collect - start_collect).count();
 
-      Timer::time_point end_chkpt = Timer::now();
-      
       // ==========================================================================================
       // Copy diff to host 
       // ==========================================================================================
-//      auto diff_h = Kokkos::create_mirror_view(diff);
       Timer::time_point start_write = Timer::now();
       if(mode == Full) {
         Kokkos::resize(diff_h, data.size());
@@ -565,11 +544,9 @@ class Deduplicator {
         restart_timers[1] = 0.0;
       } else if(dedup_mode == Basic) {
         auto basic_list_times = restart_incr_chkpt_basic(chkpts, chkpt_id, data);
-//        auto basic_list_times = restart_list(chkpts, chkpt_id, data);
         restart_timers[0] = basic_list_times.first;
         restart_timers[1] = basic_list_times.second;
       } else if(dedup_mode == List) {
-//        auto list_times = restart_incr_chkpt_hashlist(chkpts, chkpt_id, data);
         auto list_times = restart_list(chkpts, chkpt_id, data);
         restart_timers[0] = list_times.first;
         restart_timers[1] = list_times.second;
@@ -579,7 +556,8 @@ class Deduplicator {
         restart_timers[0] = tree_times.first;
         restart_timers[1] = tree_times.second;
       }
-      std::string restart_logname = logname+".chunk_size."+std::to_string(chunk_size)+".restart_timing.csv";
+      std::string restart_logname = logname + ".chunk_size." + std::to_string(chunk_size) +
+                                    ".restart_timing.csv";
       write_restart_log(chkpt_id, restart_logname);
     } 
 
@@ -606,17 +584,17 @@ class Deduplicator {
         Kokkos::resize(data, filesize);
         auto data_h = Kokkos::create_mirror_view(data);
         // Read checkpoint
-        Timer::time_point r1 = Timer::now();
+        //Timer::time_point r1 = Timer::now();
         file.read((char*)(data_h.data()), filesize);
         file.close();
-        Timer::time_point r2 = Timer::now();
+        //Timer::time_point r2 = Timer::now();
         // Total time
-        Timer::time_point t1 = Timer::now();
+        //Timer::time_point t1 = Timer::now();
         // Copy checkpoint to GPU
         Timer::time_point c1 = Timer::now();
         Kokkos::deep_copy(data, data_h);
         Timer::time_point c2 = Timer::now();
-        Timer::time_point t2 = Timer::now();
+        //Timer::time_point t2 = Timer::now();
         // Update timers
         restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
         restart_timers[1] = 0.0;

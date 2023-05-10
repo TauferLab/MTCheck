@@ -18,7 +18,6 @@ int main(int argc, char** argv) {
   int res = 0;
   Kokkos::initialize(argc, argv);
   {
-    using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
     // Process data from checkpoint files
@@ -26,10 +25,6 @@ int main(int argc, char** argv) {
     uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[1]));
     STDOUT_PRINT("Loaded chunk size\n");
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
-
-//    SHA1 hasher;
-//    Murmur3C hasher;
-    MD5Hash hasher;
 
     Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
 
@@ -39,7 +34,7 @@ int main(int argc, char** argv) {
                  Kokkos::DefaultHostExecutionSpace> data_views_h("Host views", data_len, num_chkpts);
     std::vector< Kokkos::View<uint8_t*>::HostMirror > incr_chkpts;
 
-    Deduplicator<MD5Hash> deduplicator(chunk_size);
+    Deduplicator deduplicator(chunk_size);
     for(uint32_t i=0; i<num_chkpts; i++) {
       Kokkos::View<uint8_t*> data_d("Device data", data_len);
       Kokkos::deep_copy(data_d, 0);
@@ -68,7 +63,7 @@ int main(int argc, char** argv) {
       Kokkos::View<uint8_t*> restart_buf_d("Restart buffer", data_len);
       Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
       std::string null("/dev/null/");
-printf("i: %u, size: %u\n", i, incr_chkpts.size());
+//printf("i: %u, size: %u\n", i, incr_chkpts.size());
       deduplicator.restart(List, restart_buf_d, incr_chkpts, null, i);
       Kokkos::fence();
 

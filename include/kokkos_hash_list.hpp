@@ -58,8 +58,10 @@ public:
   }
 };
 
-template<class Hasher, typename DataView>
-void compare_lists_basic( Hasher& hasher, 
+//template<class Hasher, typename DataView>
+//void compare_lists_basic( Hasher& hasher, 
+template<typename DataView>
+void compare_lists_basic(  
                     const HashList& list, 
                     Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,
                     const uint32_t list_id, 
@@ -88,7 +90,7 @@ void compare_lists_basic( Hasher& hasher,
 //    }
 //  });
   using member_type = Kokkos::TeamPolicy<>::member_type;
-  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/TEAM_SIZE)+1, TEAM_SIZE);
   Kokkos::parallel_for("Dedup chunks", team_policy, 
   KOKKOS_LAMBDA(member_type team_member) {
     uint32_t i=team_member.league_rank();
@@ -116,64 +118,64 @@ void compare_lists_basic( Hasher& hasher,
   STDOUT_PRINT("(Bitset): Number of changed chunks: %u\n", changes.count());
 }
 
-template<class Hasher, typename DataView>
-void compare_lists_basic( Hasher& hasher, 
-                    const HashList& list, 
-                    Vector<uint32_t>& changed_chunks,
-                    const uint32_t list_id, 
-                    const DataView& data, 
-                    const uint32_t chunk_size 
-                    ) {
-  uint32_t num_chunks = data.size()/chunk_size;
-  if(num_chunks*chunk_size < data.size())
-    num_chunks += 1;
-  changed_chunks.clear();
-//  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-//    uint32_t num_bytes = chunk_size;
-//    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-//    if(i == num_chunks-1)
-//      num_bytes = data.size()-offset;
-//    HashDigest new_hash;
-//    hash(data.data()+offset, num_bytes, new_hash.digest);
-//    if(list_id > 0) {
-//      if(!digests_same(list(i), new_hash)) {
-//        changed_chunks.push(i);
-//        list(i) = new_hash;
+//template<class Hasher, typename DataView>
+//void compare_lists_basic( Hasher& hasher, 
+//                    const HashList& list, 
+//                    Vector<uint32_t>& changed_chunks,
+//                    const uint32_t list_id, 
+//                    const DataView& data, 
+//                    const uint32_t chunk_size 
+//                    ) {
+//  uint32_t num_chunks = data.size()/chunk_size;
+//  if(num_chunks*chunk_size < data.size())
+//    num_chunks += 1;
+//  changed_chunks.clear();
+////  Kokkos::parallel_for("Find updated chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+////    uint32_t num_bytes = chunk_size;
+////    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
+////    if(i == num_chunks-1)
+////      num_bytes = data.size()-offset;
+////    HashDigest new_hash;
+////    hash(data.data()+offset, num_bytes, new_hash.digest);
+////    if(list_id > 0) {
+////      if(!digests_same(list(i), new_hash)) {
+////        changed_chunks.push(i);
+////        list(i) = new_hash;
+////      }
+////    } else {
+////      changed_chunks.push(i);
+////      list(i) = new_hash;
+////    }
+////  });
+//  using member_type = Kokkos::TeamPolicy<>::member_type;
+//  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/TEAM_SIZE)+1, TEAM_SIZE);
+//  Kokkos::parallel_for("Dedup chunks", team_policy, 
+//  KOKKOS_LAMBDA(member_type team_member) {
+//    uint32_t i=team_member.league_rank();
+//    uint32_t j=team_member.team_rank();
+//    uint32_t block_idx = i*team_member.team_size()+j;
+//    if(block_idx < num_chunks) {
+//      uint32_t num_bytes = chunk_size;
+//      uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
+//      if(block_idx == num_chunks-1)
+//        num_bytes = data.size()-offset;
+//      HashDigest new_hash;
+//      hash(data.data()+offset, num_bytes, new_hash.digest);
+//      if(list_id > 0) {
+//        if(!digests_same(list(block_idx), new_hash)) {
+//          changed_chunks.push(block_idx);
+//          list(block_idx) = new_hash;
+//        }
+//      } else {
+//        changed_chunks.push(block_idx);
+//        list(block_idx) = new_hash;
 //      }
-//    } else {
-//      changed_chunks.push(i);
-//      list(i) = new_hash;
 //    }
 //  });
-  using member_type = Kokkos::TeamPolicy<>::member_type;
-  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
-  Kokkos::parallel_for("Dedup chunks", team_policy, 
-  KOKKOS_LAMBDA(member_type team_member) {
-    uint32_t i=team_member.league_rank();
-    uint32_t j=team_member.team_rank();
-    uint32_t block_idx = i*team_member.team_size()+j;
-    if(block_idx < num_chunks) {
-      uint32_t num_bytes = chunk_size;
-      uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
-      if(block_idx == num_chunks-1)
-        num_bytes = data.size()-offset;
-      HashDigest new_hash;
-      hash(data.data()+offset, num_bytes, new_hash.digest);
-      if(list_id > 0) {
-        if(!digests_same(list(block_idx), new_hash)) {
-          changed_chunks.push(block_idx);
-          list(block_idx) = new_hash;
-        }
-      } else {
-        changed_chunks.push(block_idx);
-        list(block_idx) = new_hash;
-      }
-    }
-  });
-  Kokkos::fence();
-  STDOUT_PRINT("Comparing Lists\n");
-  STDOUT_PRINT("Number of first occurrences: %u\n", changed_chunks.size());
-}
+//  Kokkos::fence();
+//  STDOUT_PRINT("Comparing Lists\n");
+//  STDOUT_PRINT("Number of first occurrences: %u\n", changed_chunks.size());
+//}
 
 template<typename DataView>
 void compare_lists_global(//Hasher& hasher, 
@@ -181,7 +183,7 @@ void compare_lists_global(//Hasher& hasher,
                           const uint32_t list_id, 
                           const DataView& data, 
                           const uint32_t chunk_size, 
-                          DistinctNodeIDMap& first_occur_d,
+                          DigestNodeIDDeviceMap& first_occur_d,
                           Vector<uint32_t> first_ocur,
                           Vector<uint32_t> shift_dupl) {
   uint32_t num_chunks = data.size()/chunk_size;
@@ -189,29 +191,8 @@ void compare_lists_global(//Hasher& hasher,
     num_chunks += 1;
   shift_dupl.clear();
   first_ocur.clear();
-//  Kokkos::parallel_for("Dedup chunks", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
-//    uint32_t num_bytes = chunk_size;
-//    uint64_t offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-//    if(i == num_chunks-1)
-//      num_bytes = data.size()-offset;
-////      num_bytes = data.size()-i*chunk_size;
-////    hasher.hash(data.data()+(i*chunk_size), 
-//    HashDigest new_hash;
-////    hash(data.data()+i*chunk_size, num_bytes, new_hash.digest);
-//    hash(data.data()+offset, num_bytes, new_hash.digest);
-//    if(!digests_same(list(i), new_hash)) {
-//      NodeID info(i, list_id);
-//      auto result = first_occur_d.insert(new_hash, info);
-//      if(result.success()) {
-//        first_ocur.push(i);
-//      } else if(result.existing()) {
-//        shift_dupl.push(i);
-//      }
-//      list(i) = new_hash;
-//    }
-//  });
   using member_type = Kokkos::TeamPolicy<>::member_type;
-  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/32)+1, 32);
+  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/TEAM_SIZE)+1, TEAM_SIZE);
   Kokkos::parallel_for("Dedup chunks", team_policy, 
   KOKKOS_LAMBDA(member_type team_member) {
     uint32_t i=team_member.league_rank();
@@ -281,7 +262,7 @@ restart_chkpt_basic(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts
   Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
     uint64_t src_offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-    uint32_t node;
+    uint32_t node=0;
     if(team_member.team_rank() == 0) {
       memcpy(&node, metadata_subview.data() + i*sizeof(uint32_t), sizeof(uint32_t));
       distinct_map.insert(NodeID(node, cur_id), src_offset);
@@ -667,7 +648,7 @@ restart_chkpt_global(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpt
         tree = j;
       }
     }
-    uint32_t idx = first_ocur_map.find(NodeID(prev, tree));
+//    uint32_t idx = first_ocur_map.find(NodeID(prev, tree));
     size_t src_offset = first_ocur_map.value_at(first_ocur_map.find(NodeID(prev, tree)));
     node_list(node) = NodeID(prev, tree);
     if(tree == cur_id) {
@@ -903,7 +884,7 @@ std::pair<double,double> restart_chkpt_global(std::vector<std::string>& chkpt_fi
           tree = j;
         }
       }
-      uint32_t idx = first_ocur_map.find(NodeID(prev, tree));
+//      uint32_t idx = first_ocur_map.find(NodeID(prev, tree));
       size_t offset = first_ocur_map.value_at(first_ocur_map.find(NodeID(prev, tree)));
       node_list(node) = NodeID(prev, tree);
       if(tree == cur_id) {
@@ -1186,7 +1167,7 @@ restart_list( std::vector<Kokkos::View<uint8_t*>::HostMirror >& incr_chkpts,
 //  });
   Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
-    uint32_t node;
+    uint32_t node=0;
     if(team_member.team_rank() == 0) {
       memcpy(&node, first_ocur_subview.data() + static_cast<uint64_t>(i)*sizeof(uint32_t), sizeof(uint32_t));
       first_occur_map.insert(NodeID(node, cur_id), static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size));
@@ -1260,8 +1241,8 @@ restart_list( std::vector<Kokkos::View<uint8_t*>::HostMirror >& incr_chkpts,
 //  });
   Kokkos::parallel_for("Restart Hashlist shifted duplicates", Kokkos::TeamPolicy<>(num_shift_dupl, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
-    uint32_t node, prev, tree=0;
-    size_t src_offset;
+    uint32_t node=0, prev, tree=0;
+    size_t src_offset = 0;
     if(team_member.team_rank() == 0) {
 //if((cur_id > 0)) // && (data_offset <= static_cast<uint64_t>(i)*2*sizeof(uint32_t)))
 //printf("Shift offset: %lu\n", static_cast<uint64_t>(i)*2*sizeof(uint32_t));
@@ -1279,8 +1260,6 @@ restart_list( std::vector<Kokkos::View<uint8_t*>::HostMirror >& incr_chkpts,
 //printf("Invalid idx %u : (%u,%u)\n", idx, prev, tree);
 if(first_occur_map.valid_at(idx)) {
       src_offset = first_occur_map.value_at(idx);
-} else {
-      src_offset = 0;
 }
       node_list(node) = NodeID(prev, tree);
     }
@@ -1436,7 +1415,7 @@ if(first_occur_map.valid_at(idx)) {
       if(node_list(i).tree == current_id) {
         NodeID id = node_list(i);
         if(first_occur_map.exists(id)) {
-          size_t src_offset;
+          size_t src_offset = 0;
           if(team_member.team_rank() == 0) {
             src_offset = first_occur_map.value_at(first_occur_map.find(id));
           }
@@ -1835,7 +1814,7 @@ write_incr_chkpt_hashlist_global(
                            Kokkos::View<uint8_t*>& buffer_d, 
                            uint32_t chunk_size, 
                            const HashList& list, 
-                           const DistinctNodeIDMap& first_occur_d, 
+                           const DigestNodeIDDeviceMap& first_occur_d, 
                            Vector<uint32_t>& first_ocur,
                            Vector<uint32_t>& shift_dupl,
                            uint32_t prior_chkpt_id,
@@ -2069,9 +2048,9 @@ STDOUT_PRINT("Wrote chunks\n");
 //  STDOUT_PRINT("Number of bytes written for metadata: %lu\n", sizeof(header_t) + metadata_size);
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
-  first_ocur.clear();
-  shift_dupl.clear();
   uint64_t size_metadata = buffer_size - data_size;
+//  first_ocur.clear();
+//  shift_dupl.clear();
   return std::make_pair(data_size, size_metadata);
 }
 

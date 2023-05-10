@@ -65,8 +65,8 @@ public:
 
   void print() {
     Kokkos::deep_copy(tree_h, tree_d);
-printf("Num digests: %lu\n", tree_h.extent(0));
-    uint32_t num_leaves = (tree_h.extent(0)+1)/2;
+//printf("Num digests: %lu\n", tree_h.extent(0));
+//    uint32_t num_leaves = (tree_h.extent(0)+1)/2;
     printf("============================================================\n");
     char buffer[64];
     unsigned int counter = 2;
@@ -126,7 +126,7 @@ KOKKOS_INLINE_FUNCTION uint32_t rightmost_leaf(uint32_t node, uint32_t num_nodes
 
 //template<uint32_t N>
 //KOKKOS_INLINE_FUNCTION
-//void insert_entry(const CompactTable<N>& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const uint32_t prior_node) {
+//void insert_entry(const DigestNodeIDDeviceMap<N>& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const uint32_t prior_node) {
 //if(node > num_nodes)
 //printf("Something very wrong happened.\n");
 ////  uint32_t num_chunks = (num_nodes+1)/2;
@@ -138,14 +138,14 @@ KOKKOS_INLINE_FUNCTION uint32_t rightmost_leaf(uint32_t node, uint32_t num_nodes
 //  update.push(tree_id);
 //}
 
-KOKKOS_INLINE_FUNCTION
-void insert_entry(const CompactTable& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const NodeID node_id) {
-  if(node > num_nodes)
-    printf("Something very wrong happened.\n");
-  auto result = updates.insert(node, NodeID(node_id.node, node_id.tree));
-  if(result.failed()) {
-    DEBUG_PRINT("Failed to insert entry %u: (%u,%u)\n", node, node_id.node, node_id.tree);
-  }
-}
+//KOKKOS_INLINE_FUNCTION
+//void insert_entry(const DigestIdxDeviceMap& updates, const uint32_t node, const uint32_t num_nodes, const uint32_t tree_id, const NodeID node_id) {
+//  if(node > num_nodes)
+//    printf("Something very wrong happened.\n");
+//  auto result = updates.insert(node, NodeID(node_id.node, node_id.tree));
+//  if(result.failed()) {
+//    DEBUG_PRINT("Failed to insert entry %u: (%u,%u)\n", node, node_id.node, node_id.tree);
+//  }
+//}
 
 #endif // KOKKOS_MERKLE_TREE_HPP

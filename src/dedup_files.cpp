@@ -5,7 +5,6 @@
 #include <fstream>
 #include "stdio.h"
 #include "deduplicator.hpp"
-//#include "dedup_approaches.hpp"
 
 // Read checkpoints from files and deduplicate using various approaches
 // Expects full file paths
@@ -24,7 +23,6 @@
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
-    using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
     // Process data from checkpoint files
@@ -52,14 +50,7 @@ int main(int argc, char** argv) {
     DEBUG_PRINT("Read checkpoint files\n");
     DEBUG_PRINT("Number of checkpoints: %u\n", num_chkpts);
 
-    // Hash Function
-//    SHA1 hasher;
-//    Murmur3C hasher;
-    MD5Hash hasher;
-
-    using Timer = std::chrono::high_resolution_clock;
-    using Duration = std::chrono::duration<double>;
-    Deduplicator<MD5Hash> deduplicator(chunk_size);
+    Deduplicator deduplicator(chunk_size);
     // Iterate through num_chkpts
     for(uint32_t idx=0; idx<num_chkpts; idx++) {
       // Open file and read/calc important values

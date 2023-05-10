@@ -12,7 +12,6 @@ int main(int argc, char** argv) {
   int res = 0;
   Kokkos::initialize(argc, argv);
   {
-    using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
     Kokkos::View<uint8_t*> step0_d("Step 0", 8), step1_d("Step 1", 8);
@@ -39,7 +38,7 @@ int main(int argc, char** argv) {
     Kokkos::deep_copy(step0_d, step0_h);
     Kokkos::deep_copy(step1_d, step1_h);
     
-    Deduplicator<MD5Hash> deduplicator(1);
+    Deduplicator deduplicator(1);
     std::vector< Kokkos::View<uint8_t*>::HostMirror > incr_chkpts;
 
     Kokkos::View<uint8_t*>::HostMirror diff_h("Buffer", 1);
@@ -97,7 +96,8 @@ int main(int argc, char** argv) {
       return res;
 
     printf("Expected 1 first occurrence region and 3 shifted duplicate regions\n");
-    if(deduplicator.first_ocur_updates_d.size() != 1 || deduplicator.shift_dupl_updates_d.size() != 3) {
+    printf("Found %u first occurrence region and %u shifted duplicate regions\n", deduplicator.first_ocur_vec.size(), deduplicator.shift_dupl_vec.size());
+    if(deduplicator.first_ocur_vec.size() != 1 || deduplicator.shift_dupl_vec.size() != 3) {
       res = -1;
     }
   }

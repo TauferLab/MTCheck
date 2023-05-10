@@ -118,7 +118,7 @@ uint32_t print_changed_blocks(std::fstream& fs, ViewType new_data_d, ViewType ol
   auto old_data = Kokkos::create_mirror_view(old_data_d);
   Kokkos::deep_copy(new_data, new_data_d);
   Kokkos::deep_copy(old_data, old_data_d);
-  DistinctHostNodeMap distinct(new_data.size());
+  DigestIdxHostMap distinct(new_data.size());
   for(int idx=0; idx <old_data.size(); idx++) {
     distinct.insert(old_data(idx));
   }
@@ -162,7 +162,7 @@ std::map<int, int> print_contiguous_regions(std::string& region_log, ViewType ne
   auto old_data = Kokkos::create_mirror_view(old_data_d);
   Kokkos::deep_copy(new_data, new_data_d);
   Kokkos::deep_copy(old_data, old_data_d);
-  DistinctHostNodeMap distinct(new_data.size());
+  DigestIdxHostMap distinct(new_data.size());
   for(int idx=0; idx <old_data.size(); idx++) {
     distinct.insert(old_data(idx));
   }

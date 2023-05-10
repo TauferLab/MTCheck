@@ -138,10 +138,10 @@ set_target_properties(test_case_10 PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
-add_test(NAME basic_chkpt_test COMMAND basic_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
-add_test(NAME list_chkpt_test COMMAND list_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
-add_test(NAME tree_chkpt_test COMMAND tree_chkpt_test 128 10 --kokkos-threads=2 --kokkos-num-devices=1)
+add_test(NAME full_chkpt_test COMMAND full_chkpt_test 128 10 --kokkos-num-threads=2 --kokkos-num-devices=1)
+add_test(NAME basic_chkpt_test COMMAND basic_chkpt_test 128 10 --kokkos-num-threads=2 --kokkos-num-devices=1)
+add_test(NAME list_chkpt_test COMMAND list_chkpt_test 128 10 --kokkos-num-threads=2 --kokkos-num-devices=1)
+add_test(NAME tree_chkpt_test COMMAND tree_chkpt_test 128 10 --kokkos-num-threads=2 --kokkos-num-devices=1)
 add_test(NAME tree_test_case_01 COMMAND test_case_01 --kokkos-num-threads=2 --kokkos-num-devices=1)
 add_test(NAME tree_test_case_02 COMMAND test_case_02 --kokkos-num-threads=2 --kokkos-num-devices=1)
 add_test(NAME tree_test_case_03 COMMAND test_case_03 --kokkos-num-threads=2 --kokkos-num-devices=1)

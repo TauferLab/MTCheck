@@ -5,12 +5,6 @@
 #include <string>
 #include <map>
 #include <fstream>
-#include "hash_functions.hpp"
-//#include "kokkos_merkle_tree.hpp"
-#include "restart_merkle_tree.hpp"
-#include "kokkos_hash_list.hpp"
-#include "update_pattern_analysis.hpp"
-//#include "restart_approaches.hpp"
 #include "deduplicator.hpp"
 #include <libgen.h>
 #include <iostream>
@@ -18,7 +12,7 @@
 #include <chrono>
 #include <utility>
 #include <openssl/md5.h>
-#include "utils.hpp"
+//#include "utils.hpp"
 
 #define VERIFY_OUTPUT
 
@@ -26,7 +20,6 @@ int main(int argc, char** argv) {
   DEBUG_PRINT("Sanity check\n");
   Kokkos::initialize(argc, argv);
   {
-    using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
     // Process data from checkpoint files
@@ -104,7 +97,7 @@ int main(int argc, char** argv) {
           chkpts.push_back(chkpt);
         }
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator<MD5Hash> deduplicator(chunk_size);
+        Deduplicator deduplicator(chunk_size);
         deduplicator.restart(Full, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
@@ -131,7 +124,7 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator<MD5Hash> deduplicator(chunk_size);
+        Deduplicator deduplicator(chunk_size);
         deduplicator.restart(Basic, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
@@ -158,7 +151,7 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator<MD5Hash> deduplicator(chunk_size);
+        Deduplicator deduplicator(chunk_size);
         deduplicator.restart(List, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
@@ -185,7 +178,7 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator<MD5Hash> deduplicator(chunk_size);
+        Deduplicator deduplicator(chunk_size);
         deduplicator.restart(mode, reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);

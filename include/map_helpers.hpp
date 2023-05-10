@@ -17,7 +17,7 @@ uint32_t digest_to_u32(HashDigest& digest) {
 
 struct CompareHashDigest {
   bool operator() (const HashDigest& lhs, const HashDigest& rhs) const {
-    for(int i=0; i<sizeof(HashDigest); i++) {
+    for(size_t i=0; i<sizeof(HashDigest); i++) {
       if(lhs.digest[i] != rhs.digest[i]) {
         return false;
       }
@@ -28,56 +28,13 @@ struct CompareHashDigest {
 
 KOKKOS_INLINE_FUNCTION
 bool digests_same(const HashDigest& lhs, const HashDigest& rhs) {
-//  uint64_t* left  = (uint64_t*)(lhs.digest);
-//  uint64_t* right = (uint64_t*)(rhs.digest);
-//  for(int i=0; i<sizeof(HashDigest)/sizeof(uint64_t); i++) {
-//    if(left[i] != right[i])
-//      return false;
-//  }
-  for(int i=0; i<sizeof(HashDigest); i++) {
+  for(size_t i=0; i<sizeof(HashDigest); i++) {
     if(lhs.digest[i] != rhs.digest[i]) {
       return false;
     }
   }
   return true;
 }
-
-//enum NodeType {
-//  Distinct=0,
-//  Repeat=1,
-//  Identical=2,
-//  Other=3
-//};
-
-const uint32_t Distinct = 0;
-const uint32_t Repeat = 1;
-const uint32_t Identical = 2;
-const uint32_t Other = 3;
-
-struct Node {
-  uint32_t node;
-  uint32_t tree;
-  uint32_t nodetype;
-
-  KOKKOS_INLINE_FUNCTION
-  Node() {
-    node = UINT_MAX;
-    tree = UINT_MAX;
-    nodetype = Other;
-  }
- 
-  KOKKOS_INLINE_FUNCTION
-  Node(uint32_t n, uint32_t t, uint32_t node_type) {
-    node = n;
-    tree = t;
-    nodetype = node_type;
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  bool operator==(const Node& other) const {
-    return !(other.node != node || other.tree != tree || other.nodetype != nodetype);
-  }
-};
 
 struct NodeID {
   uint32_t node;
@@ -101,57 +58,6 @@ struct NodeID {
   }
 };
 
-struct NodeInfo {
-  uint32_t curr_node;
-  uint32_t prev_node;
-  uint32_t prev_tree;
-
-  KOKKOS_INLINE_FUNCTION
-  NodeInfo(uint32_t n, uint32_t s, uint32_t t) {
-    curr_node = n;
-    prev_node = s;
-    prev_tree = t;
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  NodeInfo() {
-    curr_node = UINT_MAX;
-    prev_node = UINT_MAX;
-    prev_tree = UINT_MAX;
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  bool operator==(const NodeInfo &other) const {
-    if(other.curr_node != curr_node || other.prev_node != prev_node || other.prev_tree != prev_tree)
-      return false;
-    return true;
-  }
-};
-
-struct CompactNodeInfo {
-  uint32_t curr_node;
-  uint32_t prev_node;
-
-  KOKKOS_INLINE_FUNCTION
-  CompactNodeInfo(uint32_t n, uint32_t s) {
-    curr_node = n;
-    prev_node = s;
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  CompactNodeInfo() {
-    curr_node = UINT_MAX;
-    prev_node = UINT_MAX;
-  }
-
-  KOKKOS_INLINE_FUNCTION
-  bool operator==(const CompactNodeInfo &other) const {
-    if(other.curr_node != curr_node || other.prev_node != prev_node)
-      return false;
-    return true;
-  }
-};
-
 struct digest_hash {
   using argument_type        = HashDigest;
   using first_argument_type  = HashDigest;
@@ -165,11 +71,6 @@ struct digest_hash {
 //    for(uint32_t i=0; i<sizeof(HashDigest)/sizeof(uint32_t); i++) {
 //      result ^= digest_ptr[i];
 //    }
-////    result ^= digest_ptr[0];
-////    result ^= digest_ptr[1];
-////    result ^= digest_ptr[2];
-////    result ^= digest_ptr[3];
-//    return result;
     return *((uint32_t*)(digest.digest));
   }
 
@@ -180,11 +81,6 @@ struct digest_hash {
 //    for(uint32_t i=0; i<sizeof(HashDigest)/sizeof(uint32_t); i++) {
 //      result ^= digest_ptr[i];
 //    }
-////    result ^= digest_ptr[0];
-////    result ^= digest_ptr[1];
-////    result ^= digest_ptr[2];
-////    result ^= digest_ptr[3];
-//    return result;
     return *((uint32_t*)(digest.digest));
   }
 };
@@ -198,7 +94,7 @@ struct digest_equal_to {
   bool operator()(const HashDigest& a, const HashDigest& b) const {
     uint32_t* a_ptr = (uint32_t*) a.digest;
     uint32_t* b_ptr = (uint32_t*) b.digest;
-    for(uint32_t i=0; i<sizeof(HashDigest)/4; i++) {
+    for(size_t i=0; i<sizeof(HashDigest)/4; i++) {
       if(a_ptr[i] != b_ptr[i]) {
         return false;
       }
@@ -207,51 +103,14 @@ struct digest_equal_to {
   }
 };
 
-using SharedNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t>;
-using SharedHostNodeMap = Kokkos::UnorderedMap<uint32_t, uint32_t, Kokkos::DefaultHostExecutionSpace>;
-using DistinctNodeMap = Kokkos::UnorderedMap<HashDigest, 
-                                         uint32_t, 
-                                         Kokkos::DefaultExecutionSpace, 
-                                         digest_hash, 
-                                         digest_equal_to>;
-using DistinctHostNodeMap = Kokkos::UnorderedMap<HashDigest, 
-                                             uint32_t, 
-                                             Kokkos::DefaultHostExecutionSpace, 
-                                             digest_hash, 
-                                             digest_equal_to>;
+template<class Value, class ExecSpace>
+using DigestMap = Kokkos::UnorderedMap<HashDigest, Value, ExecSpace, digest_hash, digest_equal_to>;
+using DigestNodeIDDeviceMap = DigestMap<NodeID, Kokkos::DefaultExecutionSpace>;
+using DigestNodeIDHostMap   = DigestMap<NodeID, Kokkos::DefaultHostExecutionSpace>;
+using DigestIdxDeviceMap = DigestMap<uint32_t, Kokkos::DefaultExecutionSpace>;
+using DigestIdxHostMap   = DigestMap<uint32_t, Kokkos::DefaultHostExecutionSpace>;
 
-using SharedNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
-using SharedHostNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
-using DistinctNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
-                                               NodeID, 
-                                               Kokkos::DefaultExecutionSpace, 
-                                               digest_hash, 
-                                               digest_equal_to>;
-using DistinctHostNodeIDMap = Kokkos::UnorderedMap<HashDigest, 
-                                                   NodeID, 
-                                                   Kokkos::DefaultHostExecutionSpace, 
-                                                   digest_hash, 
-                                                   digest_equal_to>;
-
-using CompactTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
-using CompactHostTable = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
-
-using NodeMap = Kokkos::UnorderedMap<uint32_t, Node, Kokkos::DefaultExecutionSpace>;
-
-using DigestNodeIDMap = DistinctNodeIDMap;
-using RootNodeIDMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultExecutionSpace>;
-
-using DigestListMap = Kokkos::UnorderedMap<HashDigest, 
-                                           uint32_t,
-                                           Kokkos::DefaultExecutionSpace, 
-                                           digest_hash, 
-                                           digest_equal_to>;
-
-using DigestMap = Kokkos::UnorderedMap<HashDigest, 
-                                           void,
-                                           Kokkos::DefaultExecutionSpace, 
-                                           digest_hash, 
-                                           digest_equal_to>;
-
+using IdxNodeIDDeviceMap = Kokkos::UnorderedMap<uint32_t, NodeID>;
+using IdxNodeIDHostMap = Kokkos::UnorderedMap<uint32_t, NodeID, Kokkos::DefaultHostExecutionSpace>;
 #endif
 
