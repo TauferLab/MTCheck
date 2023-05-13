@@ -33,13 +33,9 @@ std::string calculate_digest(KView& data_h) {
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
-    using Timer = std::chrono::high_resolution_clock;
     STDOUT_PRINT("------------------------------------------------------\n");
 
     // Process data from checkpoint files
-    DEBUG_PRINT("Argv[1]: %s\n", argv[1]);
-    uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[1]));
-    DEBUG_PRINT("Loaded chunk size\n");
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
 
 //    SHA1 hasher;

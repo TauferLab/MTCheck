@@ -259,9 +259,8 @@ void deduplicate_data_deterministic_baseline(DataView& data,
 template<typename DataView>
 void deduplicate_data_deterministic(DataView& data, 
                       const uint32_t chunk_size, 
-//                      const Hasher hasher, 
                       MerkleTree& curr_tree, 
-                      Kokkos::View<char*>& labels,
+//                      Kokkos::View<char*>& labels,
                       const uint32_t chkpt_id, 
                       DigestNodeIDDeviceMap& first_occur_d, 
                       Vector<uint32_t>& shift_dupl_vec,
@@ -272,6 +271,8 @@ void deduplicate_data_deterministic(DataView& data,
   uint32_t num_nodes = curr_tree.tree_h.extent(0);
   STDOUT_PRINT("Num chunks: %u\n", num_chunks);
   STDOUT_PRINT("Num nodes: %u\n", num_nodes);
+
+  Kokkos::View<char*> labels("Labels", num_nodes);
 
 #ifdef STATS
   Kokkos::View<uint64_t[3]> chunk_counters("Chunk counters");

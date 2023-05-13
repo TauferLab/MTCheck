@@ -108,10 +108,10 @@ class Deduplicator {
   public:
     MerkleTree tree;
     HashList leaves;
-    DigestNodeIDDeviceMap first_ocur_d;
-    Vector<uint32_t> first_ocur_vec;
-    Vector<uint32_t> shift_dupl_vec;
-    Kokkos::View<char*> labels;
+    DigestNodeIDDeviceMap first_ocur_d; // Map of first occurrences
+    Vector<uint32_t> first_ocur_vec; // First occurrence root offsets
+    Vector<uint32_t> shift_dupl_vec; // Shifted duplicate root offsets
+    Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
     uint32_t chunk_size;
     uint32_t num_chunks;
     uint32_t num_nodes;
@@ -119,10 +119,10 @@ class Deduplicator {
     uint32_t baseline_id;
     uint64_t data_len;
     DedupMode mode;
+    // timers and data sizes
     std::pair<uint64_t,uint64_t> datasizes;
     double timers[4];
     double restart_timers[2];
-    Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
 
     Deduplicator() {
       tree = MerkleTree(1);
@@ -135,13 +135,25 @@ class Deduplicator {
     Deduplicator(uint32_t bytes_per_chunk) {
       tree = MerkleTree(1);
       first_ocur_d = DigestNodeIDDeviceMap(1);
-      labels = Kokkos::View<char*>("Labels", 1);
       chunk_size = bytes_per_chunk;
       current_id = 0;
       mode = Tree;
     }
 
-    void write_chkpt_log(header_t& header, Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& logname) {
+    /**
+     * Write logs for the checkpoint metadata/data breakdown, runtimes, and the overall summary.
+     * The data breakdown log shows the proportion of data and metadata as well as how much 
+     * metadata corresponds to each prior checkpoint.
+     * The timing log contains the time spent comparing chunks, gathering scattered chunks,
+     * and the time spent copying the resulting checkpoint from the device to host.
+     *
+     * \param header  The checkpoint header
+     * \param diff_h  The incremental checkpoint
+     * \param logname Base filename for the logs
+     */
+    void write_chkpt_log(header_t& header, 
+                         Kokkos::View<uint8_t*>::HostMirror& diff_h, 
+                         std::string& logname) {
       std::fstream result_data, timing_file, size_file;
       std::string result_logname = logname+".chunk_size."+std::to_string(chunk_size)+".csv";
       std::string size_logname = logname+".chunk_size."+std::to_string(chunk_size)+".size.csv";
@@ -153,6 +165,7 @@ class Deduplicator {
         result_data << "Approach,Chkpt ID,Chunk Size,Uncompressed Size,Compressed Size,Data Size,Metadata Size,Setup Time,Comparison Time,Gather Time,Write Time" << std::endl;
       }
 
+      // TODO make this more generic 
       uint32_t num_chkpts = 10;
 
       if(mode == Full) {
@@ -275,7 +288,16 @@ class Deduplicator {
       }
     }
 
-    void write_chkpt(header_t& header, Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& filename) {
+    /**
+     * Helper function for writing the checkpoint (on Host) to file
+     *
+     * \param header   The incremental checkpoint header
+     * \param diff_h   The incremental checkpoint
+     * \param filename Output filename for the checkpoint
+     */
+    void write_chkpt( header_t& header, 
+                      Kokkos::View<uint8_t*>::HostMirror& diff_h, 
+                      std::string& filename) {
       std::ofstream file;
       file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
       file.open(filename, std::ofstream::out | std::ofstream::binary);
@@ -286,6 +308,20 @@ class Deduplicator {
       file.close();
     }
 
+    /**
+     * Main checkpointing function. Given a Kokkos View, create an incremental checkpoint using 
+     * the chosen checkpoint strategy. The deduplication mode can be one of the following:
+     *   - Full: No deduplication
+     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
+     *   - Tree: Save minimal set of chunks and use a compact metadata representations
+     *
+     * \param dedup_mode    Checkpoint approach (Full|Basic|List|Tree)
+     * \param header        The checkpoint header
+     * \param data          Data View to be checkpointed
+     * \param diff_h        The output incremental checkpoint on the Host
+     * \param make_baseline Flag determining whether to make a baseline checkpoint
+     */
     template<typename DataView>
     void checkpoint(DedupMode dedup_mode, 
                     header_t& header, 
@@ -301,6 +337,8 @@ class Deduplicator {
       std::string setup_region_name = std::string("Deduplication chkpt ") + 
                                       std::to_string(current_id) + std::string(": Setup");
       Kokkos::Profiling::pushRegion(setup_region_name.c_str());
+
+      // Set important values
       mode = dedup_mode;
       data_len = data.size();
       num_chunks = data_len/chunk_size;
@@ -308,6 +346,7 @@ class Deduplicator {
         num_chunks += 1;
       num_nodes = 2*num_chunks-1;
 
+      // Allocate or resize necessary variables for each approach
       if(mode == Basic) {
         if(make_baseline) {
           leaves = HashList(num_chunks);
@@ -339,7 +378,6 @@ class Deduplicator {
           first_ocur_d = DigestNodeIDDeviceMap(num_nodes);
           first_ocur_vec = Vector<uint32_t>(num_chunks);
           shift_dupl_vec = Vector<uint32_t>(num_chunks);
-          labels = Kokkos::View<char*>("Labels", num_nodes);
         }
         first_ocur_vec.clear();
         shift_dupl_vec.clear();
@@ -378,6 +416,7 @@ class Deduplicator {
       timers[0] = std::chrono::duration_cast<Duration>(start_create_tree0 - beg_chkpt).count();
       Kokkos::Profiling::pushRegion(dedup_region_name.c_str());
 
+      // Deduplicate data and identify nodes and chunks needed for the incremental checkpoint
       if((current_id == 0) || make_baseline) {
         baseline_id = current_id;
       }
@@ -393,16 +432,21 @@ class Deduplicator {
                                          first_ocur_d, shift_dupl_vec, first_ocur_vec);
           baseline_id = current_id;
         } else {
-          if((mode == Tree) || (mode == TreeLowOffset)) {
-            deduplicate_data_deterministic(data, chunk_size, tree, labels, current_id, 
+          // Different variations of the metadata compaction
+          if((mode == Tree) || (mode == TreeLowOffset)) { 
+            // Use the lowest offset to determine which node is the first occurrence
+            deduplicate_data_deterministic(data, chunk_size, tree, current_id, 
                                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowOffsetRef)) {
+            // Reference code for the lowest offset
             dedup_low_offset_ref(data, chunk_size, tree, current_id, 
                                  first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if(mode == TreeLowRootRef) {
+            // Reference code for the lowest root
             dedup_low_root_ref(data, chunk_size, tree, current_id, 
                                first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowRoot)) {
+            // Break ties for first occurrence based on which chunk produces the largest subtree
             dedup_low_root(data, chunk_size, tree, current_id, 
                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           }
@@ -423,6 +467,7 @@ class Deduplicator {
       Kokkos::Profiling::pushRegion(collect_region_name.c_str());
 
       if(mode == Full) {
+        // No need to create diff for full approach
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
         datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
@@ -469,6 +514,21 @@ class Deduplicator {
       timers[3] = std::chrono::duration_cast<Duration>(end_write - start_write).count();
     }
 
+    /**
+     * Main checkpointing function. Given a raw device pointer, create an incremental checkpoint 
+     * using the chosen checkpoint strategy. The deduplication mode can be one of the following:
+     *   - Full: No deduplication
+     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
+     *   - Tree: Save minimal set of chunks and use a compact metadata representations
+     *
+     * \param dedup_mode    Checkpoint approach (Full|Basic|List|Tree)
+     * \param data_ptr      Raw data pointer that needs to be deduplicated
+     * \param len           Length of data
+     * \param filename      Filename to save checkpoint
+     * \param logname       Base filename for logs
+     * \param make_baseline Flag determining whether to make a baseline checkpoint
+     */
     void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
                     std::string& filename, std::string& logname, bool make_baseline) {
       Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
@@ -480,6 +540,21 @@ class Deduplicator {
       current_id += 1;
     }
 
+    /**
+     * Main checkpointing function. Given a raw device pointer, create an incremental checkpoint 
+     * using the chosen checkpoint strategy. Save checkpoint to host view. 
+     * The deduplication mode can be one of the following:
+     *   - Full: No deduplication
+     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
+     *   - Tree: Save minimal set of chunks and use a compact metadata representations
+     *
+     * \param dedup_mode    Checkpoint approach (Full|Basic|List|Tree)
+     * \param data_ptr      Raw data pointer that needs to be deduplicated
+     * \param len           Length of data
+     * \param diff_h        Host View to store incremental checkpoint
+     * \param make_baseline Flag determining whether to make a baseline checkpoint
+     */
     void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
                     Kokkos::View<uint8_t*>::HostMirror& diff_h, bool make_baseline) {
       Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged> > data(data_ptr, len);
@@ -488,6 +563,22 @@ class Deduplicator {
       current_id += 1;
     }
 
+    /**
+     * Main checkpointing function. Given a raw device pointer, create an incremental checkpoint 
+     * using the chosen checkpoint strategy. Save checkpoint to host view and write logs.
+     * The deduplication mode can be one of the following:
+     *   - Full: No deduplication
+     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
+     *   - Tree: Save minimal set of chunks and use a compact metadata representations
+     *
+     * \param dedup_mode    Checkpoint approach (Full|Basic|List|Tree)
+     * \param data_ptr      Raw data pointer that needs to be deduplicated
+     * \param len           Length of data
+     * \param diff_h        Host View to store incremental checkpoint
+     * \param logname       Base filename for logs
+     * \param make_baseline Flag determining whether to make a baseline checkpoint
+     */
     void checkpoint(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
                     Kokkos::View<uint8_t*>::HostMirror& diff_h, std::string& logname, 
                     bool make_baseline) {
@@ -498,6 +589,12 @@ class Deduplicator {
       current_id += 1;
     }
 
+    /**
+     * Function for writing the restart log.
+     *
+     * \param select_chkpt Which checkpoint to write the log
+     * \param logname      Filename for writing log
+     */
     void write_restart_log(uint32_t select_chkpt, std::string& logname) {
       std::fstream timing_file;
       timing_file.open(logname, std::fstream::out | std::fstream::app);
@@ -525,6 +622,15 @@ class Deduplicator {
       timing_file.close();
     }
 
+    /**
+     * Restart checkpoint from vector of incremental checkpoints loaded on the Host.
+     *
+     * \param dedup_mode Deduplication approach
+     * \param data       Data View to restart checkpoint into
+     * \param chkpts     Vector of prior incremental checkpoints stored on the Host
+     * \param logname    Filename for restart logs
+     * \param chkpt_id   ID of checkpoint to restart
+     */
     void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
                  std::vector<Kokkos::View<uint8_t*>::HostMirror>& chkpts, 
                  std::string& logname, uint32_t chkpt_id) {
@@ -561,6 +667,17 @@ class Deduplicator {
       write_restart_log(chkpt_id, restart_logname);
     } 
 
+    /**
+     * Restart checkpoint from vector of incremental checkpoints loaded on the Host. 
+     * Store result into raw device pointer.
+     *
+     * \param dedup_mode Deduplication approach
+     * \param data_ptr   Device pointer to save checkpoint in
+     * \param len        Length of data
+     * \param chkpts     Vector of prior incremental checkpoints stored on the Host
+     * \param logname    Filename for restart logs
+     * \param chkpt_id   ID of checkpoint to restart
+     */
     void restart(DedupMode dedup_mode, uint8_t* data_ptr, size_t len, 
                  std::vector<Kokkos::View<uint8_t*>::HostMirror>& chkpts, 
                  std::string& logname, uint32_t chkpt_id) {
@@ -568,6 +685,15 @@ class Deduplicator {
       restart(dedup_mode, data, chkpts, logname, chkpt_id);
     }
 
+    /**
+     * Restart checkpoint from checkpoint files
+     *
+     * \param dedup_mode Deduplication approach
+     * \param data       Data View to restart checkpoint into
+     * \param filenames  Vector of prior incremental checkpoints stored in files
+     * \param logname    Filename for restart logs
+     * \param chkpt_id   ID of checkpoint to restart
+     */
     void restart(DedupMode dedup_mode, Kokkos::View<uint8_t*> data, 
                  std::vector<std::string>& chkpt_filenames, 
                  std::string& logname, uint32_t chkpt_id) {
