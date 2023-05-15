@@ -10,10 +10,10 @@
 #include <iostream>
 #include <utility>
 #include "stdio.h"
-#include "dedup_merkle_tree.hpp"
-#include "write_merkle_tree_chkpt.hpp"
 #include "kokkos_hash_list.hpp"
-#include "restart_merkle_tree.hpp"
+#include "basic_approach.hpp"
+#include "list_approach.hpp"
+#include "tree_approach.hpp"
 #include "utils.hpp"
 
 void write_metadata_breakdown(std::fstream& fs, 
@@ -421,21 +421,21 @@ class Deduplicator {
         baseline_id = current_id;
       }
       if(mode == Basic) {
-        compare_lists_basic(leaves, changes_bitset, current_id, data, chunk_size);
+        dedup_data_basic(leaves, changes_bitset, current_id, data, chunk_size);
       } else if(mode == List) {
-        compare_lists_global(leaves, current_id, data, chunk_size, 
+        dedup_data_list(leaves, current_id, data, chunk_size, 
                              first_ocur_d, first_ocur_vec, shift_dupl_vec);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
-          deduplicate_data_deterministic_baseline(data, chunk_size, tree, current_id, 
+          dedup_data_tree_baseline(data, chunk_size, tree, current_id, 
                                          first_ocur_d, shift_dupl_vec, first_ocur_vec);
           baseline_id = current_id;
         } else {
           // Different variations of the metadata compaction
           if((mode == Tree) || (mode == TreeLowOffset)) { 
             // Use the lowest offset to determine which node is the first occurrence
-            deduplicate_data_deterministic(data, chunk_size, tree, current_id, 
+            dedup_data_tree_low_offset(data, chunk_size, tree, current_id, 
                                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowOffsetRef)) {
             // Reference code for the lowest offset
@@ -447,7 +447,7 @@ class Deduplicator {
                                first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowRoot)) {
             // Break ties for first occurrence based on which chunk produces the largest subtree
-            dedup_low_root(data, chunk_size, tree, current_id, 
+            dedup_data_tree_low_root(data, chunk_size, tree, current_id, 
                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           }
         }
@@ -470,14 +470,14 @@ class Deduplicator {
         // No need to create diff for full approach
         datasizes = std::make_pair(data.size(), 0);
       } else if(mode == Basic) {
-        datasizes = write_incr_chkpt_hashlist_basic(data, diff, chunk_size, changes_bitset, 
-                                                    baseline_id, current_id, header);
+        datasizes = write_diff_basic(data, diff, chunk_size, changes_bitset, 
+                                     baseline_id, current_id, header);
       } else if(mode == List) {
-          datasizes = write_incr_chkpt_hashlist_global(data, diff, chunk_size, leaves, 
+          datasizes = write_diff_list(data, diff, chunk_size, leaves, 
             first_ocur_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-          datasizes = write_incr_chkpt_hashtree_global_mode(data, diff, chunk_size, 
+          datasizes = write_diff_tree(data, diff, chunk_size, 
                                                             tree, first_ocur_d, 
                                                             first_ocur_vec, shift_dupl_vec,
                                                             baseline_id, current_id, header);
@@ -649,16 +649,16 @@ class Deduplicator {
         restart_timers[0] = (1e-9)*(std::chrono::duration_cast<Nanoseconds>(c2-c1).count());
         restart_timers[1] = 0.0;
       } else if(dedup_mode == Basic) {
-        auto basic_list_times = restart_incr_chkpt_basic(chkpts, chkpt_id, data);
+        auto basic_list_times = restart_chkpt_basic(chkpts, chkpt_id, data);
         restart_timers[0] = basic_list_times.first;
         restart_timers[1] = basic_list_times.second;
       } else if(dedup_mode == List) {
-        auto list_times = restart_list(chkpts, chkpt_id, data);
+        auto list_times = restart_chkpt_list(chkpts, chkpt_id, data);
         restart_timers[0] = list_times.first;
         restart_timers[1] = list_times.second;
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-        auto tree_times = restart_incr_chkpt_hashtree(chkpts, chkpt_id, data);
+        auto tree_times = restart_chkpt_tree(chkpts, chkpt_id, data);
         restart_timers[0] = tree_times.first;
         restart_timers[1] = tree_times.second;
       }
@@ -729,7 +729,7 @@ class Deduplicator {
         for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
           basiclist_chkpt_files.push_back(chkpt_filenames[i]+".basic.incr_chkpt");
         }
-        auto basic_list_times = restart_incr_chkpt_basic(basiclist_chkpt_files, chkpt_id, data);
+        auto basic_list_times = restart_chkpt_basic(basiclist_chkpt_files, chkpt_id, data);
         restart_timers[0] = basic_list_times.first;
         restart_timers[1] = basic_list_times.second;
       } else if(dedup_mode == List) {
@@ -737,7 +737,7 @@ class Deduplicator {
         for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
           hashlist_chkpt_files.push_back(chkpt_filenames[i]+".hashlist.incr_chkpt");
         }
-        auto list_times = restart_incr_chkpt_hashlist(hashlist_chkpt_files, chkpt_id, data);
+        auto list_times = restart_chkpt_list(hashlist_chkpt_files, chkpt_id, data);
         restart_timers[0] = list_times.first;
         restart_timers[1] = list_times.second;
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
@@ -746,7 +746,7 @@ class Deduplicator {
         for(uint32_t i=0; i<chkpt_filenames.size(); i++) {
           hashtree_chkpt_files.push_back(chkpt_filenames[i]+".hashtree.incr_chkpt");
         }
-        auto tree_times = restart_incr_chkpt_hashtree(hashtree_chkpt_files, chkpt_id, data);
+        auto tree_times = restart_chkpt_tree(hashtree_chkpt_files, chkpt_id, data);
         restart_timers[0] = tree_times.first;
         restart_timers[1] = tree_times.second;
       }

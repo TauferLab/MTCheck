@@ -153,14 +153,10 @@ write_incr_chkpt_hashtree_global_mode(
     if(chunk == num_chunks-1) {
       writesize = data.size()-src_offset;
     }
-    uint32_t* buffer_u32 = (uint32_t*)(buffer_d.data()+dst_offset);
-    uint32_t* data_u32 = (uint32_t*)(data.data()+src_offset);
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
-      buffer_u32[j] = data_u32[j];
-    });
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
-      buffer_d(dst_offset+((writesize/4)*4)+j) = data(src_offset+((writesize/4)*4)+j);
-    });
+
+    uint8_t* dst = (uint8_t*)(buffer_d.data()+dst_offset);
+    uint8_t* src = (uint8_t*)(data.data()+src_offset);
+    team_memcpy(dst, src, writesize, team_member);
   });
 
   uint32_t num_prior = chkpts_needed.count();

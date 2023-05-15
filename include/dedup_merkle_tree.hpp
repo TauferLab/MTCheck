@@ -14,11 +14,9 @@
 #include "reference_impl.hpp"
 #include "utils.hpp"
 
-//template<class Hasher, typename DataView>
 template<typename DataView>
 void deduplicate_data_deterministic_baseline(DataView& data, 
                       const uint32_t chunk_size, 
-//                      const Hasher hasher, 
                       MerkleTree& curr_tree, 
                       const uint32_t chkpt_id, 
                       DigestNodeIDDeviceMap& first_occur_d, 
@@ -255,12 +253,10 @@ void deduplicate_data_deterministic_baseline(DataView& data,
   return;
 }
 
-//template<class Hasher, typename DataView>
 template<typename DataView>
 void deduplicate_data_deterministic(DataView& data, 
                       const uint32_t chunk_size, 
                       MerkleTree& curr_tree, 
-//                      Kokkos::View<char*>& labels,
                       const uint32_t chkpt_id, 
                       DigestNodeIDDeviceMap& first_occur_d, 
                       Vector<uint32_t>& shift_dupl_vec,
