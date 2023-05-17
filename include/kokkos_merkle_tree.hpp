@@ -6,7 +6,6 @@
 #include <climits>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
-#include "kokkos_queue.hpp"
 #include <iostream>
 #include "utils.hpp"
 
