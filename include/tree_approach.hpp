@@ -14,6 +14,23 @@
 #include "reference_impl.hpp"
 #include "utils.hpp"
 
+/**
+ * Deduplicate provided data view using the tree incremental checkpoint approach. 
+ * Split data into chunks and compute hashes for each chunk. Compare each hash with 
+ * the hash at the same offset. If the hash has never been seen, save the chunk.
+ * If the hash has been seen before, mark it as a shifted duplicate and save metadata.
+ * Compact metadata by building up a forest of Merkle trees and saving only the roots.
+ * The baseline version of the function builds up the full tree and inserts all possible
+ * hashes so that subsequent checkpoints have more information to work with.
+ *
+ * \param data          View of data for deduplicating
+ * \param chunk_size    Size in bytes for splitting data into chunks
+ * \param curr_tree     Tree of hashes for identifying differences
+ * \param chkpt_id      ID of current checkpoint
+ * \param first_occur_d Map for tracking first occurrence hashes
+ * \param first_ocur    Vector of first occurrence chunks
+ * \param shift_dupl    Vector of shifted duplicate chunks
+ */
 template<typename DataView>
 void dedup_data_tree_baseline(DataView& data, 
                       const uint32_t chunk_size, 
@@ -22,11 +39,13 @@ void dedup_data_tree_baseline(DataView& data,
                       DigestNodeIDDeviceMap& first_occur_d, 
                       Vector<uint32_t>& shift_dupl_updates,
                       Vector<uint32_t>& first_ocur_updates) {
+  // Get number of chunks and nodes
   uint32_t num_chunks = (curr_tree.tree_h.extent(0)+1)/2;
   uint32_t num_nodes = curr_tree.tree_h.extent(0);
   STDOUT_PRINT("Num chunks: %u\n", num_chunks);
   STDOUT_PRINT("Num nodes: %u\n", num_nodes);
 
+  // Stats for debugging or analysis
 #ifdef STATS
   Kokkos::View<uint64_t[3]> chunk_counters("Chunk counters");
   Kokkos::View<uint64_t[3]> region_counters("Region counters");
@@ -46,12 +65,15 @@ void dedup_data_tree_baseline(DataView& data,
   Kokkos::Experimental::ScatterView<uint64_t*> shift_region_sizes_sv(shift_region_sizes);
 #endif
 
+  // Setup markers for beginning and end of tree level
   uint32_t level_beg = 0;
   uint32_t level_end = 0;
   while(level_end < num_nodes) {
     level_beg = 2*level_beg + 1;
     level_end = 2*level_end + 2;
   }
+
+  // Create labels
   Kokkos::View<char*> labels("Labels", num_nodes);
   Kokkos::deep_copy(labels, DONE);
   Vector<uint32_t> tree_roots(num_chunks);
@@ -91,12 +113,17 @@ void dedup_data_tree_baseline(DataView& data,
           labels(leaf) = SHIFT_DUPL;
         }
       }
-      curr_tree(leaf) = digest;
+      curr_tree(leaf) = digest; /// Update tree
 #ifdef STATS
       chunk_counters_sa(labels(leaf)) += 1;
 #endif
     }
   });
+
+  /**
+   * Identify first occurrences for leaves. In the case of duplicate hash, 
+   * select the chunk with the lowest index.
+   */
   Kokkos::parallel_for("Baseline: Leaves: Choose first occurrences", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
 #ifdef STATS
     auto chunk_counters_sa = chunk_counters_sv.access();
@@ -120,6 +147,7 @@ void dedup_data_tree_baseline(DataView& data,
     level_beg = 2*level_beg + 1;
     level_end = 2*level_end + 2;
   }
+  // Iterate through each level of tree and build First occurrence trees
   while(level_beg <= num_nodes) { // Intentional unsigned integer underflow
     Kokkos::parallel_for("Baseline: Build First Occurrence Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
@@ -142,12 +170,15 @@ void dedup_data_tree_baseline(DataView& data,
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
   }
+
+  // Build up forest of trees
   level_beg = 0;
   level_end = 0;
   while(level_end < num_nodes) {
     level_beg = 2*level_beg + 1;
     level_end = 2*level_end + 2;
   }
+  // Iterate through each level of tree and build shifted duplicate trees
   while(level_beg <= num_nodes) { // unsigned integer underflow
     Kokkos::parallel_for("Baseline: Build Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
 #ifdef STATS
@@ -210,6 +241,7 @@ void dedup_data_tree_baseline(DataView& data,
         }
       }
     });
+    // Insert digests into map
     Kokkos::parallel_for("Baseline: Build Forest: Insert entries", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
@@ -253,6 +285,21 @@ void dedup_data_tree_baseline(DataView& data,
   return;
 }
 
+/**
+ * Deduplicate provided data view using the tree incremental checkpoint approach. 
+ * Split data into chunks and compute hashes for each chunk. Compare each hash with 
+ * the hash at the same offset. If the hash has never been seen, save the chunk.
+ * If the hash has been seen before, mark it as a shifted duplicate and save metadata.
+ * Compact metadata by building up a forest of Merkle trees and saving only the roots.
+ *
+ * \param data          View of data for deduplicating
+ * \param chunk_size    Size in bytes for splitting data into chunks
+ * \param curr_tree     Tree of hashes for identifying differences
+ * \param chkpt_id      ID of current checkpoint
+ * \param first_occur_d Map for tracking first occurrence hashes
+ * \param first_ocur    Vector of first occurrence chunks
+ * \param shift_dupl    Vector of shifted duplicate chunks
+ */
 template<typename DataView>
 void dedup_data_tree_low_offset(DataView& data, 
                                 const uint32_t chunk_size, 
@@ -261,6 +308,7 @@ void dedup_data_tree_low_offset(DataView& data,
                                 DigestNodeIDDeviceMap& first_occur_d, 
                                 Vector<uint32_t>& shift_dupl_vec,
                                 Vector<uint32_t>& first_ocur_vec) {
+  // Get number of chunks and nodes
   std::string setup_label = std::string("Deduplicate Checkpoint ") + std::to_string(chkpt_id) + std::string(": Setup");
   Kokkos::Profiling::pushRegion(setup_label);
   uint32_t num_chunks = (curr_tree.tree_h.extent(0)+1)/2;
@@ -268,8 +316,7 @@ void dedup_data_tree_low_offset(DataView& data,
   STDOUT_PRINT("Num chunks: %u\n", num_chunks);
   STDOUT_PRINT("Num nodes: %u\n", num_nodes);
 
-  Kokkos::View<char*> labels("Labels", num_nodes);
-
+  // Stats for debugging or analysis
 #ifdef STATS
   Kokkos::View<uint64_t[3]> chunk_counters("Chunk counters");
   Kokkos::View<uint64_t[3]> region_counters("Region counters");
@@ -289,21 +336,24 @@ void dedup_data_tree_low_offset(DataView& data,
   Kokkos::Experimental::ScatterView<uint64_t*> shift_region_sizes_sv(shift_region_sizes);
 #endif
 
+  // Setup markers for beginning and end of tree level
   uint32_t level_beg = 0;
   uint32_t level_end = 0;
   while(level_end < num_nodes) {
     level_beg = 2*level_beg + 1;
     level_end = 2*level_end + 2;
   }
+
+  // Create labels
+  Kokkos::View<char*> labels("Labels", num_nodes);
   Kokkos::deep_copy(labels, DONE);
   Kokkos::Profiling::popRegion();
 
   // Process leaves first
   std::string leaves_label = std::string("Checkpoint ") + std::to_string(chkpt_id) + std::string(": Leaves");
   using member_type = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type;
-  Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>(((num_nodes-num_chunks+1)/TEAM_SIZE)+1, TEAM_SIZE);
-  Kokkos::parallel_for(leaves_label, team_policy, 
-  KOKKOS_LAMBDA(member_type team_member) {
+  auto team_policy = Kokkos::TeamPolicy<>(((num_nodes-num_chunks+1)/TEAM_SIZE)+1, TEAM_SIZE);
+  Kokkos::parallel_for(leaves_label, team_policy, KOKKOS_LAMBDA(member_type team_member) {
     uint64_t i=team_member.league_rank();
     uint64_t j=team_member.team_rank();
 #ifdef STATS
@@ -346,6 +396,9 @@ void dedup_data_tree_low_offset(DataView& data,
       }
     }
   });
+
+  // TODO May not be necessary
+  // Ensure any duplicate first occurrences are labeled correctly
   std::string leaves_first_ocur_label = std::string("Checkpoint ") + std::to_string(chkpt_id) + std::string(": Leaves: Choose first occurrences");
   Kokkos::parallel_for(leaves_first_ocur_label, Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
     if(labels(leaf) == FIRST_OCUR) {
@@ -362,7 +415,7 @@ void dedup_data_tree_low_offset(DataView& data,
     }
   });
 
-  // Build up forest of Merkle Trees
+  // Build up forest of Merkle Trees for First occurrences
   level_beg = 0;
   level_end = 0;
   while(level_end < num_nodes) {
@@ -383,7 +436,7 @@ void dedup_data_tree_low_offset(DataView& data,
           hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
           first_occur_d.insert(curr_tree(node), NodeID(node, chkpt_id));
         }
-        if(node == 0 && labels(0) == FIRST_OCUR) {
+        if(node == 0 && labels(0) == FIRST_OCUR) { // Handle case where all chunks are new
           first_ocur_vec.push(node);
 #ifdef STATS
           auto first_region_sizes_sa = first_region_sizes_sv.access();
@@ -396,6 +449,8 @@ void dedup_data_tree_low_offset(DataView& data,
     level_beg = (level_beg-1)/2;
     level_end = (level_end-2)/2;
   }
+
+  // Build up forest of Merkle trees for duplicates
   level_beg = 0;
   level_end = 0;
   while(level_end < num_nodes) {
@@ -500,6 +555,23 @@ void dedup_data_tree_low_offset(DataView& data,
   return;
 }
 
+/**
+ * Deduplicate provided data view using the tree incremental checkpoint approach. 
+ * Split data into chunks and compute hashes for each chunk. Compare each hash with 
+ * the hash at the same offset. If the hash has never been seen, save the chunk.
+ * If the hash has been seen before, mark it as a shifted duplicate and save metadata.
+ * Compact metadata by building up a forest of Merkle trees and saving only the roots.
+ * In the case when there are multiple possible first occurrence chunks, choose the node
+ * such that the largest possible tree is built. 
+ *
+ * \param data          View of data for deduplicating
+ * \param chunk_size    Size in bytes for splitting data into chunks
+ * \param curr_tree     Tree of hashes for identifying differences
+ * \param chkpt_id      ID of current checkpoint
+ * \param first_occur_d Map for tracking first occurrence hashes
+ * \param first_ocur    Vector of first occurrence chunks
+ * \param shift_dupl    Vector of shifted duplicate chunks
+ */
 template<typename DataView>
 void dedup_data_tree_low_root(DataView& data,
                     const uint32_t chunk_size, 
@@ -677,7 +749,6 @@ void dedup_data_tree_low_root(DataView& data,
     }
   });
 
-
   Kokkos::parallel_for("Select first occurrence leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t node) {
     if(labels(node) == FIRST_DUPL) {
       auto chunk_counters_sa = chunk_counters_sv.access();
@@ -799,6 +870,22 @@ void dedup_data_tree_low_root(DataView& data,
   return;
 }
 
+/**
+ * Gather the scattered chunks for the diff and write the checkpoint to a contiguous buffer.
+ *
+ * \param data           Data View containing data to deduplicate
+ * \param buffer_d       View to store the diff in
+ * \param chunk_size     Size of chunks in bytes
+ * \param curr_tree      Tree of hash digests
+ * \param first_occur_d  Map for tracking first occurrence hashes
+ * \param first_ocur     Vector of first occurrence chunks
+ * \param shift_dupl     Vector of shifted duplicate chunks
+ * \param prior_chkpt_id ID of the last checkpoint
+ * \param chkpt_id       ID for the current checkpoint
+ * \param header         Incremental checkpoint header
+ *
+ * \return Pair containing amount of data and metadata in the checkpoint
+ */
 template<typename DataView>
 std::pair<uint64_t,uint64_t> 
 write_diff_tree(const DataView& data, 
@@ -1007,6 +1094,15 @@ write_diff_tree(const DataView& data,
   return std::make_pair(size_data, size_metadata);
 }
 
+/**
+ * Restart data from incremental checkpoints stored in Kokkos Views on the host.
+ *
+ * \param incr_chkpts Vector of Host Views containing the diffs
+ * \param chkpt_idx   ID of which checkpoint to restart
+ * \param data        View for restarting the checkpoint to
+ *
+ * \return Time spent copying incremental checkpoints from host to device and restarting data
+ */
 std::pair<double,double> 
 restart_chkpt_tree(std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts,
                    const int chkpt_idx, 
@@ -1160,15 +1256,6 @@ Kokkos::atomic_add(&total_region_size(0), len);
       uint8_t* dst = (uint8_t*)(data.data()+dst_offset);
       uint8_t* src = (uint8_t*)(data_subview.data()+src_offset);
       team_memcpy(dst, src, datasize, team_member);
-
-//      uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+src_offset);
-//      uint32_t* data_u32 = (uint32_t*)(data.data()+dst_offset);
-//      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
-//        data_u32[j] = buffer_u32[j];
-//      });
-//      Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
-//        data(dst_offset+((datasize/4)*4)+j) = data_subview(src_offset+((datasize/4)*4)+j);
-//      });
     });
 Kokkos::Profiling::popRegion();
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart repeats");
@@ -1228,15 +1315,6 @@ Kokkos::atomic_add(&total_region_size(0), len);
         uint8_t* dst = (uint8_t*)(data.data()+dst_offset);
         uint8_t* src = (uint8_t*)(data_subview.data()+offset);
         team_memcpy(dst, src, datasize, team_member);
-
-//        uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+offset);
-//        uint32_t* data_u32 = (uint32_t*)(data.data()+dst_offset);
-//        Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize/4), [&] (const uint64_t& j) {
-//          data_u32[j] = buffer_u32[j];
-//        });
-//        Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, datasize%4), [&] (const uint64_t& j) {
-//          data(dst_offset+((datasize/4)*4)+j) = data_subview(offset+((datasize/4)*4)+j);
-//        });
       }
     });
 Kokkos::deep_copy(total_region_size_h, total_region_size);
@@ -1410,15 +1488,6 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
             uint8_t* dst = (uint8_t*)(data.data()+dst_offset);
             uint8_t* src = (uint8_t*)(data_subview.data()+src_offset);
             team_memcpy(dst, src, writesize, team_member);
-
-//            uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+src_offset);
-//            uint32_t* data_u32 = (uint32_t*)(data.data()+dst_offset);
-//            Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
-//              data_u32[j] = buffer_u32[j];
-//            });
-//            Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
-//              data(dst_offset+((writesize/4)*4)+j) = data_subview(src_offset+((writesize/4)*4)+j);
-//            });
           } else if(repeat_map.exists(id.node)) {
             NodeID prev = repeat_map.value_at(repeat_map.find(id.node));
             if(prev.tree == cur_id) {
@@ -1433,15 +1502,6 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
               uint8_t* dst = (uint8_t*)(data.data()+dst_offset);
               uint8_t* src = (uint8_t*)(data_subview.data()+src_offset);
               team_memcpy(dst, src, writesize, team_member);
-
-//              uint32_t* buffer_u32 = (uint32_t*)(data_subview.data()+src_offset);
-//              uint32_t* data_u32 = (uint32_t*)(data.data()+dst_offset);
-//              Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize/4), [&] (const uint64_t& j) {
-//                data_u32[j] = buffer_u32[j];
-//              });
-//              Kokkos::parallel_for(Kokkos::TeamThreadRange(team_member, writesize%4), [&] (const uint64_t& j) {
-//                data(dst_offset+((writesize/4)*4)+j) = data_subview(src_offset+((writesize/4)*4)+j);
-//              });
             } else {
               node_list(i) = prev;
             }
@@ -1461,6 +1521,15 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
     return std::make_pair(copy_time, restart_time);
 }
 
+/**
+ * Restart data from incremental checkpoints stored in files.
+ *
+ * \param incr_chkpts Vector of Host Views containing the diffs
+ * \param chkpt_idx   ID of which checkpoint to restart
+ * \param data        View for restarting the checkpoint to
+ *
+ * \return Time spent copying incremental checkpoints from host to device and restarting data
+ */
 std::pair<double,double> 
 restart_chkpt_tree(std::vector<std::string>& chkpt_files,
                    const int file_idx, 
@@ -1510,11 +1579,6 @@ restart_chkpt_tree(std::vector<std::string>& chkpt_files,
   Kokkos::resize(data, header.datalen);
 
   std::pair<double,double> times;
-
-//  times = restart_chkpt_global(chkpt_files, file_idx, file, data, filesize, num_chunks, num_nodes, header, buffer_d, buffer_h);
-//  Kokkos::fence();
-//  DEBUG_PRINT("Restarted checkpoint\n");
-//  return times;
     
     // Main checkpoint
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx));

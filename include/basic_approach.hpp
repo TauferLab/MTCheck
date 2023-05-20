@@ -34,14 +34,16 @@ void dedup_data_basic(
                   const uint32_t list_id, 
                   const DataView& data, 
                   const uint32_t chunk_size) {
+  // Calculate useful constants
   uint32_t num_chunks = data.size()/chunk_size;
   if(num_chunks*chunk_size < data.size())
     num_chunks += 1;
+  // Reset bitset so all chunks are assumed unchanged
   changes.reset();
+  // Parallelization policy. Split chunks amoung teams of threads
   using member_type = Kokkos::TeamPolicy<>::member_type;
   Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/TEAM_SIZE)+1, TEAM_SIZE);
-  Kokkos::parallel_for("Dedup chunks", team_policy, 
-  KOKKOS_LAMBDA(member_type team_member) {
+  Kokkos::parallel_for("Dedup chunks", team_policy, KOKKOS_LAMBDA(member_type team_member) {
     uint32_t i=team_member.league_rank();
     uint32_t j=team_member.team_rank();
     uint32_t idx = i*team_member.team_size()+j;
