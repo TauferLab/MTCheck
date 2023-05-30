@@ -6,10 +6,7 @@
 #include <fstream>
 #include <openssl/md5.h>
 #include "stdio.h"
-#include "map_helpers.hpp"
-#include "utils.hpp"
-//#include "dedup_approaches.hpp"
-//#include "data_generation.hpp"
+#include "deduplicator.hpp"
 
 template<typename KView>
 std::string calculate_digest(KView& data_h) {
@@ -31,53 +28,62 @@ std::string calculate_digest(KView& data_h) {
 }
 
 int main(int argc, char** argv) {
+  int res = 0;
   Kokkos::initialize(argc, argv);
   {
     STDOUT_PRINT("------------------------------------------------------\n");
 
     // Process data from checkpoint files
+    STDOUT_PRINT("Argv[1]: %s\n", argv[1]);
+    uint32_t chunk_size = static_cast<uint32_t>(atoi(argv[1]));
+    STDOUT_PRINT("Loaded chunk size\n");
     uint32_t num_chkpts = static_cast<uint32_t>(atoi(argv[2]));
 
-//    SHA1 hasher;
-//    Murmur3C hasher;
-//    MD5Hash hasher;
-
     Kokkos::Random_XorShift64_Pool<> rand_pool(1931);
-    std::default_random_engine generator(1931);
 
     uint64_t data_len = 1024*1024;
-    Kokkos::View<uint8_t**, Kokkos::LayoutLeft> data_views_d("Data", data_len, num_chkpts);
-    Kokkos::View<uint8_t**, Kokkos::LayoutLeft>::HostMirror data_views_h = Kokkos::create_mirror_view(data_views_d);
+    Kokkos::View<uint8_t**, 
+                 Kokkos::LayoutLeft, 
+                 Kokkos::DefaultHostExecutionSpace> data_views_h("Host views", data_len, num_chkpts);
+    std::vector< Kokkos::View<uint8_t*>::HostMirror > incr_chkpts;
+
+    FullDeduplicator deduplicator(chunk_size);
     for(uint32_t i=0; i<num_chkpts; i++) {
-      auto subview_d = Kokkos::subview(data_views_d, Kokkos::ALL, i);
-      auto subview_h = Kokkos::subview(data_views_h, Kokkos::ALL, i);
+      Kokkos::View<uint8_t*> data_d("Device data", data_len);
+      Kokkos::deep_copy(data_d, 0);
+      auto data_h = Kokkos::subview(data_views_h, Kokkos::ALL(), i);
 
       // Generate next random data
       auto policy = Kokkos::RangePolicy<>(0, data_len);
       Kokkos::parallel_for("Fill random", policy, KOKKOS_LAMBDA(const uint32_t i) {
         auto rand_gen = rand_pool.get_state();
-        subview_d(i) = static_cast<uint8_t>(rand_gen.urand() % 256);
+        data_d(i) = static_cast<uint8_t>(rand_gen.urand() % 256);
         rand_pool.free_state(rand_gen);
       });
+      Kokkos::deep_copy(data_h, data_d);
     
       // Calculate correct digest
-      Kokkos::deep_copy(subview_h, subview_d);
-      std::string correct = calculate_digest(subview_h);
+      std::string correct = calculate_digest_host(data_h);
 
       // Perform chkpt
-      Kokkos::deep_copy(subview_h, subview_d);
+      Kokkos::View<uint8_t*>::HostMirror diff_h("Diff", 1);
+      deduplicator.checkpoint((uint8_t*)(data_d.data()), data_d.size(), diff_h, i==0);
+      Kokkos::fence();
+      incr_chkpts.push_back(diff_h);
+
       // Restart chkpt
       Kokkos::View<uint8_t*> restart_buf_d("Restart buffer", data_len);
-      Kokkos::deep_copy(restart_buf_d, subview_d);
+      Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
+      std::string null("/dev/null/");
+      deduplicator.restart(restart_buf_d, incr_chkpts, null, i);
+      Kokkos::fence();
 
       // Calculate digest of full checkpoint
-      Kokkos::deep_copy(subview_h, restart_buf_d);
-      std::string full_digest = calculate_digest(subview_h);
+      Kokkos::deep_copy(restart_buf_h, restart_buf_d);
+      std::string full_digest = calculate_digest_host(restart_buf_h);
 
       // Compare digests
-      int res = correct.compare(full_digest);
-      if(res != 0)
-        return -1;
+      res = correct.compare(full_digest);
 
       // Print digest
       std::cout << "Checkpoint " << i << std::endl;
@@ -86,11 +92,15 @@ int main(int argc, char** argv) {
       } else {
         std::cout << "Hashes don't match!\n";
       }
-      std::cout << "Correct:    " << correct << std::endl;
-      std::cout << "Full chkpt: " << full_digest << std::endl;
+      std::cout << "Correct:     " << correct << std::endl;
+      std::cout << "Basic chkpt: " << full_digest << std::endl;
+
+      if(res != 0) {
+        break;
+      }
     }
   }
   Kokkos::finalize();
-  return 0;
+  return res;
 }
 

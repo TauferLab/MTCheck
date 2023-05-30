@@ -1,5 +1,5 @@
-#ifndef BASIC_APPROACH_HPP
-#define BASIC_APPROACH_HPP
+#ifndef FULL_APPROACH_HPP
+#define FULL_APPROACH_HPP
 
 #include <Kokkos_Core.hpp>
 #include <Kokkos_UnorderedMap.hpp>
@@ -11,48 +11,22 @@
 #include <fstream>
 #include <vector>
 #include <utility>
-#include "kokkos_hash_list.hpp"
-#include "hash_functions.hpp"
-#include "map_helpers.hpp"
 #include "utils.hpp"
 #include "deduplicator_interface.hpp"
 
-class BasicDeduplicator : public BaseDeduplicator {
-  private:
-    HashList list;
-    Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
-    uint32_t num_chunks;
-
-    void dedup_data(const uint8_t* data_ptr, 
-                    const size_t len);
-
-    std::pair<uint64_t,uint64_t> 
-    collect_diff( const uint8_t* data_ptr, 
-                  const size_t len,
-                  Kokkos::View<uint8_t*>& buffer_d, 
-                  header_t& header);
-
-    std::pair<double,double>
-    restart_chkpt( std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts,
-                   const int chkpt_idx, 
-                   Kokkos::View<uint8_t*>& data);
-
-    std::pair<double,double>
-    restart_chkpt( std::vector<std::string>& chkpt_files,
-                         const int file_idx, 
-                         Kokkos::View<uint8_t*>& data);
+class FullDeduplicator : public BaseDeduplicator {
   public:
-    BasicDeduplicator();
+    FullDeduplicator();
 
-    BasicDeduplicator(uint32_t bytes_per_chunk);
+    FullDeduplicator(uint32_t bytes_per_chunk);
 
-    ~BasicDeduplicator() override;
+    ~FullDeduplicator() override;
 
     /**
      * Main checkpointing function. Given a Kokkos View, create an incremental checkpoint using 
      * the chosen checkpoint strategy. The deduplication mode can be one of the following:
      *   - Full: No deduplication
-     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - Full: Remove chunks that have not changed since the previous checkpoint
      *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
      *   - Tree: Save minimal set of chunks and use a compact metadata representations
      *
@@ -72,7 +46,7 @@ class BasicDeduplicator : public BaseDeduplicator {
      * Main checkpointing function. Given a raw device pointer, create an incremental checkpoint 
      * using the chosen checkpoint strategy. The deduplication mode can be one of the following:
      *   - Full: No deduplication
-     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - Full: Remove chunks that have not changed since the previous checkpoint
      *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
      *   - Tree: Save minimal set of chunks and use a compact metadata representations
      *
@@ -93,7 +67,7 @@ class BasicDeduplicator : public BaseDeduplicator {
      * using the chosen checkpoint strategy. Save checkpoint to host view. 
      * The deduplication mode can be one of the following:
      *   - Full: No deduplication
-     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - Full: Remove chunks that have not changed since the previous checkpoint
      *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
      *   - Tree: Save minimal set of chunks and use a compact metadata representations
      *
@@ -112,7 +86,7 @@ class BasicDeduplicator : public BaseDeduplicator {
      * using the chosen checkpoint strategy. Save checkpoint to host view and write logs.
      * The deduplication mode can be one of the following:
      *   - Full: No deduplication
-     *   - Basic: Remove chunks that have not changed since the previous checkpoint
+     *   - Full: Remove chunks that have not changed since the previous checkpoint
      *   - List: Save a single copy of each unique chunk and use metadata to handle duplicates
      *   - Tree: Save minimal set of chunks and use a compact metadata representations
      *
@@ -194,65 +168,4 @@ class BasicDeduplicator : public BaseDeduplicator {
                            std::string& logname) override;
 };
 
-/**
- * Deduplicate provided data view using the basic incremental checkpoint approach. 
- * Split data into chunks and compute hashes for each chunk. Compare each hash with 
- * the hash at the same offset. If the hash is different then we save the chunk in the diff.
- *
- * \brief list       List of hashes for identifying differences
- * \brief changes    Bitset for marking which chunks have changed since the prior checkpoint
- * \brief list_id    ID for the current checkpoint
- * \brief data       View of data for deduplicating
- * \brief chunk_size Size in bytes for splitting data into chunks
- */
-void dedup_data_basic(  
-                  const HashList& list, 
-                  Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,
-                  const uint32_t list_id, 
-                  const uint8_t* data_ptr, 
-                  const size_t data_len,
-                  const uint32_t chunk_size);
-
-/**
- * Gather the scattered chunks for the diff and write the checkpoint to a contiguous buffer.
- *
- * \param data Data View containing data to deduplicate
- * \param buffer_d       View to store the diff in
- * \param chunk_size     Size of chunks in bytes
- * \param changes        Bitset identifying which chunks have changed
- * \param prior_chkpt_id ID of the last checkpoint
- * \param chkpt_id       ID for the current checkpoint
- * \param header         Incremental checkpoint header
- *
- * \return Pair containing amount of data and metadata in the checkpoint
- */
-std::pair<uint64_t,uint64_t> 
-write_diff_basic( const uint8_t* data_ptr, 
-                  const size_t data_len,
-                  Kokkos::View<uint8_t*>& buffer_d, 
-                  uint32_t chunk_size, 
-                  Kokkos::Bitset<Kokkos::DefaultExecutionSpace>& changes,
-                  uint32_t prior_chkpt_id,
-                  uint32_t chkpt_id,
-                  header_t& header);
-
-/**
- * Restart data from incremental checkpoint.
- *
- * \param incr_chkpts Vector of Host Views containing the diffs
- * \param chkpt_idx   ID of which checkpoint to restart
- * \param data        View for restarting the checkpoint to
- *
- * \return Time spent copying incremental checkpoints from host to device and restarting data
- */
-std::pair<double,double>
-restart_chkpt_basic( std::vector<Kokkos::View<uint8_t*>::HostMirror>& incr_chkpts,
-                     const int chkpt_idx, 
-                     Kokkos::View<uint8_t*>& data);
-
-std::pair<double,double>
-restart_chkpt_basic( std::vector<std::string>& chkpt_files,
-                     const int file_idx, 
-                     Kokkos::View<uint8_t*>& data);
-
-#endif // BASIC_APPROACH_HPP
+#endif

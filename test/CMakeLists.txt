@@ -2,6 +2,7 @@ add_executable(full_chkpt_test full_chkpt.cpp)
 target_include_directories(full_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(full_chkpt_test PRIVATE Kokkos::kokkos)
 target_link_libraries(full_chkpt_test PRIVATE OpenSSL::SSL)
+target_link_libraries(full_chkpt_test PRIVATE deduplicator)
 set_target_properties(full_chkpt_test PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -12,6 +13,7 @@ add_executable(basic_chkpt_test basic_chkpt.cpp)
 target_include_directories(basic_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(basic_chkpt_test PRIVATE Kokkos::kokkos)
 target_link_libraries(basic_chkpt_test PRIVATE OpenSSL::SSL)
+target_link_libraries(basic_chkpt_test PRIVATE deduplicator)
 set_target_properties(basic_chkpt_test PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -22,6 +24,7 @@ add_executable(list_chkpt_test list_chkpt.cpp)
 target_include_directories(list_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(list_chkpt_test PRIVATE Kokkos::kokkos)
 target_link_libraries(list_chkpt_test PRIVATE OpenSSL::SSL)
+target_link_libraries(list_chkpt_test PRIVATE deduplicator)
 set_target_properties(list_chkpt_test PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -32,6 +35,7 @@ add_executable(tree_chkpt_test tree_chkpt.cpp)
 target_include_directories(tree_chkpt_test PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(tree_chkpt_test PRIVATE Kokkos::kokkos)
 target_link_libraries(tree_chkpt_test PRIVATE OpenSSL::SSL)
+target_link_libraries(tree_chkpt_test PRIVATE deduplicator)
 set_target_properties(tree_chkpt_test PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -42,6 +46,7 @@ add_executable(test_case_01 test_case_01.cpp)
 target_include_directories(test_case_01 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_01 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_01 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_01 PRIVATE deduplicator)
 set_target_properties(test_case_01 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -52,6 +57,7 @@ add_executable(test_case_02 test_case_02.cpp)
 target_include_directories(test_case_02 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_02 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_02 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_02 PRIVATE deduplicator)
 set_target_properties(test_case_02 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -62,6 +68,7 @@ add_executable(test_case_03 test_case_03.cpp)
 target_include_directories(test_case_03 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_03 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_03 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_03 PRIVATE deduplicator)
 set_target_properties(test_case_03 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -72,6 +79,7 @@ add_executable(test_case_04 test_case_04.cpp)
 target_include_directories(test_case_04 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_04 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_04 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_04 PRIVATE deduplicator)
 set_target_properties(test_case_04 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -82,6 +90,7 @@ add_executable(test_case_05 test_case_05.cpp)
 target_include_directories(test_case_05 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_05 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_05 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_05 PRIVATE deduplicator)
 set_target_properties(test_case_05 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -92,6 +101,7 @@ add_executable(test_case_06 test_case_06.cpp)
 target_include_directories(test_case_06 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_06 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_06 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_06 PRIVATE deduplicator)
 set_target_properties(test_case_06 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -102,6 +112,7 @@ add_executable(test_case_07 test_case_07.cpp)
 target_include_directories(test_case_07 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_07 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_07 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_07 PRIVATE deduplicator)
 set_target_properties(test_case_07 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -112,6 +123,7 @@ add_executable(test_case_08 test_case_08.cpp)
 target_include_directories(test_case_08 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_08 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_08 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_08 PRIVATE deduplicator)
 set_target_properties(test_case_08 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -122,6 +134,7 @@ add_executable(test_case_09 test_case_09.cpp)
 target_include_directories(test_case_09 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_09 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_09 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_09 PRIVATE deduplicator)
 set_target_properties(test_case_09 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES
@@ -132,6 +145,7 @@ add_executable(test_case_10 test_case_10.cpp)
 target_include_directories(test_case_10 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(test_case_10 PRIVATE Kokkos::kokkos)
 target_link_libraries(test_case_10 PRIVATE OpenSSL::SSL)
+target_link_libraries(test_case_10 PRIVATE deduplicator)
 set_target_properties(test_case_10 PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED YES

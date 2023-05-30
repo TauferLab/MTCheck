@@ -1,5 +1,7 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
+#include "kokkos_merkle_tree.hpp"
+#include <fstream>
 
 //#define STDOUT
 //#define DEBUG
@@ -54,40 +56,9 @@ enum Label : uint8_t {
   DONE = 4
 };
 
-void print_mode_help() {
-  printf("Modes: \n");
-  printf("Full checkpoint:                                   --run-full-chkpt\n");
-  printf("Basic checkpoint:                                  --run-basic-chkpt\n");
-  printf("List checkpoint:                                   --run-list-chkpt\n");
-  printf("Tree checkpoint:                                   --run-tree-chkpt\n");
-  printf("Tree checkpoint lowest offset reference algorithm: --run-tree-low-offset-ref-chkpt\n");
-  printf("Tree checkpoint lowest offset algorithm:           --run-tree-low-offset-chkpt\n");
-  printf("Tree checkpoint lowest root reference algorithm:   --run-tree-low-root-ref-chkpt\n");
-  printf("Tree checkpoint lowest root algorithm:             --run-tree-low-root-chkpt\n");
-}
+void print_mode_help(); 
 
-DedupMode get_mode(int argc, char** argv) {
-  for(int i=0; i<argc; i++) {
-    if((strcmp(argv[i], "--run-full-chkpt") == 0)) {
-      return Full;
-    } else if(strcmp(argv[i], "--run-basic-chkpt") == 0) {
-      return Basic;
-    } else if(strcmp(argv[i], "--run-list-chkpt") == 0) {
-      return List;
-    } else if(strcmp(argv[i], "--run-tree-chkpt") == 0) {
-      return Tree;
-    } else if(strcmp(argv[i], "--run-tree-low-offset-ref-chkpt") == 0) {
-      return TreeLowOffsetRef;
-    } else if(strcmp(argv[i], "--run-tree-low-offset-chkpt") == 0) {
-      return TreeLowOffset;
-    } else if(strcmp(argv[i], "--run-tree-low-root-ref-chkpt") == 0) {
-      return TreeLowRootRef;
-    } else if(strcmp(argv[i], "--run-tree-low-root-chkpt") == 0) {
-      return TreeLowRoot;
-    }
-  }
-  return Unknown;
-}
+DedupMode get_mode(int argc, char** argv);
 
 template <typename TeamMember>
 KOKKOS_FORCEINLINE_FUNCTION
@@ -101,5 +72,11 @@ void team_memcpy(uint8_t* dst, uint8_t* src, size_t len, TeamMember& team_member
     dst[((len/4)*4)+j] = src[((len/4)*4)+j];
   });
 }
+
+void write_metadata_breakdown(std::fstream& fs, 
+                              DedupMode mode,
+                              header_t& header, 
+                              Kokkos::View<uint8_t*>::HostMirror& buffer, 
+                              uint32_t num_chkpts);
 
 #endif
