@@ -21,6 +21,9 @@ target_sources(deduplicator
   PRIVATE
     src/full_approach.cpp
     src/basic_approach.cpp
+    src/list_approach.cpp
+    src/tree_approach.cpp
+    src/tree_low_root_approach.cpp
     src/hash_functions.cpp
     src/utils.cpp
 )

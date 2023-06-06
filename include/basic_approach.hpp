@@ -18,7 +18,7 @@
 #include "deduplicator_interface.hpp"
 
 class BasicDeduplicator : public BaseDeduplicator {
-  private:
+  public:
     HashList list;
     Kokkos::Bitset<Kokkos::DefaultExecutionSpace> changes_bitset;
     uint32_t num_chunks;

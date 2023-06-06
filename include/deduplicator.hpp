@@ -337,19 +337,20 @@ class Deduplicator {
       if(mode == Basic) {
         dedup_data_basic(leaves, changes_bitset, current_id, data_ptr, data_size, chunk_size);
       } else if(mode == List) {
-        dedup_data_list(leaves, current_id, data, chunk_size, 
+//        dedup_data_list(leaves, current_id, data, chunk_size, 
+        dedup_data_list(leaves, current_id, data_ptr, data_size, chunk_size, 
                              first_ocur_d, first_ocur_vec, shift_dupl_vec);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
         if((current_id == 0) || make_baseline) {
-          dedup_data_tree_baseline(data, chunk_size, tree, current_id, 
+          dedup_data_tree_baseline(data_ptr, data_size, chunk_size, tree, current_id, 
                                          first_ocur_d, shift_dupl_vec, first_ocur_vec);
           baseline_id = current_id;
         } else {
           // Different variations of the metadata compaction
           if((mode == Tree) || (mode == TreeLowOffset)) { 
             // Use the lowest offset to determine which node is the first occurrence
-            dedup_data_tree_low_offset(data, chunk_size, tree, current_id, 
+            dedup_data_tree_low_offset(data_ptr, data_size, chunk_size, tree, current_id, 
                                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowOffsetRef)) {
             // Reference code for the lowest offset
@@ -361,7 +362,7 @@ class Deduplicator {
                                first_ocur_d, shift_dupl_vec, first_ocur_vec);
           } else if((mode == TreeLowRoot)) {
             // Break ties for first occurrence based on which chunk produces the largest subtree
-            dedup_data_tree_low_root(data, chunk_size, tree, current_id, 
+            dedup_data_tree_low_root(data_ptr, data_size, chunk_size, tree, current_id, 
                            first_ocur_d, shift_dupl_vec, first_ocur_vec);
           }
         }
@@ -387,11 +388,12 @@ class Deduplicator {
         datasizes = write_diff_basic(data_ptr, data_size, diff, chunk_size, changes_bitset, 
                                      baseline_id, current_id, header);
       } else if(mode == List) {
-          datasizes = write_diff_list(data, diff, chunk_size, leaves, 
+//          datasizes = write_diff_list(data, diff, chunk_size, leaves, 
+          datasizes = write_diff_list(data_ptr, data_size, diff, chunk_size, leaves, 
             first_ocur_d, first_ocur_vec, shift_dupl_vec, baseline_id, current_id, header);
       } else if((mode == Tree) || (mode == TreeLowOffsetRef) || (mode == TreeLowOffset) || 
                 (mode == TreeLowRootRef) || (mode == TreeLowRoot)) {
-          datasizes = write_diff_tree(data, diff, chunk_size, 
+          datasizes = write_diff_tree(data_ptr, data_size, diff, chunk_size, 
                                                             tree, first_ocur_d, 
                                                             first_ocur_vec, shift_dupl_vec,
                                                             baseline_id, current_id, header);

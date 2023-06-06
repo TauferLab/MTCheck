@@ -43,9 +43,9 @@ void dedup_data_list( const HashList& list,
       uint32_t num_bytes = chunk_size;
       uint64_t offset = static_cast<uint64_t>(block_idx)*static_cast<uint64_t>(chunk_size);
       if(block_idx == num_chunks-1)
-        num_bytes = data.size()-offset;
+        num_bytes = data_size-offset;
       HashDigest new_hash;
-      hash(data.data()+offset, num_bytes, new_hash.digest); /// Compute hash
+      hash(data_ptr+offset, num_bytes, new_hash.digest); /// Compute hash
       if(!digests_same(list(block_idx), new_hash)) { /// Test if hash is different
         NodeID info(block_idx, list_id);
         auto result = first_occur_d.insert(new_hash, info);
@@ -251,207 +251,12 @@ write_diff_list(
   DEBUG_PRINT("Num first ocur: %u\n"  , header.num_first_ocur);
   DEBUG_PRINT("Num shift dupl: %u\n"  , header.num_shift_dupl);
   DEBUG_PRINT("Num prior chkpts: %u\n", header.num_prior_chkpts);
-  size_t data_size = static_cast<size_t>(chunk_size)*num_first_ocur;
-  STDOUT_PRINT("Number of bytes written for data: %lu\n", data_size);
+  size_t datasize = static_cast<size_t>(chunk_size)*num_first_ocur;
+  STDOUT_PRINT("Number of bytes written for data: %lu\n", datasize);
   DEBUG_PRINT("Trying to close file\n");
   DEBUG_PRINT("Closed file\n");
-  uint64_t size_metadata = buffer_size - data_size;
-  return std::make_pair(data_size, size_metadata);
-}
-
-/**
- * Gather the scattered chunks for the diff and write the checkpoint to a contiguous buffer.
- *
- * \param data           Data View containing data to deduplicate
- * \param buffer_d       View to store the diff in
- * \param chunk_size     Size of chunks in bytes
- * \param list           List of hash digests
- * \param first_occur_d  Map for tracking first occurrence hashes
- * \param first_ocur     Vector of first occurrence chunks
- * \param shift_dupl     Vector of shifted duplicate chunks
- * \param prior_chkpt_id ID of the last checkpoint
- * \param chkpt_id       ID for the current checkpoint
- * \param header         Incremental checkpoint header
- *
- * \return Pair containing amount of data and metadata in the checkpoint
- */
-template<typename DataView>
-std::pair<uint64_t,uint64_t> 
-write_diff_list(
-                const DataView& data, 
-                Kokkos::View<uint8_t*>& buffer_d, 
-                uint32_t chunk_size, 
-                const HashList& list, 
-                const DigestNodeIDDeviceMap& first_occur_d, 
-                Vector<uint32_t>& first_ocur,
-                Vector<uint32_t>& shift_dupl,
-                uint32_t prior_chkpt_id,
-                uint32_t chkpt_id,
-                header_t& header) {
-  // Calculate number of chunks
-  uint32_t num_chunks = data.size()/chunk_size;
-  if(static_cast<uint64_t>(num_chunks)*static_cast<uint64_t>(chunk_size) < data.size()) {
-    num_chunks += 1;
-  }
-  STDOUT_PRINT("Number of first occurrence digests: %u\n", first_occur_d.size());
-  STDOUT_PRINT("Num first occurrences: %u\n", first_ocur.size());
-  STDOUT_PRINT("Num shifted duplicates: %u\n", shift_dupl.size());
-
-  // Allocate counters for shifted duplicates
-  Kokkos::View<uint64_t*> prior_counter_d("Counter for prior repeats", chkpt_id+1);
-  Kokkos::View<uint64_t*>::HostMirror prior_counter_h = Kokkos::create_mirror_view(prior_counter_d);
-  Kokkos::Experimental::ScatterView<uint64_t*> prior_counter_sv(prior_counter_d);
-
-  // Small bitset to record which checkpoints are necessary for restart
-  Kokkos::Bitset<Kokkos::DefaultExecutionSpace> chkpts_needed(chkpt_id+1);
-  chkpts_needed.reset();
-  STDOUT_PRINT("Reset bitset\n");
-
-  // Count how many duplicates belong to each checkpoint
-  auto shift_dupl_policy = Kokkos::RangePolicy<>(0, shift_dupl.size());
-  Kokkos::parallel_for("Count shifted dupl", shift_dupl_policy, KOKKOS_LAMBDA(const uint32_t i) {
-    auto prior_counter_sa = prior_counter_sv.access();
-    NodeID entry = first_occur_d.value_at(first_occur_d.find(list.list_d(shift_dupl(i))));
-    chkpts_needed.set(entry.tree);
-    prior_counter_sa(entry.tree) += 1;
-  });
-  Kokkos::Experimental::contribute(prior_counter_d, prior_counter_sv);
-  prior_counter_sv.reset_except(prior_counter_d);
-  Kokkos::deep_copy(prior_counter_h, prior_counter_d);
-
-  Kokkos::fence();
-  STDOUT_PRINT("Counted shifted duplicates\n");
-
-  // Calculate offsets for writing the diff
-  uint64_t num_first_ocur = static_cast<uint64_t>(first_ocur.size());
-  uint64_t num_chkpts = static_cast<uint64_t>(chkpts_needed.count());
-  uint64_t num_shift_dupl = static_cast<uint64_t>(shift_dupl.size());
-  size_t first_ocur_offset = sizeof(header_t);
-  size_t shift_dupl_count_offset = first_ocur_offset + num_first_ocur*sizeof(uint32_t);
-  size_t shift_dupl_offset = shift_dupl_count_offset + num_chkpts*2*sizeof(uint32_t);
-  size_t data_offset = shift_dupl_offset + num_shift_dupl*2*sizeof(uint32_t);
-  // Calculate size of diff
-  uint64_t buffer_size = sizeof(header_t);
-  buffer_size += num_first_ocur*(sizeof(uint32_t)+static_cast<uint64_t>(chunk_size)); // First occurrence metadata
-  buffer_size += num_chkpts*2*sizeof(uint32_t); // Shifted duplicate counts metadata
-  buffer_size += num_shift_dupl*2*sizeof(uint32_t); // Shifted duplicate metadata
-  Kokkos::resize(buffer_d, buffer_size);
-  STDOUT_PRINT("Resized buffer\n");
-  Kokkos::View<uint64_t[1]> dupl_map_offset_d("Dupl map offset");
-  Kokkos::deep_copy(dupl_map_offset_d, shift_dupl_count_offset);
-  STDOUT_PRINT("Created duplicate map counter\n");
-
-  STDOUT_PRINT("Buffer length: %lu\n", buffer_size);
-  STDOUT_PRINT("Data offset: %zu\n", data_offset);
-  STDOUT_PRINT("Duplicate map offset: %zu\n", shift_dupl_count_offset);
-
-  // Copy first occurrence metadata
-  using ByteView = Kokkos::View<uint8_t*, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
-  ByteView first_ocur_bytes((uint8_t*)(first_ocur.data()), num_first_ocur*sizeof(uint32_t));
-  size_t metadata_end = sizeof(header_t)+num_first_ocur*sizeof(uint32_t);
-  auto metadata_subview = Kokkos::subview(buffer_d, std::make_pair(sizeof(header_t),metadata_end));
-  Kokkos::deep_copy(metadata_subview, first_ocur_bytes);
-
-  // Write Repeat map for recording how many entries per checkpoint
-  // (Checkpoint ID, # of entries)
-  Kokkos::parallel_for("Write size map", prior_counter_d.size(), KOKKOS_LAMBDA(const uint32_t i) {
-    if(prior_counter_d(i) > 0) {
-      uint32_t num_repeats_i = static_cast<uint32_t>(prior_counter_d(i));
-      size_t pos = Kokkos::atomic_fetch_add(&dupl_map_offset_d(0), 2*sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos, &i, sizeof(uint32_t));
-      memcpy(buffer_d.data()+pos+sizeof(uint32_t), &num_repeats_i, sizeof(uint32_t));
-    }
-  });
-  STDOUT_PRINT("Write duplicate counts\n");
-  // Calculate repeat indices so that we can separate entries by source ID
-  Kokkos::parallel_scan("Calc repeat end indices", prior_counter_d.size(), 
-    KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
-    partial_sum += prior_counter_d(i);
-    if(is_final) prior_counter_d(i) = partial_sum;
-  });
-  STDOUT_PRINT("Calculated duplicate offsets\n");
-
-  // Sort shifted duplicates by the list ID
-  // Prepare keys
-  Kokkos::View<uint32_t*> chkpt_id_keys("Source checkpoint IDs", shift_dupl.size());
-  Kokkos::deep_copy(chkpt_id_keys, 0);
-  Kokkos::parallel_for(shift_dupl.size(), KOKKOS_LAMBDA(const uint32_t i) {
-    if(!first_occur_d.valid_at(first_occur_d.find(list(shift_dupl(i)))))
-      DEBUG_PRINT("Invalid index!\n");
-    NodeID prev = first_occur_d.value_at(first_occur_d.find(list(shift_dupl(i))));
-    chkpt_id_keys(i) = prev.tree;
-  });
-  // Find max key for sorting
-  uint32_t max_key = 0;
-  Kokkos::parallel_reduce("Get max key", shift_dupl_policy, 
-  KOKKOS_LAMBDA(const uint32_t i, uint32_t& max) {
-    if(chkpt_id_keys(i) > max)
-      max = chkpt_id_keys(i);
-  }, Kokkos::Max<uint32_t>(max_key));
-  DEBUG_PRINT("Updated chkpt ID keys for sorting\n");
-  // Sort duplicates
-  using key_type = decltype(chkpt_id_keys);
-  using Comparator = Kokkos::BinOp1D<key_type>;
-  Comparator comp(shift_dupl.size(), 0, max_key);
-  DEBUG_PRINT("Created comparator\n");
-  Kokkos::BinSort<key_type, Comparator> bin_sort(chkpt_id_keys, 0, shift_dupl.size(), comp, 0);
-  DEBUG_PRINT("Created BinSort\n");
-  bin_sort.create_permute_vector();
-  DEBUG_PRINT("Created permute vector\n");
-  bin_sort.sort(shift_dupl.vector_d);
-  DEBUG_PRINT("Sorted duplicate offsets\n");
-  bin_sort.sort(chkpt_id_keys);
-  DEBUG_PRINT("Sorted chkpt id keys\n");
-
-  // Write repeat entries
-  Kokkos::parallel_for("Write repeat bytes", shift_dupl_policy, KOKKOS_LAMBDA(const uint32_t i) {
-    uint32_t node = shift_dupl(i);
-    NodeID prev = first_occur_d.value_at(first_occur_d.find(list(node)));
-    uint64_t dupl_offset = static_cast<uint64_t>(i)*2*sizeof(uint32_t);
-    memcpy(buffer_d.data()+shift_dupl_offset+dupl_offset, &node, sizeof(uint32_t));
-    memcpy(buffer_d.data()+shift_dupl_offset+dupl_offset+sizeof(uint32_t), &prev.node, sizeof(uint32_t));
-  });
-  DEBUG_PRINT("Wrote duplicates\n");
-
-  // Write data
-  Kokkos::parallel_for("Copy data", Kokkos::TeamPolicy<>(first_ocur.size(), Kokkos::AUTO()), 
-                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
-    uint32_t i = team_member.league_rank();
-    uint32_t chunk = first_ocur(i);
-    uint32_t writesize = chunk_size;
-    uint64_t src_offset = static_cast<uint64_t>(chunk_size)*static_cast<uint64_t>(chunk);
-    uint64_t dst_offset = data_offset+static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
-    if(chunk == num_chunks-1) {
-      writesize = data.size()-src_offset;
-    }
-
-    uint8_t* src = (uint8_t*)(data.data()+src_offset);
-    uint8_t* dst = (uint8_t*)(buffer_d.data()+dst_offset);
-    team_memcpy(dst, src, writesize, team_member);
-  });
-  Kokkos::fence();
-
-  // Update header
-  header.ref_id = prior_chkpt_id;
-  header.chkpt_id = chkpt_id;
-  header.datalen = data.size();
-  header.chunk_size = chunk_size;
-  header.num_first_ocur = first_ocur.size();
-  header.num_shift_dupl = shift_dupl.size();
-  header.num_prior_chkpts = chkpts_needed.count();
-  DEBUG_PRINT("Ref ID: %u\n"          , header.ref_id);
-  DEBUG_PRINT("Chkpt ID: %u\n"        , header.chkpt_id);
-  DEBUG_PRINT("Data len: %lu\n"       , header.datalen);
-  DEBUG_PRINT("Chunk size: %u\n"      , header.chunk_size);
-  DEBUG_PRINT("Num first ocur: %u\n"  , header.num_first_ocur);
-  DEBUG_PRINT("Num shift dupl: %u\n"  , header.num_shift_dupl);
-  DEBUG_PRINT("Num prior chkpts: %u\n", header.num_prior_chkpts);
-  size_t data_size = static_cast<size_t>(chunk_size)*num_first_ocur;
-  STDOUT_PRINT("Number of bytes written for data: %lu\n", data_size);
-  DEBUG_PRINT("Trying to close file\n");
-  DEBUG_PRINT("Closed file\n");
-  uint64_t size_metadata = buffer_size - data_size;
-  return std::make_pair(data_size, size_metadata);
+  uint64_t size_metadata = buffer_size - datasize;
+  return std::make_pair(datasize, size_metadata);
 }
 
 /**
@@ -1047,6 +852,16 @@ restart_chkpt_list( std::vector<std::string>& chkpt_files,
   return std::make_pair(copy_time, restart_time);
 }
 
+ListDeduplicator::ListDeduplicator() {}
+
+ListDeduplicator::ListDeduplicator(uint32_t bytes_per_chunk) {
+  chunk_size = bytes_per_chunk;
+  current_id = 0;
+  baseline_id = 0;
+}
+
+ListDeduplicator::~ListDeduplicator() {}
+
 /**
  * Deduplicate provided data view using the list incremental checkpoint approach. 
  * Split data into chunks and compute hashes for each chunk. Compare each hash with 
@@ -1116,7 +931,7 @@ std::pair<uint64_t,uint64_t>
 ListDeduplicator::collect_diff( const uint8_t* data_ptr, 
                                 const size_t len,
                                 Kokkos::View<uint8_t*>& buffer_d, 
-                                header_t& header);
+                                header_t& header) {
   // Calculate number of chunks
   num_chunks = data_len/chunk_size;
   if(static_cast<uint64_t>(num_chunks)*static_cast<uint64_t>(chunk_size) < data_len) {
@@ -1907,9 +1722,9 @@ ListDeduplicator::checkpoint( header_t& header,
   }
   first_ocur_vec.clear();
   shift_dupl_vec.clear();
-  if(leaves.list_d.size() < num_chunks) {
-    Kokkos::resize(leaves.list_d, num_chunks);
-    Kokkos::resize(leaves.list_h, num_chunks);
+  if(list.list_d.size() < num_chunks) {
+    Kokkos::resize(list.list_d, num_chunks);
+    Kokkos::resize(list.list_h, num_chunks);
   }
   if(first_ocur_d.capacity() < first_ocur_d.size()+num_chunks)
     first_ocur_d.rehash(first_ocur_d.size()+num_chunks);
@@ -2085,7 +1900,7 @@ ListDeduplicator::write_chkpt_log(header_t& header,
             << chunk_size << "," 
             << datasizes.first << "," 
             << datasizes.second << ",";
-  write_metadata_breakdown(size_file, mode, header, diff_h, current_id);
+  write_metadata_breakdown(size_file, DedupMode::List, header, diff_h, current_id);
 }
 
 /**

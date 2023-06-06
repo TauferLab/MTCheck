@@ -38,14 +38,14 @@ int main(int argc, char** argv) {
     Kokkos::deep_copy(step0_d, step0_h);
     Kokkos::deep_copy(step1_d, step1_h);
     
-    Deduplicator deduplicator(1);
+    TreeDeduplicator deduplicator(1);
     std::vector< Kokkos::View<uint8_t*>::HostMirror > incr_chkpts;
 
     Kokkos::View<uint8_t*>::HostMirror diff_h("Buffer", 1);
 
     std::string correct = calculate_digest_host(step0_h);
 
-    deduplicator.checkpoint(Tree, (uint8_t*)(step0_d.data()), step0_d.size(), diff_h, true);
+    deduplicator.checkpoint((uint8_t*)(step0_d.data()), step0_d.size(), diff_h, true);
 
     Kokkos::fence();
 
@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
     Kokkos::View<uint8_t*> restart_buf_d("Restart buffer", 8);
     Kokkos::View<uint8_t*>::HostMirror restart_buf_h = Kokkos::create_mirror_view(restart_buf_d);
     std::string null("/dev/null/");
-    deduplicator.restart(Tree, restart_buf_d, incr_chkpts, null, 0);
+    deduplicator.restart(restart_buf_d, incr_chkpts, null, 0);
     Kokkos::deep_copy(restart_buf_h, restart_buf_d);
     std::string full_digest = calculate_digest_host(restart_buf_h);
     res = correct.compare(full_digest);
@@ -72,13 +72,13 @@ int main(int argc, char** argv) {
 
     Kokkos::fence();
 
-    deduplicator.checkpoint(Tree, (uint8_t*)(step1_d.data()), step1_d.size(), diff_h, false);
+    deduplicator.checkpoint((uint8_t*)(step1_d.data()), step1_d.size(), diff_h, false);
 
     Kokkos::fence();
 
     correct = calculate_digest_host(step1_h);
     incr_chkpts.push_back(diff_h);
-    deduplicator.restart(Tree, restart_buf_d, incr_chkpts, null, 1);
+    deduplicator.restart(restart_buf_d, incr_chkpts, null, 1);
     Kokkos::deep_copy(restart_buf_h, restart_buf_d);
     full_digest = calculate_digest_host(restart_buf_h);
     res = correct.compare(full_digest);
@@ -96,8 +96,8 @@ int main(int argc, char** argv) {
       return res;
 
     printf("Expected 1 first occurrence region and 2 shifted duplicate regions\n");
-    printf("Found %u first occurrence region and %u shifted duplicate regions\n", deduplicator.first_ocur_vec.size(), deduplicator.shift_dupl_vec.size());
-    if(deduplicator.first_ocur_vec.size() != 1 || deduplicator.shift_dupl_vec.size() != 2) {
+    printf("Found %lu first occurrence region and %lu shifted duplicate regions\n", deduplicator.num_first_ocur(), deduplicator.num_shift_dupl());
+    if(deduplicator.num_first_ocur() != 1 || deduplicator.num_shift_dupl() != 2) {
       res = -1;
     }
   }
