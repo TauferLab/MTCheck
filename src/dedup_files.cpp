@@ -51,15 +51,15 @@ int main(int argc, char** argv) {
     DEBUG_PRINT("Number of checkpoints: %u\n", num_chkpts);
 
 //    Deduplicator deduplicator(chunk_size);
-    Deduplicator* deduplicator;
+    BaseDeduplicator* deduplicator;
     if(mode == Full) {
-      deduplicator = reinterpret_cast<Deduplicator*>(new FullDeduplicator(chunk_size));
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new FullDeduplicator(chunk_size));
     } else if(mode == Basic) {
-      deduplicator = reinterpret_cast<Deduplicator*>(new BasicDeduplicator(chunk_size));
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new BasicDeduplicator(chunk_size));
     } else if(mode == List) {
-      deduplicator = reinterpret_cast<Deduplicator*>(new ListDeduplicator(chunk_size));
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new ListDeduplicator(chunk_size));
     } else {
-      deduplicator = reinterpret_cast<Deduplicator*>(new TreeDeduplicator(chunk_size));
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new TreeDeduplicator(chunk_size));
     }
     // Iterate through num_chkpts
     for(uint32_t idx=0; idx<num_chkpts; idx++) {

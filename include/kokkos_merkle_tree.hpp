@@ -1,12 +1,12 @@
 #ifndef KOKKOS_MERKLE_TREE_HPP
 #define KOKKOS_MERKLE_TREE_HPP
 #include <Kokkos_Core.hpp>
-#include <Kokkos_UnorderedMap.hpp>
-#include <Kokkos_ScatterView.hpp>
-#include <climits>
+//#include <Kokkos_UnorderedMap.hpp>
+//#include <Kokkos_ScatterView.hpp>
+//#include <climits>
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
-#include <iostream>
+//#include <iostream>
 #include "utils.hpp"
 
 /** \class Merkle Tree class

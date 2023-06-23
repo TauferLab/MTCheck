@@ -9,6 +9,7 @@
 #include "map_helpers.hpp"
 #include "kokkos_merkle_tree.hpp"
 #include "kokkos_hash_list.hpp"
+#include "kokkos_vector.hpp"
 #include "utils.hpp"
 
 template<typename DataView>
@@ -28,13 +29,6 @@ int dedup_low_offset_ref(DataView& data_d,
   DigestNodeIDHostMap first_occur_h(first_occur_d.capacity());
   Kokkos::deep_copy(first_occur_h, first_occur_d);
 
-//  IdxNodeIDHostMap shift_dupl_map_h(shift_dupl_map_d.capacity());
-//  IdxNodeIDHostMap first_ocur_map_h(first_ocur_map_d.capacity());
-
-//  const char FIRST_OCUR = 0;
-//  const char FIXED_DUPL = 1;
-//  const char SHIFT_DUPL = 2;
-//  const char DONE = 4;
   uint64_t chunk_counters[4]  = {0,0,0,0};
   uint64_t region_counters[4] = {0,0,0,0};
   uint32_t num_chunks = (tree.tree_h.extent(0)+1)/2;
@@ -116,21 +110,14 @@ int dedup_low_offset_ref(DataView& data_d,
     uint32_t root = *set_iter;
     if(labels[root] != DONE) {
       region_counters[labels[root]] += 1;
-//      NodeID node = first_occur_h.value_at(first_occur_h.find(curr_tree(root)));
       if(labels[root] == FIRST_OCUR) {
         first_ocur_vec.host_push(root);
-//        first_ocur_map_h.insert(root, node);
-//printf("%u FIRST_OCUR\n", root);
       } else if(labels[root] == SHIFT_DUPL) {
         shift_dupl_vec.host_push(root);
-//        shift_dupl_map_h.insert(root, node);
-//printf("%u SHIFT_DUPL\n", root);
       }
     }
   }
 
-//  Kokkos::deep_copy(shift_dupl_map_d, shift_dupl_map_h);
-//  Kokkos::deep_copy(first_ocur_map_d, first_ocur_map_h);
   Kokkos::deep_copy(tree.tree_d, curr_tree);
   Kokkos::deep_copy(first_occur_d, first_occur_h);
 

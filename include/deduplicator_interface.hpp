@@ -1,9 +1,9 @@
 #ifndef DEDUPLICATOR_INTERFACE_HPP
 #define DEDUPLICATOR_INTERFACE_HPP
 #include <Kokkos_Core.hpp>
-#include <Kokkos_Random.hpp>
-#include <Kokkos_UnorderedMap.hpp>
-#include <Kokkos_Bitset.hpp>
+//#include <Kokkos_Random.hpp>
+//#include <Kokkos_UnorderedMap.hpp>
+//#include <Kokkos_Bitset.hpp>
 #include <string>
 #include <vector>
 #include <fstream>

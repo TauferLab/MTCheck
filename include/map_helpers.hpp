@@ -3,7 +3,6 @@
 #include <Kokkos_Core.hpp>
 #include <Kokkos_UnorderedMap.hpp>
 #include <climits>
-#include "kokkos_vector.hpp"
 
 struct alignas(16) HashDigest {
   uint8_t digest[16];

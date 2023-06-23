@@ -68,7 +68,17 @@ int main(int argc, char** argv) {
     DEBUG_PRINT("Read checkpoint files\n");
     DEBUG_PRINT("Number of checkpoints: %u\n", num_chkpts);
 
-    Deduplicator deduplicator(chunk_size);
+//    Deduplicator deduplicator(chunk_size);
+    BaseDeduplicator* deduplicator;
+    if(mode == Full) {
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new FullDeduplicator(chunk_size));
+    } else if(mode == Basic) {
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new BasicDeduplicator(chunk_size));
+    } else if(mode == List) {
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new ListDeduplicator(chunk_size));
+    } else {
+      deduplicator = reinterpret_cast<BaseDeduplicator*>(new TreeDeduplicator(chunk_size));
+    }
     // Iterate through num_chkpts
     for(uint32_t idx=0; idx<num_chkpts; idx++) {
       // Open file and read/calc important values
@@ -93,14 +103,31 @@ int main(int argc, char** argv) {
       std::string filename = full_chkpt_files[idx];
       if(mode == Full) {
         filename = filename + ".full_chkpt";
+        FullDeduplicator* full_deduplicator = reinterpret_cast<FullDeduplicator*>(deduplicator);
+        full_deduplicator->checkpoint((uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       } else if(mode == Basic) {
         filename = filename + ".basic.incr_chkpt";
+        BasicDeduplicator* basic_deduplicator = reinterpret_cast<BasicDeduplicator*>(deduplicator);
+        basic_deduplicator->checkpoint((uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       } else if(mode == List) {
         filename = filename + ".hashlist.incr_chkpt";
+        ListDeduplicator* list_deduplicator = reinterpret_cast<ListDeduplicator*>(deduplicator);
+        list_deduplicator->checkpoint((uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       } else {
         filename = filename + ".hashtree.incr_chkpt";
+        TreeDeduplicator* tree_deduplicator = reinterpret_cast<TreeDeduplicator*>(deduplicator);
+        tree_deduplicator->checkpoint((uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       }
-      deduplicator.checkpoint(mode, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
+//      if(mode == Full) {
+//        filename = filename + ".full_chkpt";
+//      } else if(mode == Basic) {
+//        filename = filename + ".basic.incr_chkpt";
+//      } else if(mode == List) {
+//        filename = filename + ".hashlist.incr_chkpt";
+//      } else {
+//        filename = filename + ".hashtree.incr_chkpt";
+//      }
+//      deduplicator.checkpoint(mode, (uint8_t*)(current.data()), current.size(), filename, logname, idx==0);
       Kokkos::fence();
     }
   }

@@ -12,6 +12,7 @@
 #include <vector>
 #include <utility>
 #include "kokkos_hash_list.hpp"
+#include "kokkos_vector.hpp"
 #include "hash_functions.hpp"
 #include "map_helpers.hpp"
 #include "utils.hpp"
@@ -195,87 +196,5 @@ class ListDeduplicator : public BaseDeduplicator {
     void write_restart_log(uint32_t select_chkpt, 
                            std::string& logname) override;
 };
-
-
-/**
- * Deduplicate provided data view using the list incremental checkpoint approach. 
- * Split data into chunks and compute hashes for each chunk. Compare each hash with 
- * the hash at the same offset. If the hash has never been seen, save the chunk.
- * If the hash has been seen before, mark it as a shifted duplicate and save metadata.
- *
- * \param list          List of hashes for identifying differences
- * \param list_id       ID of current checkpoint
- * \param data          View of data for deduplicating
- * \param chunk_size    Size in bytes for splitting data into chunks
- * \param first_occur_d Map for tracking first occurrence hashes
- * \param first_ocur    Vector of first occurrence chunks
- * \param shift_dupl    Vector of shifted duplicate chunks
- */
-void dedup_data_list( const HashList& list, 
-                      const uint32_t list_id, 
-                      const uint8_t* data_ptr, 
-                      const size_t data_size, 
-                      const uint32_t chunk_size, 
-                      DigestNodeIDDeviceMap& first_occur_d,
-                      Vector<uint32_t> first_ocur,
-                      Vector<uint32_t> shift_dupl);
-
-/**
- * Gather the scattered chunks for the diff and write the checkpoint to a contiguous buffer.
- *
- * \param data           Data View containing data to deduplicate
- * \param buffer_d       View to store the diff in
- * \param chunk_size     Size of chunks in bytes
- * \param list           List of hash digests
- * \param first_occur_d  Map for tracking first occurrence hashes
- * \param first_ocur     Vector of first occurrence chunks
- * \param shift_dupl     Vector of shifted duplicate chunks
- * \param prior_chkpt_id ID of the last checkpoint
- * \param chkpt_id       ID for the current checkpoint
- * \param header         Incremental checkpoint header
- *
- * \return Pair containing amount of data and metadata in the checkpoint
- */
-std::pair<uint64_t,uint64_t> 
-write_diff_list(
-                const uint8_t* data_ptr, 
-                const size_t data_size, 
-                Kokkos::View<uint8_t*>& buffer_d, 
-                uint32_t chunk_size, 
-                const HashList& list, 
-                const DigestNodeIDDeviceMap& first_occur_d, 
-                Vector<uint32_t>& first_ocur,
-                Vector<uint32_t>& shift_dupl,
-                uint32_t prior_chkpt_id,
-                uint32_t chkpt_id,
-                header_t& header);
-
-/**
- * Restart data from incremental checkpoints stored in Kokkos Views on the host.
- *
- * \param incr_chkpts Vector of Host Views containing the diffs
- * \param chkpt_idx   ID of which checkpoint to restart
- * \param data        View for restarting the checkpoint to
- *
- * \return Time spent copying incremental checkpoints from host to device and restarting data
- */
-std::pair<double,double>
-restart_chkpt_list( std::vector<Kokkos::View<uint8_t*>::HostMirror >& incr_chkpts,
-                    const int chkpt_idx, 
-                    Kokkos::View<uint8_t*>& data);
-
-/**
- * Restart data from incremental checkpoints stored in files.
- *
- * \param incr_chkpts Vector of filenames containing the diffs
- * \param chkpt_idx   ID of which checkpoint to restart
- * \param data        View for restarting the checkpoint to
- *
- * \return Time spent copying incremental checkpoints from host to device and restarting data
- */
-std::pair<double,double>
-restart_chkpt_list( std::vector<std::string>& chkpt_files,
-                        const int file_idx, 
-                        Kokkos::View<uint8_t*>& data);
 
 #endif // LIST_APPROACH_HPP

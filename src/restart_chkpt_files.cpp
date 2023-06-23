@@ -97,8 +97,10 @@ int main(int argc, char** argv) {
           chkpts.push_back(chkpt);
         }
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator deduplicator(chunk_size);
-        deduplicator.restart(Full, reference_d, chkpts, logname, select_chkpt);
+//        Deduplicator deduplicator(chunk_size);
+//        deduplicator.restart(Full, reference_d, chkpts, logname, select_chkpt);
+        FullDeduplicator deduplicator(chunk_size);
+        deduplicator.restart(reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);
@@ -124,8 +126,10 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator deduplicator(chunk_size);
-        deduplicator.restart(Basic, reference_d, chkpts, logname, select_chkpt);
+//        Deduplicator deduplicator(chunk_size);
+//        deduplicator.restart(Basic, reference_d, chkpts, logname, select_chkpt);
+        BasicDeduplicator deduplicator(chunk_size);
+        deduplicator.restart(reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);
@@ -151,8 +155,10 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator deduplicator(chunk_size);
-        deduplicator.restart(List, reference_d, chkpts, logname, select_chkpt);
+//        Deduplicator deduplicator(chunk_size);
+//        deduplicator.restart(List, reference_d, chkpts, logname, select_chkpt);
+        ListDeduplicator deduplicator(chunk_size);
+        deduplicator.restart(reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);
@@ -178,8 +184,10 @@ int main(int argc, char** argv) {
         }
 
         std::string logname = chkpt_files_trim[select_chkpt];
-        Deduplicator deduplicator(chunk_size);
-        deduplicator.restart(mode, reference_d, chkpts, logname, select_chkpt);
+//        Deduplicator deduplicator(chunk_size);
+//        deduplicator.restart(mode, reference_d, chkpts, logname, select_chkpt);
+        TreeDeduplicator deduplicator(chunk_size);
+        deduplicator.restart(reference_d, chkpts, logname, select_chkpt);
 #ifdef VERIFY_OUTPUT
         Kokkos::deep_copy(reference_h, reference_d);
         std::string digest = calculate_digest_host(reference_h);
