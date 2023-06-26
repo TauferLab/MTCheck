@@ -46,7 +46,7 @@ int dedup_low_offset_ref(DataView& data_d,
     if(leaf == num_nodes-1) // Calculate how much data to hash
       num_bytes = data_h.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
-    MD5(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
+    hash(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
     // Insert into table
     auto result = first_occur_h.insert(curr_tree(leaf), NodeID(leaf, chkpt_id)); 
     if(digests_same(prev_tree(leaf), curr_tree(leaf))) { // Fixed duplicate chunk
@@ -76,7 +76,7 @@ int dedup_low_offset_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
       labels[node] = FIRST_OCUR;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
     }
   }
@@ -92,7 +92,7 @@ int dedup_low_offset_ref(DataView& data_d,
     } else if(labels[child_l] == FIXED_DUPL) { // Children are both fixed duplicates
       labels[node] = FIXED_DUPL;
     } else if(labels[child_l] == SHIFT_DUPL) { // Children are both shifted duplicates
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_occur_h.exists(curr_tree(node))) { // This node is also a shifted duplicate
         labels[node] = SHIFT_DUPL;
       } else { // Node is not a shifted duplicate. Save child trees
@@ -172,7 +172,7 @@ int dedup_low_offset_ref(DataView& data_d,
     if(leaf == num_nodes-1) // Calculate how much data to hash
       num_bytes = data_h.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
-    MD5(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
+    hash(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
     // Insert into table
     auto result = first_occur_h.insert(curr_tree(leaf), NodeID(leaf, chkpt_id)); 
     if(digests_same(prev_tree(leaf), curr_tree(leaf))) { // Fixed duplicate chunk
@@ -202,7 +202,7 @@ int dedup_low_offset_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
       labels[node] = FIRST_OCUR;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
     }
   }
@@ -218,7 +218,7 @@ int dedup_low_offset_ref(DataView& data_d,
     } else if(labels[child_l] == FIXED_DUPL) { // Children are both fixed duplicates
       labels[node] = FIXED_DUPL;
     } else if(labels[child_l] == SHIFT_DUPL) { // Children are both shifted duplicates
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_occur_h.exists(curr_tree(node))) { // This node is also a shifted duplicate
         labels[node] = SHIFT_DUPL;
       } else { // Node is not a shifted duplicate. Save child trees
@@ -304,7 +304,7 @@ int dedup_low_root_ref(DataView& data_d,
     if(leaf == num_nodes-1) // Calculate how much data to hash
       num_bytes = data_h.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
-    MD5(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
+    hash(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
     // Insert into table
     if(digests_same(prev_tree(leaf), curr_tree(leaf))) { // Fixed duplicate chunk
       labels[leaf] = FIXED_DUPL;
@@ -330,7 +330,7 @@ int dedup_low_root_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if((labels[child_l] == FIRST_DUPL) && (labels[child_r] == FIRST_DUPL)) {
       labels[node] = FIRST_DUPL;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_ocur_dupl.find(digest_to_str(curr_tree(node))) == first_ocur_dupl.end()) {
         // Add new entry to table
         std::vector<uint32_t> entry;
@@ -404,7 +404,7 @@ int dedup_low_root_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
       labels[node] = FIRST_OCUR;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       auto res = first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
       if(res.existing()) {
         auto& entry = first_occur_h.value_at(res.index());
@@ -427,7 +427,7 @@ int dedup_low_root_ref(DataView& data_d,
     } else if(labels[child_l] == FIXED_DUPL) { // Children are both fixed duplicates
       labels[node] = FIXED_DUPL;
     } else if(labels[child_l] == SHIFT_DUPL) { // Children are both shifted duplicates
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_occur_h.exists(curr_tree(node))) { // This node is also a shifted duplicate
         labels[node] = SHIFT_DUPL;
       } else { // Node is not a shifted duplicate. Save child trees
@@ -513,7 +513,7 @@ int dedup_low_root_ref(DataView& data_d,
     if(leaf == num_nodes-1) // Calculate how much data to hash
       num_bytes = data_h.size()-(leaf-(num_chunks-1))*chunk_size;
     // Hash chunk
-    MD5(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
+    hash(data_h.data()+(leaf-(num_chunks-1))*chunk_size, num_bytes, curr_tree(leaf).digest);
     // Insert into table
     if(digests_same(prev_tree(leaf), curr_tree(leaf))) { // Fixed duplicate chunk
       labels[leaf] = FIXED_DUPL;
@@ -539,7 +539,7 @@ int dedup_low_root_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if((labels[child_l] == FIRST_DUPL) && (labels[child_r] == FIRST_DUPL)) {
       labels[node] = FIRST_DUPL;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_ocur_dupl.find(digest_to_str(curr_tree(node))) == first_ocur_dupl.end()) {
         // Add new entry to table
         std::vector<uint32_t> entry;
@@ -613,7 +613,7 @@ int dedup_low_root_ref(DataView& data_d,
     uint32_t child_r = 2*node+2;
     if(labels[child_l] == FIRST_OCUR && labels[child_r] == FIRST_OCUR) {
       labels[node] = FIRST_OCUR;
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       auto res = first_occur_h.insert(curr_tree(node), NodeID(node, chkpt_id));
       if(res.existing()) {
         auto& entry = first_occur_h.value_at(res.index());
@@ -636,7 +636,7 @@ int dedup_low_root_ref(DataView& data_d,
     } else if(labels[child_l] == FIXED_DUPL) { // Children are both fixed duplicates
       labels[node] = FIXED_DUPL;
     } else if(labels[child_l] == SHIFT_DUPL) { // Children are both shifted duplicates
-      MD5((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
+      hash((uint8_t*)&curr_tree(child_l), 2*sizeof(HashDigest), curr_tree(node).digest);
       if(first_occur_h.exists(curr_tree(node))) { // This node is also a shifted duplicate
         labels[node] = SHIFT_DUPL;
       } else { // Node is not a shifted duplicate. Save child trees

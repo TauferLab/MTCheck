@@ -52,7 +52,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
   Vector<uint32_t> tree_roots(num_chunks);
 
   // Process leaves first
-  Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
+  Kokkos::parallel_for("Leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_CLASS_LAMBDA(const uint32_t leaf) {
     auto chunk_counters_sa = chunk_counters_sv.access();
     uint32_t num_bytes = chunk_size;
     uint64_t offset = static_cast<uint64_t>(leaf-(num_chunks-1))*static_cast<uint64_t>(chunk_size);
@@ -89,7 +89,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
     level_end = 2*level_end + 2;
   }
   while(level_beg <= num_nodes) { // Intensional unsigned integer underflow
-    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
         uint32_t child_r = 2*node+2;
@@ -125,7 +125,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
   Kokkos::View<uint32_t*> num_duplicates("Number of duplicates", first_occurrences.size()+1);
   Kokkos::deep_copy(num_duplicates, 0);
   Kokkos::deep_copy(hash_id_counter, 0);
-  Kokkos::parallel_for("Create id map", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Create id map", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     if(first_occurrences.valid_at(i)) {
       uint32_t& old_id = first_occurrences.value_at(i);
       uint32_t new_id = Kokkos::atomic_fetch_add(&hash_id_counter(0), static_cast<uint32_t>(1));
@@ -133,7 +133,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
       old_id = new_id;
     }
   });
-  Kokkos::parallel_for("Update keys", Kokkos::RangePolicy<>(0, num_first_occur), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Update keys", Kokkos::RangePolicy<>(0, num_first_occur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     uint32_t old_id = dupl_keys(i);
     uint32_t new_id = id_map.value_at(id_map.find(old_id));
     dupl_keys(i) = new_id;
@@ -151,13 +151,13 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
   bin_sort.sort(duplicates);
 
   uint32_t total_duplicates = 0;
-  Kokkos::parallel_scan("Find vector offsets", Kokkos::RangePolicy<>(0,num_duplicates.size()), KOKKOS_LAMBDA(uint32_t i, uint32_t& partial_sum, bool is_final) {
+  Kokkos::parallel_scan("Find vector offsets", Kokkos::RangePolicy<>(0,num_duplicates.size()), KOKKOS_CLASS_LAMBDA(uint32_t i, uint32_t& partial_sum, bool is_final) {
     uint32_t num = num_duplicates(i);
     if(is_final) num_duplicates(i) = partial_sum;
     partial_sum += num;
   }, total_duplicates);
 
-  Kokkos::parallel_for("Remove roots with duplicate leaves", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Remove roots with duplicate leaves", Kokkos::RangePolicy<>(0, first_occurrences.capacity()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     if(first_occurrences.valid_at(i)) {
       uint32_t id = first_occurrences.value_at(i);
       if(num_duplicates(id+1)-num_duplicates(id) > 1) {
@@ -185,7 +185,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
     }
   });
 
-  Kokkos::parallel_for("Select first occurrence leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t node) {
+  Kokkos::parallel_for("Select first occurrence leaves", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
     if(labels(node) == FIRST_DUPL) {
       auto chunk_counters_sa = chunk_counters_sv.access();
       uint32_t id = first_occurrences.value_at(first_occurrences.find(tree(node)));
@@ -221,7 +221,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
     level_end = 2*level_end + 2;
   }
   while(level_beg <= num_nodes) { // Intensional unsigned integer underflow
-    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
         uint32_t child_r = 2*node+2;
@@ -244,7 +244,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
     level_end = 2*level_end + 2;
   }
   while(level_beg <= num_nodes) { // unsigned integer underflow
-    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
       auto region_counters_sa = region_counters_sv.access();
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
@@ -279,7 +279,7 @@ TreeLowRootDeduplicator::dedup_data_low_root(const uint8_t* data_ptr,
   }
 
   // Count regions
-  Kokkos::parallel_for("Count regions", Kokkos::RangePolicy<>(0,tree_roots.size()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Count regions", Kokkos::RangePolicy<>(0,tree_roots.size()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     auto chunk_counters_sa = chunk_counters_sv.access();
     auto region_counters_sa = region_counters_sv.access();
     uint32_t root = tree_roots.vector_d(i);

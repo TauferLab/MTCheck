@@ -22,7 +22,7 @@ BasicDeduplicator::dedup_data(const uint8_t* data_ptr, const size_t len) {
   // Parallelization policy. Split chunks amoung teams of threads
   using member_type = Kokkos::TeamPolicy<>::member_type;
   Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>((num_chunks/TEAM_SIZE)+1, TEAM_SIZE);
-  Kokkos::parallel_for("Dedup chunks", team_policy, KOKKOS_LAMBDA(member_type team_member) {
+  Kokkos::parallel_for("Dedup chunks", team_policy, KOKKOS_CLASS_LAMBDA(member_type team_member) {
     uint32_t i=team_member.league_rank();
     uint32_t j=team_member.team_rank();
     uint32_t idx = i*team_member.team_size()+j;
@@ -76,13 +76,13 @@ BasicDeduplicator::collect_diff( const uint8_t* data_ptr,
   // Get offset for start of data section
   size_t data_offset = static_cast<size_t>(changes_bitset.count())*sizeof(uint32_t);
 
-  STDOUT_PRINT("Changes: %u\n", changes.count());
+  STDOUT_PRINT("Changes: %u\n", changes_bitset.count());
   STDOUT_PRINT("Buffer size: %lu\n", buffer_size);
 
   // Gather chunks and form diff in parallel
   auto policy = Kokkos::TeamPolicy<>(changes_bitset.size(), Kokkos::AUTO());
   Kokkos::parallel_for("Make incremental checkpoint", policy, 
-                       KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+                       KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
     // Test if chunk has changed
     if(changes_bitset.test(i)) { 
@@ -212,7 +212,7 @@ BasicDeduplicator::restart_chkpt( std::vector<Kokkos::View<uint8_t*>::HostMirror
   Kokkos::fence();
 
   // Load any first occurrences
-  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+  Kokkos::parallel_for("Restart Hashlist first occurrence", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
     uint64_t src_offset = static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size);
     uint32_t node=0;
@@ -235,7 +235,7 @@ BasicDeduplicator::restart_chkpt( std::vector<Kokkos::View<uint8_t*>::HostMirror
   });
 
   // Mark any untouched entries as unchanged
-  Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     NodeID entry = node_list(i);
     if(entry.node == UINT_MAX) {
       node_list(i) = NodeID(i, cur_id-1);
@@ -281,7 +281,7 @@ BasicDeduplicator::restart_chkpt( std::vector<Kokkos::View<uint8_t*>::HostMirror
     // Insert all first occurrences into map
     distinct_map.clear();
     distinct_map.rehash(chkpt_header.num_first_ocur);
-    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, metadata_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
       distinct_map.insert(NodeID(node,cur_id), static_cast<uint64_t>(i)*static_cast<uint64_t>(chunk_size));
@@ -290,7 +290,7 @@ BasicDeduplicator::restart_chkpt( std::vector<Kokkos::View<uint8_t*>::HostMirror
     // Restart first occurrences
     using TeamMember = Kokkos::TeamPolicy<>::member_type;
     auto chunk_policy = Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO());
-    Kokkos::parallel_for("Restart Hashlist first occurrence", chunk_policy, KOKKOS_LAMBDA(const TeamMember& team_member) {
+    Kokkos::parallel_for("Restart Hashlist first occurrence", chunk_policy, KOKKOS_CLASS_LAMBDA(const TeamMember& team_member) {
       uint32_t i = team_member.league_rank();
       if(node_list(i).tree == cur_id) {
         NodeID id = node_list(i);
@@ -383,7 +383,7 @@ BasicDeduplicator::restart_chkpt( std::vector<std::string>& chkpt_files,
   STDOUT_PRINT("Data offset: %lu\n", data_offset);
 
   Kokkos::UnorderedMap<NodeID, size_t> distinct_map(num_first_ocur);
-  Kokkos::parallel_for("Restart Hashlist distinct", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Restart Hashlist distinct", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     uint32_t node;
     memcpy(&node, distinct.data() + i*sizeof(uint32_t),  sizeof(uint32_t));
     node_list(node) = NodeID(node,cur_id);
@@ -392,7 +392,7 @@ BasicDeduplicator::restart_chkpt( std::vector<std::string>& chkpt_files,
       datasize = datalen - node*chunk_size;
     memcpy(data.data()+chunk_size*node, data_subview.data()+i*chunk_size, datasize);
   });
-  Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for("Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     NodeID entry = node_list(i);
     if(entry.node == UINT_MAX) {
       node_list(i) = NodeID(i, cur_id-1);
@@ -435,13 +435,13 @@ BasicDeduplicator::restart_chkpt( std::vector<std::string>& chkpt_files,
 
     distinct_map.clear();
     distinct_map.rehash(chkpt_header.num_first_ocur);
-    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Fill distinct map", Kokkos::RangePolicy<>(0, chkpt_header.num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, distinct.data()+i*sizeof(uint32_t), sizeof(uint32_t));
       distinct_map.insert(NodeID(node,cur_id), i*chunk_size);
     });
 
-    Kokkos::parallel_for("Fill data middle chkpts", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Fill data middle chkpts", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       if(node_list(i).tree == cur_id) {
         NodeID id = node_list(i);
         if(distinct_map.exists(id)) {

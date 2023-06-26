@@ -55,7 +55,7 @@ TreeDeduplicator::dedup_data_baseline(const uint8_t* data_ptr,
   using member_type = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type;
   Kokkos::TeamPolicy<> team_policy = Kokkos::TeamPolicy<>(((num_nodes-num_chunks+1)/TEAM_SIZE)+1, TEAM_SIZE);
   Kokkos::parallel_for("Baseline: Leaves", team_policy, 
-  KOKKOS_LAMBDA(member_type team_member) {
+  KOKKOS_CLASS_LAMBDA(member_type team_member) {
     uint64_t i=team_member.league_rank();
     uint64_t j=team_member.team_rank();
     uint64_t leaf = num_chunks-1+i*team_member.team_size()+j;
@@ -97,7 +97,7 @@ TreeDeduplicator::dedup_data_baseline(const uint8_t* data_ptr,
    * Identify first occurrences for leaves. In the case of duplicate hash, 
    * select the chunk with the lowest index.
    */
-  Kokkos::parallel_for("Baseline: Leaves: Choose first occurrences", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
+  Kokkos::parallel_for("Baseline: Leaves: Choose first occurrences", Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_CLASS_LAMBDA(const uint32_t leaf) {
 #ifdef STATS
     auto chunk_counters_sa = chunk_counters_sv.access();
     auto region_counters_sa = region_counters_sv.access();
@@ -122,7 +122,7 @@ TreeDeduplicator::dedup_data_baseline(const uint8_t* data_ptr,
   }
   // Iterate through each level of tree and build First occurrence trees
   while(level_beg <= num_nodes) { // Intentional unsigned integer underflow
-    Kokkos::parallel_for("Baseline: Build First Occurrence Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Baseline: Build First Occurrence Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
         uint32_t child_r = 2*node+2;
@@ -153,7 +153,7 @@ TreeDeduplicator::dedup_data_baseline(const uint8_t* data_ptr,
   }
   // Iterate through each level of tree and build shifted duplicate trees
   while(level_beg <= num_nodes) { // unsigned integer underflow
-    Kokkos::parallel_for("Baseline: Build Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Baseline: Build Forest", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
 #ifdef STATS
       auto region_counters_sa = region_counters_sv.access();
       auto first_region_sizes_sa = first_region_sizes_sv.access();
@@ -215,7 +215,7 @@ TreeDeduplicator::dedup_data_baseline(const uint8_t* data_ptr,
       }
     });
     // Insert digests into map
-    Kokkos::parallel_for("Baseline: Build Forest: Insert entries", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for("Baseline: Build Forest: Insert entries", Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
       if(node < num_chunks-1) {
         uint32_t child_l = 2*node+1;
         hash((uint8_t*)&tree(child_l), 2*sizeof(HashDigest), tree(node).digest);
@@ -306,7 +306,7 @@ TreeDeduplicator::dedup_data(const uint8_t* data_ptr,
   std::string leaves_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Leaves");
   using member_type = Kokkos::TeamPolicy<Kokkos::DefaultExecutionSpace>::member_type;
   auto team_policy = Kokkos::TeamPolicy<>(((num_nodes-num_chunks+1)/TEAM_SIZE)+1, TEAM_SIZE);
-  Kokkos::parallel_for(leaves_label, team_policy, KOKKOS_LAMBDA(member_type team_member) {
+  Kokkos::parallel_for(leaves_label, team_policy, KOKKOS_CLASS_LAMBDA(member_type team_member) {
     uint64_t i=team_member.league_rank();
     uint64_t j=team_member.team_rank();
 #ifdef STATS
@@ -353,7 +353,7 @@ TreeDeduplicator::dedup_data(const uint8_t* data_ptr,
   // TODO May not be necessary
   // Ensure any duplicate first occurrences are labeled correctly
   std::string leaves_first_ocur_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Leaves: Choose first occurrences");
-  Kokkos::parallel_for(leaves_first_ocur_label, Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_LAMBDA(const uint32_t leaf) {
+  Kokkos::parallel_for(leaves_first_ocur_label, Kokkos::RangePolicy<>(num_chunks-1, num_nodes), KOKKOS_CLASS_LAMBDA(const uint32_t leaf) {
     if(labels(leaf) == FIRST_OCUR) {
 #ifdef STATS
       auto chunk_counters_sa = chunk_counters_sv.access();
@@ -377,7 +377,7 @@ TreeDeduplicator::dedup_data(const uint8_t* data_ptr,
   }
   while(level_beg <= num_nodes) { // Intensional unsigned integer underflow
     std::string first_ocur_forest_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Build First Occurrence Forest");
-    Kokkos::parallel_for(first_ocur_forest_label, Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for(first_ocur_forest_label, Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
 #ifdef STATS
       auto region_counters_sa = region_counters_sv.access();
 #endif
@@ -412,7 +412,7 @@ TreeDeduplicator::dedup_data(const uint8_t* data_ptr,
   }
   while(level_beg <= num_nodes) { // unsigned integer underflow
     std::string forest_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Build Forest");
-    Kokkos::parallel_for(forest_label, Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_LAMBDA(const uint32_t node) {
+    Kokkos::parallel_for(forest_label, Kokkos::RangePolicy<>(level_beg, level_end+1), KOKKOS_CLASS_LAMBDA(const uint32_t node) {
 #ifdef STATS
       auto region_counters_sa = region_counters_sv.access();
       auto first_region_sizes_sa = first_region_sizes_sv.access();
@@ -543,7 +543,7 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
   // Filter and count space used for distinct entries
   // Calculate number of chunks each entry maps to
   std::string count_first_ocur_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Count first ocur bytes");
-  Kokkos::parallel_for(count_first_ocur_label, Kokkos::RangePolicy<>(0, first_ocur_vec.size()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(count_first_ocur_label, Kokkos::RangePolicy<>(0, first_ocur_vec.size()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node = first_ocur_vec(i);
       NodeID prev = first_ocur_d.value_at(first_ocur_d.find(tree(node)));
       if(node == prev.node && current_id == prev.tree) {
@@ -571,7 +571,7 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
   // Calculate space needed for repeat entries and number of entries per checkpoint
   Kokkos::RangePolicy<> shared_range_policy(0, shift_dupl_vec.size());
   std::string count_shift_dupl_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Count shift dupl bytes");
-  Kokkos::parallel_for(count_shift_dupl_label, shared_range_policy, KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(count_shift_dupl_label, shared_range_policy, KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node = shift_dupl_vec(i);
       NodeID prev = first_ocur_d.value_at(first_ocur_d.find(tree(node)));
       auto prior_counter_sa = prior_counter_sv.access();
@@ -599,14 +599,14 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
   // Dividers for distinct chunks. Number of chunks per region varies.
   // Need offsets for each region so that writes can be done in parallel
   std::string calc_offsets_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Calculate offsets");
-  Kokkos::parallel_scan(calc_offsets_label, num_distinct, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+  Kokkos::parallel_scan(calc_offsets_label, num_distinct, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
     const uint32_t len = region_len(i);
     if(is_final) region_len(i) = partial_sum;
     partial_sum += len;
   });
 
   std::string find_region_leaves_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Find region leaves");
-  Kokkos::parallel_for(find_region_leaves_label, Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(find_region_leaves_label, Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     uint32_t offset = region_len(i);
     uint32_t node = region_nodes(i);
     uint32_t size = num_leaf_descendents(node, num_nodes);
@@ -627,14 +627,14 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
   Kokkos::Profiling::popRegion();
 
   std::string copy_fo_metadata_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Copy first ocur metadata");
-  Kokkos::parallel_for(copy_fo_metadata_label, Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(copy_fo_metadata_label, Kokkos::RangePolicy<>(0,num_distinct), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     uint32_t node = region_nodes(i);
     memcpy(buffer_d.data()+sizeof(header_t)+static_cast<uint64_t>(i)*sizeof(uint32_t), &node, sizeof(uint32_t));
   });
 
   std::string copy_data_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Copy data");
   Kokkos::parallel_for(copy_data_label, Kokkos::TeamPolicy<>(chunk_counter_h(0), Kokkos::AUTO), 
-                         KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+                         KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
     uint32_t i = team_member.league_rank();
     uint32_t chunk = region_leaves(i);
     uint32_t writesize = chunk_size;
@@ -654,7 +654,7 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
   // Write Repeat map for recording how many entries per checkpoint
   // (Checkpoint ID, # of entries)
   std::string write_repeat_count_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Write repeat count");
-  Kokkos::parallel_for(write_repeat_count_label, prior_counter_d.size(), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(write_repeat_count_label, prior_counter_d.size(), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     if(prior_counter_d(i) > 0) {
       uint32_t num_repeats_i = static_cast<uint32_t>(prior_counter_d(i));
       size_t pos = Kokkos::atomic_fetch_add(&counter_d(0), 2*sizeof(uint32_t));
@@ -669,7 +669,7 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
 
   Kokkos::View<uint32_t*> current_id_keys("Source checkpoint IDs", shift_dupl_vec.size());
   std::string create_keys_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Create current_id_keys");
-  Kokkos::parallel_for(create_keys_label, Kokkos::RangePolicy<>(0,shift_dupl_vec.size()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(create_keys_label, Kokkos::RangePolicy<>(0,shift_dupl_vec.size()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     NodeID info = first_ocur_d.value_at(first_ocur_d.find(tree(shift_dupl_vec(i))));
     current_id_keys(i) = info.tree;
   });
@@ -688,7 +688,7 @@ TreeDeduplicator::collect_diff( const uint8_t* data_ptr,
 
   // Write repeat entries
   std::string copy_metadata_label = std::string("Checkpoint ") + std::to_string(current_id) + std::string(": Gather: Write repeat metadata");
-  Kokkos::parallel_for(copy_metadata_label, Kokkos::RangePolicy<>(0, shift_dupl_vec.size()), KOKKOS_LAMBDA(const uint32_t i) {
+  Kokkos::parallel_for(copy_metadata_label, Kokkos::RangePolicy<>(0, shift_dupl_vec.size()), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
     uint32_t node = shift_dupl_vec(i);
     NodeID prev = first_ocur_d.value_at(first_ocur_d.find(tree(shift_dupl_vec(i))));
     memcpy(buffer_d.data()+sizeof(header_t)+prior_start+static_cast<uint64_t>(i)*2*sizeof(uint32_t), &node, sizeof(uint32_t));
@@ -800,7 +800,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Setup");
 Kokkos::Profiling::popRegion();
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart distinct");
     // Calculate sizes of each distinct region
-    Kokkos::parallel_for("Tree:Main:Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, first_ocur_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
       uint32_t len = num_leaf_descendents(node, num_nodes);
@@ -809,7 +809,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
     });
 
     // Perform exclusive prefix scan to determine where to write chunks for each region
-    Kokkos::parallel_scan("Tree:Main:Calc offsets", num_first_ocur, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+    Kokkos::parallel_scan("Tree:Main:Calc offsets", num_first_ocur, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       const uint32_t len = chunk_len(i);
       if(is_final) chunk_len(i) = partial_sum;
       partial_sum += len;
@@ -822,7 +822,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
 STDOUT_PRINT("Calculated offsets\n");
 
     // Restart distinct entries by reading and inserting full tree into distinct map
-    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
       const uint32_t i = team_member.league_rank();
       uint32_t node = distinct_nodes(i);
       if(team_member.team_rank() == 0)
@@ -869,7 +869,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
     auto repeat_region_sizes_h = Kokkos::create_mirror_view(repeat_region_sizes);
     Kokkos::deep_copy(repeat_region_sizes, 0);
     // Read map of repeats for each checkpoint
-    Kokkos::parallel_for("Tree:Main:Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t chkpt;
       memcpy(&chkpt, dupl_count_subview.data()+static_cast<uint64_t>(i)*2*sizeof(uint32_t), sizeof(uint32_t));
       memcpy(&repeat_region_sizes(chkpt), dupl_count_subview.data()+static_cast<uint64_t>(i)*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
@@ -877,14 +877,14 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Restart 
     });
     Kokkos::deep_copy(repeat_region_sizes_h, repeat_region_sizes);
     // Perform exclusive scan to determine where regions start/stop
-    Kokkos::parallel_scan("Tree:Main:Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+    Kokkos::parallel_scan("Tree:Main:Repeat offsets", cur_id+1, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       partial_sum += repeat_region_sizes(i);
       if(is_final) repeat_region_sizes(i) = partial_sum;
     });
 
     STDOUT_PRINT("Num repeats: %u\n", num_shift_dupl);
     // Load repeat entries and fill in metadata for chunks
-    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::TeamPolicy<>(num_shift_dupl, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::TeamPolicy<>(num_shift_dupl, Kokkos::AUTO()), KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
       uint32_t i = team_member.league_rank();
       uint32_t node=0, prev=0, tree=0;
       size_t offset = 0;
@@ -929,7 +929,7 @@ DEBUG_PRINT("Chkpt %u: total region size: %u\n", cur_id, total_region_size_h(0))
 Kokkos::Profiling::popRegion();
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(chkpt_idx)+" Fill repeats");
     // All remaining entries are identical 
-    Kokkos::parallel_for("Tree:Main:Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       NodeID entry = node_list(i);
       if(entry.node == UINT_MAX) {
         node_list(i) = NodeID(i+num_chunks-1, cur_id-1);
@@ -1002,19 +1002,19 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
       Kokkos::resize(chunk_len, num_first_ocur);
       Kokkos::Profiling::popRegion();
       Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(idx)+" Load maps");
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         uint32_t node;
         memcpy(&node, first_ocur_subview.data()+static_cast<uint64_t>(i)*sizeof(uint32_t), sizeof(uint32_t));
         uint32_t len = num_leaf_descendents(node, num_nodes);
         distinct_nodes(i) = node;
         chunk_len(i) = len;
       });
-      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Calc offsets", num_first_ocur, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Calc offsets", num_first_ocur, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
         const uint32_t len = chunk_len(i);
         if(is_final) chunk_len(i) = partial_sum;
         partial_sum += len;
       });
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hashtree distinct", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hashtree distinct", Kokkos::TeamPolicy<>(num_first_ocur, Kokkos::AUTO()), KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
         uint32_t i = team_member.league_rank();
         uint32_t node = distinct_nodes(i);
         uint64_t offset = static_cast<uint64_t>(chunk_len(i)) * static_cast<uint64_t>(chunk_size);
@@ -1041,13 +1041,13 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
       });
   
       Kokkos::View<uint32_t*> repeat_region_sizes("Repeat entires per chkpt", cur_id+1);
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         uint32_t chkpt;
         memcpy(&chkpt, dupl_count_subview.data()+static_cast<uint64_t>(i)*2*sizeof(uint32_t), sizeof(uint32_t));
         memcpy(&repeat_region_sizes(chkpt), dupl_count_subview.data()+static_cast<uint64_t>(i)*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
         DEBUG_PRINT("Chkpt: %u, region size: %u\n", chkpt, repeat_region_sizes(chkpt));
       });
-      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Repeat offsets", cur_id+1, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
         partial_sum += repeat_region_sizes(i);
         if(is_final) repeat_region_sizes(i) = partial_sum;
       });
@@ -1055,7 +1055,7 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
       DEBUG_PRINT("Num repeats: %u\n", num_shift_dupl);
   
       Kokkos::TeamPolicy<> repeat_policy(num_shift_dupl, Kokkos::AUTO);
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hash tree repeats middle chkpts", repeat_policy, KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hash tree repeats middle chkpts", repeat_policy, KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
         uint32_t i = team_member.league_rank();
         uint32_t node, prev, tree=0;
         memcpy(&node, shift_dupl_subview.data()+static_cast<uint64_t>(i)*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
@@ -1080,7 +1080,7 @@ DEBUG_PRINT("Start: %u, end: %u\n", chkpt_idx-1, ref_id);
       Kokkos::Profiling::popRegion();
       Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(idx)+" Fill chunks");
 
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Fill data middle chkpts", Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO()), KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Fill data middle chkpts", Kokkos::TeamPolicy<>(num_chunks, Kokkos::AUTO()), KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
         uint32_t i = team_member.league_rank();
         if(node_list(i).tree == cur_id) {
           NodeID id = node_list(i);
@@ -1241,7 +1241,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Setup");
 Kokkos::Profiling::popRegion();
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Restart distinct");
     // Calculate sizes of each distinct region
-    Kokkos::parallel_for("Tree:Main:Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node;
       memcpy(&node, first_ocur_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
       uint32_t len = num_leaf_descendents(node, num_nodes);
@@ -1249,7 +1249,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Restart d
       chunk_len(i) = len;
     });
     // Perform exclusive prefix scan to determine where to write chunks for each region
-    Kokkos::parallel_scan("Tree:Main:Calc offsets", num_first_ocur, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+    Kokkos::parallel_scan("Tree:Main:Calc offsets", num_first_ocur, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       const uint32_t len = chunk_len(i);
       if(is_final) chunk_len(i) = partial_sum;
       partial_sum += len;
@@ -1260,7 +1260,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Restart d
     Kokkos::deep_copy(total_region_size, 0);
 
     // Restart distinct entries by reading and inserting full tree into distinct map
-    Kokkos::parallel_for("Tree:Main:Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node = distinct_nodes(i);
       distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
       uint32_t start = leftmost_leaf(node, num_nodes);
@@ -1297,7 +1297,7 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Restart r
     auto repeat_region_sizes_h = Kokkos::create_mirror_view(repeat_region_sizes);
     Kokkos::deep_copy(repeat_region_sizes, 0);
     // Read map of repeats for each checkpoint
-    Kokkos::parallel_for("Tree:Main:Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t chkpt;
       memcpy(&chkpt, dupl_count_subview.data()+i*2*sizeof(uint32_t), sizeof(uint32_t));
       memcpy(&repeat_region_sizes(chkpt), dupl_count_subview.data()+i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
@@ -1305,14 +1305,14 @@ Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Restart r
     });
     Kokkos::deep_copy(repeat_region_sizes_h, repeat_region_sizes);
     // Perform exclusive scan to determine where regions start/stop
-    Kokkos::parallel_scan("Tree:Main:Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+    Kokkos::parallel_scan("Tree:Main:Repeat offsets", cur_id+1, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
       partial_sum += repeat_region_sizes(i);
       if(is_final) repeat_region_sizes(i) = partial_sum;
     });
 
     DEBUG_PRINT("Num repeats: %u\n", num_shift_dupl);
     // Load repeat entries and fill in metadata for chunks
-    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::RangePolicy<>(0, num_shift_dupl), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Restart Hash tree repeats main checkpoint", Kokkos::RangePolicy<>(0, num_shift_dupl), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       uint32_t node;
       uint32_t prev;
       uint32_t tree = 0;
@@ -1345,7 +1345,7 @@ DEBUG_PRINT("Chkpt %u: total region size: %u\n", cur_id, total_region_size_h(0))
 Kokkos::Profiling::popRegion();
 Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(file_idx)+" Fill repeats");
     // All remaining entries are identical 
-    Kokkos::parallel_for("Tree:Main:Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+    Kokkos::parallel_for("Tree:Main:Fill same entries", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
       NodeID entry = node_list(i);
       if(entry.node == UINT_MAX) {
         node_list(i) = NodeID(i+num_chunks-1, cur_id-1);
@@ -1421,19 +1421,19 @@ Kokkos::Profiling::popRegion();
       Kokkos::resize(chunk_len, num_first_ocur);
       Kokkos::Profiling::popRegion();
       Kokkos::Profiling::pushRegion("Checkpoint "+std::to_string(idx)+" Load maps");
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Calculate num chunks", Kokkos::RangePolicy<>(0, num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         uint32_t node;
         memcpy(&node, first_ocur_subview.data()+i*sizeof(uint32_t), sizeof(uint32_t));
         uint32_t len = num_leaf_descendents(node, num_nodes);
         distinct_nodes(i) = node;
         chunk_len(i) = len;
       });
-      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Calc offsets", num_first_ocur, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Calc offsets", num_first_ocur, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
         const uint32_t len = chunk_len(i);
         if(is_final) chunk_len(i) = partial_sum;
         partial_sum += len;
       });
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_first_ocur), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hashtree distinct", Kokkos::RangePolicy<>(0,num_first_ocur), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         uint32_t node = distinct_nodes(i);
         distinct_map.insert(NodeID(node, cur_id), chunk_len(i)*chunk_size);
         uint32_t start = leftmost_leaf(node, num_nodes);
@@ -1454,13 +1454,13 @@ Kokkos::Profiling::popRegion();
       });
   
       Kokkos::View<uint32_t*> repeat_region_sizes("Repeat entires per chkpt", cur_id+1);
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Load repeat map", Kokkos::RangePolicy<>(0,num_prior_chkpts), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         uint32_t chkpt;
         memcpy(&chkpt, dupl_count_subview.data()+i*2*sizeof(uint32_t), sizeof(uint32_t));
         memcpy(&repeat_region_sizes(chkpt), dupl_count_subview.data()+i*2*sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint32_t));
         DEBUG_PRINT("Chkpt: %u, region size: %u\n", chkpt, repeat_region_sizes(chkpt));
       });
-      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Repeat offsets", cur_id+1, KOKKOS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
+      Kokkos::parallel_scan("Tree:"+std::to_string(idx)+":Repeat offsets", cur_id+1, KOKKOS_CLASS_LAMBDA(const uint32_t i, uint32_t& partial_sum, bool is_final) {
         partial_sum += repeat_region_sizes(i);
         if(is_final) repeat_region_sizes(i) = partial_sum;
       });
@@ -1469,7 +1469,7 @@ Kokkos::Profiling::popRegion();
   
       Kokkos::TeamPolicy<> repeat_policy(num_shift_dupl, Kokkos::AUTO);
       Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Restart Hash tree repeats middle chkpts", repeat_policy, 
-                           KOKKOS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
+                           KOKKOS_CLASS_LAMBDA(const Kokkos::TeamPolicy<>::member_type& team_member) {
         uint32_t i = team_member.league_rank();
         uint32_t node, prev, tree=0;
         memcpy(&node, shift_dupl_subview.data()+i*(sizeof(uint32_t)+sizeof(uint32_t)), sizeof(uint32_t));
@@ -1507,7 +1507,7 @@ Kokkos::deep_copy(total_region_size, 0);
 Kokkos::View<uint32_t[1]> curr_chunks("Num identical entries in current checkpoint");
 Kokkos::View<uint32_t[1]>::HostMirror curr_chunks_h = Kokkos::create_mirror_view(curr_chunks);
 Kokkos::deep_copy(curr_chunks, 0);
-      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Fill data middle chkpts", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_LAMBDA(const uint32_t i) {
+      Kokkos::parallel_for("Tree:"+std::to_string(idx)+":Fill data middle chkpts", Kokkos::RangePolicy<>(0, num_chunks), KOKKOS_CLASS_LAMBDA(const uint32_t i) {
         if(node_list(i).tree == current_id) {
 Kokkos::atomic_add(&curr_chunks(0), 1);
           NodeID id = node_list(i);

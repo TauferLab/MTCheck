@@ -286,7 +286,7 @@ namespace kokkos_md5 {
 
   KOKKOS_FORCEINLINE_FUNCTION
   void hash(const void* data, uint64_t len, uint8_t* digest) {
-    #ifdef __CUDA_ARCH__
+//    #ifdef __CUDA_ARCH__
       md5_context md5_ctx;
       md5_starts(&md5_ctx);
       md5_ctx.state[0] ^= 0;
@@ -303,23 +303,23 @@ namespace kokkos_md5 {
         md5_update( &md5_ctx, (uint8_t*)(data), static_cast<int32_t>(len));
       }
       md5_finish( &md5_ctx, digest);
-    #else
-      MD5_CTX ctx;
-      MD5_Init(&ctx);
-      if(len > static_cast<uint64_t>(INT_MAX)) {
-        int chunk_size = 128;
-        uint64_t max = len / static_cast<uint64_t>(chunk_size);
-        for(uint64_t i=0; i<max; i++) {
-          int num_bytes = chunk_size;
-          if(i == max-1)
-            num_bytes = len % 128;
-          MD5_Update(&ctx, (uint8_t*)(data)+static_cast<uint64_t>(i)*128, num_bytes);
-        }
-      } else {
-        MD5_Update(&ctx, data, static_cast<int32_t>(len));
-      }
-      MD5_Final(digest, &ctx);
-    #endif
+//    #else
+//      MD5_CTX ctx;
+//      MD5_Init(&ctx);
+//      if(len > static_cast<uint64_t>(INT_MAX)) {
+//        int chunk_size = 128;
+//        uint64_t max = len / static_cast<uint64_t>(chunk_size);
+//        for(uint64_t i=0; i<max; i++) {
+//          int num_bytes = chunk_size;
+//          if(i == max-1)
+//            num_bytes = len % 128;
+//          MD5_Update(&ctx, (uint8_t*)(data)+static_cast<uint64_t>(i)*128, num_bytes);
+//        }
+//      } else {
+//        MD5_Update(&ctx, data, static_cast<int32_t>(len));
+//      }
+//      MD5_Final(digest, &ctx);
+//    #endif
   }
 }
 
